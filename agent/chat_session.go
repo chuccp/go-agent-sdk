@@ -20,9 +20,10 @@ type chatSession struct {
 	provider           string
 	queues             []*util.Queue[bool]
 	toolExecutors      map[string]ToolExecutor
+	system             string
 }
 
-func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor) *chatSession {
+func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string) *chatSession {
 	return &chatSession{
 		id:                 id,
 		unifiedChatService: unifiedChatService,
@@ -32,6 +33,7 @@ func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, tool
 		isRun:              false,
 		queues:             make([]*util.Queue[bool], 0),
 		toolExecutors:      toolExecutors,
+		system:             system,
 	}
 }
 
@@ -89,6 +91,7 @@ func (s *chatSession) build() *chat.Messages {
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, len(s.history)),
 		Stream:   true,
+		System:   s.system,
 	}
 	copy(messages.Messages, s.history)
 

@@ -12,6 +12,7 @@ type ChatManager struct {
 	lock               *sync.RWMutex
 	unifiedChatService *chat.UnifiedChatService
 	toolExecutors      map[string]ToolExecutor
+	system             string
 }
 
 func NewChatManager() *ChatManager {
@@ -28,7 +29,9 @@ func (m *ChatManager) AddTool(exec ToolExecutor) {
 	defer m.lock.Unlock()
 	m.toolExecutors[exec.Definition().Name] = exec
 }
-
+func (m *ChatManager) System(system string) {
+	m.system = system
+}
 func (m *ChatManager) RegisterLLM(provider string, chatService chat.IChatService, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -47,7 +50,7 @@ func (m *ChatManager) GetChat(id string) *ChatClient {
 	if c, ok = m.chats[id]; ok {
 		return c.newClient()
 	}
-	session := newChatSession(id, m.unifiedChatService, m.toolExecutors)
+	session := newChatSession(id, m.unifiedChatService, m.toolExecutors, m.system)
 	m.chats[id] = session
 	return session.newClient()
 }
