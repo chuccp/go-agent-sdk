@@ -13,14 +13,20 @@ type ChatManager struct {
 	unifiedChatService *chat.UnifiedChatService
 	toolExecutors      map[string]ToolExecutor
 	system             string
+	opts               *Options
 }
 
-func NewChatManager() *ChatManager {
+func NewChatManager(opt ...Option) *ChatManager {
+	opts := defaultOptions()
+	for _, o := range opt {
+		o(opts)
+	}
 	return &ChatManager{
 		chats:              make(map[string]*chatSession),
 		lock:               new(sync.RWMutex),
 		unifiedChatService: chat.NewUnifiedChatService(),
 		toolExecutors:      make(map[string]ToolExecutor),
+		opts:               opts,
 	}
 }
 
@@ -50,7 +56,7 @@ func (m *ChatManager) GetChat(id string) *ChatClient {
 	if c, ok = m.chats[id]; ok {
 		return c.newClient()
 	}
-	session := newChatSession(id, m.unifiedChatService, m.toolExecutors, m.system)
+	session := newChatSession(id, m.unifiedChatService, m.toolExecutors, m.system, m.opts)
 	m.chats[id] = session
 	return session.newClient()
 }

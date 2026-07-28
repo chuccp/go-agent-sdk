@@ -21,9 +21,10 @@ type chatSession struct {
 	queues             []*util.Queue[bool]
 	toolExecutors      map[string]ToolExecutor
 	system             string
+	opts               *Options
 }
 
-func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string) *chatSession {
+func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string, opts *Options) *chatSession {
 	return &chatSession{
 		id:                 id,
 		unifiedChatService: unifiedChatService,
@@ -34,6 +35,7 @@ func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, tool
 		queues:             make([]*util.Queue[bool], 0),
 		toolExecutors:      toolExecutors,
 		system:             system,
+		opts:               opts,
 	}
 }
 
@@ -90,8 +92,18 @@ func (s *chatSession) build() *chat.Messages {
 
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, len(s.history)),
-		Stream:   true,
 		System:   s.system,
+	}
+	if s.opts != nil {
+		messages.Model = s.opts.Model
+		messages.MaxTokens = s.opts.MaxTokens
+		messages.Temperature = s.opts.Temperature
+		messages.TopP = s.opts.TopP
+		messages.TopK = s.opts.TopK
+		messages.StopSequences = s.opts.StopSequences
+		messages.Stream = s.opts.Stream
+	} else {
+		messages.Stream = true
 	}
 	copy(messages.Messages, s.history)
 
