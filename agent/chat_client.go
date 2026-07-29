@@ -8,9 +8,12 @@ import (
 )
 
 const (
-	EventTypeChunk = "chunk"
-	EventTypeError = "error"
-	EventTypeDone  = "done"
+	EventTypeChunk           = "chunk"
+	EventTypeError           = "error"
+	EventTypeDone            = "done"
+	EventTypeMessageSent     = "message_sent"     // 消息已被立即处理，发送者可直接显示在对话列表
+	EventTypeMessageQueued   = "message_queued"   // 消息进入等待队列，发送者应标记为待处理
+	EventTypeMessageConsumed = "message_consumed" // 队列中的消息已被消费，发送者应将其显示在对话框
 )
 
 type Event struct {
@@ -18,6 +21,7 @@ type Event struct {
 	Content        string `json:"content,omitempty"`
 	Done           bool   `json:"done,omitempty"`
 	Message        string `json:"message,omitempty"`
+	MessageID      uint   `json:"message_id,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 }
 

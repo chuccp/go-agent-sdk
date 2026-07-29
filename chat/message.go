@@ -30,14 +30,14 @@ const (
 // ContentBlock 是 message.content 数组中的一个元素。
 // 每种类型只使用对应的字段，其余为零值（不序列化）。
 type ContentBlock struct {
-	Type     ContentType `json:"type"`                  // "text" | "image" | "tool_use" | "tool_result"
-	Text     string      `json:"text,omitempty"`        // text 类型：文本内容
-	Input    any         `json:"input,omitempty"`       // tool_use 类型：工具入参（解析后的对象）
-	ID       string      `json:"id,omitempty"`          // tool_use 类型：调用 ID；tool_result 类型：对应的 tool_use ID
-	Name     string      `json:"name,omitempty"`        // tool_use 类型：工具名称
-	Thinking string      `json:"thinking"`              // DeepSeek 兼容：assistant content block 必须带此字段
-	ToolUseID string     `json:"tool_use_id,omitempty"` // tool_result 类型：对应的 tool_use block 的 ID
-	Content  any         `json:"content,omitempty"`     // tool_result 类型：结果内容（string 或 []ContentBlock）
+	Type      ContentType `json:"type"`                  // "text" | "image" | "tool_use" | "tool_result"
+	Text      string      `json:"text,omitempty"`        // text 类型：文本内容
+	Input     any         `json:"input,omitempty"`       // tool_use 类型：工具入参（解析后的对象）
+	ID        string      `json:"id,omitempty"`          // tool_use 类型：调用 ID；tool_result 类型：对应的 tool_use ID
+	Name      string      `json:"name,omitempty"`        // tool_use 类型：工具名称
+	Thinking  string      `json:"thinking"`              // DeepSeek 兼容：assistant content block 必须带此字段
+	ToolUseID string      `json:"tool_use_id,omitempty"` // tool_result 类型：对应的 tool_use block 的 ID
+	Content   any         `json:"content,omitempty"`     // tool_result 类型：结果内容（string 或 []ContentBlock）
 
 	// image 类型字段
 	Source *ImageSource `json:"source,omitempty"`
@@ -63,8 +63,9 @@ const (
 // Message 是 messages 数组中的一条消息。
 // Content 为 block 数组（与 API 一致）；为兼容纯文本场景，Text 字段在内部可转换为单 text block。
 type Message struct {
-	Role    Role           `json:"role"`    // "user" | "assistant"
-	Content []ContentBlock `json:"content"` // content block 数组
+	MessageID uint           `json:"message_id"`
+	Role      Role           `json:"role"`    // "user" | "assistant"
+	Content   []ContentBlock `json:"content"` // content block 数组
 }
 
 // Text 便捷构造：生成一条纯文本 user 消息。
@@ -190,7 +191,7 @@ type ErrorEvent struct {
 	Err error
 }
 
-func (e *ErrorEvent) Type() string { return EventTypeError }
+func (e *ErrorEvent) Type() string  { return EventTypeError }
 func (e *ErrorEvent) Error() string { return e.Err.Error() }
 
 // -------- Response --------
