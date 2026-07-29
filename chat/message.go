@@ -212,6 +212,11 @@ func (r *Response) Write(event Event) error {
 	return r.events.Offer(event)
 }
 
+// Close 关闭事件队列，ReadEvent 将在消费完剩余事件后返回 nil。
+func (r *Response) Close() {
+	r.events.Close()
+}
+
 func (r *Response) ReadEvent() Event {
 	if r.closed || r.events == nil {
 		return nil
