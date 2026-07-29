@@ -204,12 +204,16 @@ type Response struct {
 	closed bool
 }
 
-// NewResponse 创建一个流式 Response。传入的 channel 由调用方负责关闭。
+// NewResponse 创建一个流式 Response。生产方通过 Write 写入事件，完成后调用 Close。
 func NewResponse() *Response {
 	return &Response{events: util.NewQueue[Event]()}
 }
 func (r *Response) Write(event Event) error {
 	return r.events.Offer(event)
+}
+func (r *Response) WriteError(err error) {
+	r.events.Offer(&ErrorEvent{Err: err})
+	r.events.Close()
 }
 
 // Close 关闭事件队列，ReadEvent 将在消费完剩余事件后返回 nil。

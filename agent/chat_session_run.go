@@ -86,11 +86,7 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			switch e.Delta.Type {
 			case "text_delta":
 				collector.appendText(e.Delta.Text)
-				s.addEvent(&Event{
-					Type:           EventTypeChunk,
-					Content:        e.Delta.Text,
-					ConversationID: s.id,
-				})
+				s.addEvent(NewChunkEvent(e.Delta.Text, s.id))
 			case "input_json_delta":
 				collector.appendJSON(e.Delta.PartialJSON)
 			}
@@ -134,11 +130,7 @@ func (s *chatSession) executeTools(blocks []chat.ContentBlock) []chat.ContentBlo
 		args, _ := block.Input.(map[string]any)
 		output, execErr := exec.Execute(args)
 
-		s.addEvent(&Event{
-			Type:           EventTypeChunk,
-			Content:        fmt.Sprintf("\n🔧 执行命令: %v\n%s\n", args, output),
-			ConversationID: s.id,
-		})
+		s.addEvent(NewChunkEvent(fmt.Sprintf("\n🔧 执行命令: %v\n%s\n", args, output), s.id))
 
 		resultText := output
 		if execErr != nil {

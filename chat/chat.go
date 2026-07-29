@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
 type LLMOptions struct {
@@ -11,7 +13,7 @@ type LLMOptions struct {
 }
 
 type IChatService interface {
-	ChatWithStream(ctx context.Context, chatMessages *Messages) (*Response, error)
+	ChatWithStream(ctx context.Context, chatMessages *Messages, response *Response) error
 }
 
 type UnifiedChatService struct {
@@ -43,7 +45,14 @@ func (service *UnifiedChatService) ChatWithStream(ctx context.Context, provider 
 	if chatService == nil {
 		return nil, errors.New("no such provider: " + provider)
 	}
-	return chatService.ChatWithStream(ctx, chatMessages)
+	response := NewResponse()
+	util.Go(func() {
+		err := chatService.ChatWithStream(ctx, chatMessages, response)
+		if err != nil {
+			response.WriteError(err)
+		}
+	})
+	return response, nil
 }
 func (service *UnifiedChatService) Register(provider string, chatService IChatService, isDefault bool) {
 	service.rLock.Lock()
