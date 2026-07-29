@@ -200,25 +200,18 @@ func (e *ErrorEvent) Error() string { return e.Err.Error() }
 // 调用方通过循环调用 ReadEvent() 消费事件，nil 表示流结束。
 type Response struct {
 	events *util.Queue[Event]
+
 	closed bool
 }
 
 // NewResponse 创建一个流式 Response。传入的 channel 由调用方负责关闭。
-func NewResponse(events *util.Queue[Event]) *Response {
-	return &Response{events: events}
+func NewResponse() *Response {
+	return &Response{events: util.NewQueue[Event]()}
+}
+func (r *Response) Write(event Event) error {
+	return r.events.Offer(event)
 }
 
-// ReadEvent 从流中读取下一个事件。若流已结束或已关闭则返回 nil。
-// 调用方应在循环中使用，直到收到 nil：
-//
-//	for evt := resp.ReadEvent(); evt != nil; evt = resp.ReadEvent() {
-//	    switch e := evt.(type) {
-//	    case *ContentBlockDeltaEvent:
-//	        fmt.Print(e.Delta.Text)
-//	    case *MessageStopEvent:
-//	        // 流结束
-//	    }
-//	}
 func (r *Response) ReadEvent() Event {
 	if r.closed || r.events == nil {
 		return nil
