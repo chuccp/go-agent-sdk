@@ -13,7 +13,7 @@ type LLMOptions struct {
 }
 
 type IChatService interface {
-	ChatWithStream(ctx context.Context, chatMessages *Messages, response *Response) error
+	ChatWithStream(ctx context.Context, chatMessages *Messages, response StreamWriter) error
 }
 
 type UnifiedChatService struct {

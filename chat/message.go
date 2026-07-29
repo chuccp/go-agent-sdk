@@ -196,6 +196,14 @@ func (e *ErrorEvent) Error() string { return e.Err.Error() }
 
 // -------- Response --------
 
+// StreamWriter 是流式事件的生产方接口（类似 http.ResponseWriter）。
+// IChatService 实现方通过此接口写入事件，无需关心底层队列细节。
+type StreamWriter interface {
+	Write(event Event) error
+	WriteError(err error)
+	Close()
+}
+
 // Response 是 ChatWithStream 返回的流式响应体。
 // 调用方通过循环调用 ReadEvent() 消费事件，nil 表示流结束。
 type Response struct {
