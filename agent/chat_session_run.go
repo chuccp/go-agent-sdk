@@ -102,7 +102,7 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			stopReason = e.StopReason
 
 		case *chat.ErrorEvent:
-			s.addEvent(&Event{Type: EventTypeError, Message: e.Error(), Done: true})
+			evt := NewErrorEvent(e.Error()); evt.Done = true; s.addEvent(evt)
 			return collector.take(), stopReason, e.Err
 
 		case *chat.MessageStopEvent:
@@ -198,7 +198,7 @@ func (s *chatSession) run(ctx context.Context) {
 		}
 		resp, err := s.unifiedChatService.ChatWithStream(ctx, provider, messages)
 		if err != nil {
-			s.addEvent(&Event{Type: EventTypeError, Message: err.Error(), Done: true})
+			evt := NewErrorEvent(err.Error()); evt.Done = true; s.addEvent(evt)
 			return
 		}
 
@@ -227,7 +227,7 @@ func (s *chatSession) run(ctx context.Context) {
 				Role:    chat.RoleAssistant,
 				Content: textBlocks(blocks),
 			})
-			s.addEvent(&Event{Type: EventTypeDone, Done: true, ConversationID: s.id})
+			s.addEvent(NewDoneEvent(s.id))
 			return
 		}
 	}

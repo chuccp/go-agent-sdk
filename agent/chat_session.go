@@ -87,7 +87,7 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 			s.run(ctx)
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
-			s.addEvent(&Event{Type: EventTypeError, Message: "internal error", Done: true})
+			evt := NewErrorEvent("internal error"); evt.Done = true; s.addEvent(evt)
 		})
 	}
 	s.mu.Unlock()
@@ -95,10 +95,10 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(&Event{Type: EventTypeMessageSent, MessageID: message.MessageID, ConversationID: s.id})
+		s.addEvent(NewMessageSentEvent(message.MessageID, s.id))
 	} else {
 		// 消息没有立马发出，通知发送者将消息标记为队列待处理
-		s.addEvent(&Event{Type: EventTypeMessageQueued, MessageID: message.MessageID, ConversationID: s.id})
+		s.addEvent(NewMessageQueuedEvent(message.MessageID, s.id))
 	}
 	return nil
 }
@@ -111,7 +111,7 @@ func (s *chatSession) build() *chat.Messages {
 			break
 		}
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(&Event{Type: EventTypeMessageConsumed, MessageID: msg.MessageID, ConversationID: s.id})
+		s.addEvent(NewMessageConsumedEvent(msg.MessageID, s.id))
 		s.history = append(s.history, *msg)
 	}
 

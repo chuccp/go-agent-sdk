@@ -25,6 +25,36 @@ type Event struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 }
 
+// NewErrorEvent 创建一个错误事件
+func NewErrorEvent(message string) *Event {
+	return &Event{Type: EventTypeError, Message: message}
+}
+
+// NewChunkEvent 创建一个流式文本片段事件
+func NewChunkEvent(content, conversationID string) *Event {
+	return &Event{Type: EventTypeChunk, Content: content, ConversationID: conversationID}
+}
+
+// NewDoneEvent 创建一个流结束事件
+func NewDoneEvent(conversationID string) *Event {
+	return &Event{Type: EventTypeDone, Done: true, ConversationID: conversationID}
+}
+
+// NewMessageSentEvent 创建一个消息已被立即处理事件
+func NewMessageSentEvent(messageID uint, conversationID string) *Event {
+	return &Event{Type: EventTypeMessageSent, MessageID: messageID, ConversationID: conversationID}
+}
+
+// NewMessageQueuedEvent 创建一个消息进入等待队列事件
+func NewMessageQueuedEvent(messageID uint, conversationID string) *Event {
+	return &Event{Type: EventTypeMessageQueued, MessageID: messageID, ConversationID: conversationID}
+}
+
+// NewMessageConsumedEvent 创建一个队列消息已被消费事件
+func NewMessageConsumedEvent(messageID uint, conversationID string) *Event {
+	return &Event{Type: EventTypeMessageConsumed, MessageID: messageID, ConversationID: conversationID}
+}
+
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
 	SendMessage(message *chat.Message) error
