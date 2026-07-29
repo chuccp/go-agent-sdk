@@ -1,5 +1,7 @@
 package chat
 
+import "github.com/chuccp/go-agent-sdk/util"
+
 // 下列类型按 Anthropic Messages API (https://docs.anthropic.com/en/api/messages) 标准定义，
 // 用于构造发给模型的请求。字段/JSON 键与官方 schema 一一对应，便于序列化后直接 POST。
 
@@ -196,12 +198,12 @@ func (e *ErrorEvent) Error() string { return e.Err.Error() }
 // Response 是 ChatWithStream 返回的流式响应体。
 // 调用方通过循环调用 ReadEvent() 消费事件，nil 表示流结束。
 type Response struct {
-	events <-chan Event
+	events *util.Queue[Event]
 	closed bool
 }
 
 // NewResponse 创建一个流式 Response。传入的 channel 由调用方负责关闭。
-func NewResponse(events <-chan Event) *Response {
+func NewResponse(events *util.Queue[Event]) *Response {
 	return &Response{events: events}
 }
 
@@ -220,7 +222,7 @@ func (r *Response) ReadEvent() Event {
 	if r.closed || r.events == nil {
 		return nil
 	}
-	evt, ok := <-r.events
+	evt, ok := r.events.Dequeue()
 	if !ok {
 		r.closed = true
 		return nil

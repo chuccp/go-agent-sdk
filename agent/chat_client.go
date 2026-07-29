@@ -26,6 +26,7 @@ type ChatHandler interface {
 	SendMessage(message *chat.Message) error
 	ReadEvent(start uint) *EventEntry
 	DeleteClient(client *ChatClient)
+	Stop()
 }
 
 // ChatClient 面向调用方的客户端句柄
@@ -51,6 +52,9 @@ func (c *ChatClient) ReadEvent() *Event {
 	}
 	c.offset = c.offset + entry.Offset
 	return entry.Event
+}
+func (c *ChatClient) Stop() {
+	c.handler.Stop()
 }
 
 func (c *ChatClient) Close() {

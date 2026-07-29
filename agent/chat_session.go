@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"log"
 	"sync"
 
@@ -22,6 +23,7 @@ type chatSession struct {
 	toolExecutors      map[string]ToolExecutor
 	system             string
 	opts               *Options
+	cancel             context.CancelFunc
 }
 
 func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string, opts *Options) *chatSession {
@@ -69,8 +71,10 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 	}
 	s.mu.Lock()
 	if !s.isRun {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.cancel = cancel
 		s.isRun = true
-		go s.run()
+		go s.run(ctx)
 	}
 	s.mu.Unlock()
 	return nil

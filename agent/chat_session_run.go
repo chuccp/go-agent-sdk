@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -163,25 +164,39 @@ func textBlocks(blocks []chat.ContentBlock) []chat.ContentBlock {
 	return result
 }
 
-func (s *chatSession) run() {
+func (s *chatSession) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.isRun {
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}
+}
+
+func (s *chatSession) run(ctx context.Context) {
 	defer func() {
 		s.mu.Lock()
 		s.isRun = false
+		s.cancel = nil
 		s.mu.Unlock()
 	}()
-
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+
+		}
 		messages := s.build()
 		if messages == nil {
 			return
 		}
-
 		provider := s.provider
 		if provider == "" {
 			provider = s.unifiedChatService.DefaultProvider()
 		}
-
-		resp, err := s.unifiedChatService.ChatWithStream(provider, messages)
+		resp, err := s.unifiedChatService.ChatWithStream(ctx, provider, messages)
 		if err != nil {
 			s.addEvent(&Event{Type: EventTypeError, Message: err.Error(), Done: true})
 			return
