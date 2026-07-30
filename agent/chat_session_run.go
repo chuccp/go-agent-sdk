@@ -55,6 +55,13 @@ func (c *blockCollector) appendText(text string) {
 	}
 }
 
+// appendThinking 向当前 block 追加思考链增量。
+func (c *blockCollector) appendThinking(thinking string) {
+	if c.current != nil {
+		c.current.block.Thinking += thinking
+	}
+}
+
 // appendJSON 向当前 block 追加 input_json_delta 片段。
 func (c *blockCollector) appendJSON(fragment string) {
 	if c.current != nil {
@@ -87,6 +94,9 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			case "text_delta":
 				collector.appendText(e.Delta.Text)
 				s.addEvent(chat.NewChunkEvent(e.Delta.Text, s.id))
+			case "thinking_delta":
+				collector.appendThinking(e.Delta.Thinking)
+				s.addEvent(chat.NewThinkingEvent(e.Delta.Thinking, s.id))
 			case "input_json_delta":
 				collector.appendJSON(e.Delta.PartialJSON)
 			}
@@ -147,11 +157,14 @@ func (s *chatSession) executeTools(blocks []chat.ContentBlock) []chat.ContentBlo
 	return toolResults
 }
 
-// textBlocks 从 blocks 中提取纯文本类型的 block。
-func textBlocks(blocks []chat.ContentBlock) []chat.ContentBlock {
+// assistantBlocks 从 blocks 中提取需要保留到历史的 block（text + thinking）。
+func assistantBlocks(blocks []chat.ContentBlock) []chat.ContentBlock {
 	result := make([]chat.ContentBlock, 0, len(blocks))
 	for _, block := range blocks {
-		if block.Type == chat.ContentTypeText && block.Text != "" {
+		switch {
+		case block.Type == chat.ContentTypeText && block.Text != "":
+			result = append(result, block)
+		case block.Type == chat.ContentTypeThinking && block.Thinking != "":
 			result = append(result, block)
 		}
 	}
@@ -221,7 +234,7 @@ func (s *chatSession) run(ctx context.Context) {
 		default: // end_turn
 			s.history = append(s.history, chat.Message{
 				Role:    chat.RoleAssistant,
-				Content: textBlocks(blocks),
+				Content: assistantBlocks(blocks),
 			})
 			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveHistory()

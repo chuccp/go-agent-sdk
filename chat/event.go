@@ -34,6 +34,7 @@ const (
 // 客户端推送事件
 const (
 	EventTypeChunk           = "chunk"
+	EventTypeThinking        = "thinking"        // AI 思考链增量
 	EventTypeDone            = "done"
 	EventTypeToolExecution   = "tool_execution"   // 工具正在执行，携带工具名称和输出
 	EventTypeMessageSent     = "message_sent"     // 消息已被立即处理，发送者可直接显示在对话列表
@@ -75,8 +76,9 @@ func (e *ContentBlockDeltaEvent) Source() string { return SourceAI }
 
 // ContentDelta 是一次增量更新的内容。
 type ContentDelta struct {
-	Type        string `json:"type"`         // "text_delta" | "input_json_delta"
+	Type        string `json:"type"`         // "text_delta" | "thinking_delta" | "input_json_delta"
 	Text        string `json:"text"`         // text_delta 时的文本增量
+	Thinking    string `json:"thinking"`     // thinking_delta 时的思考链增量
 	PartialJSON string `json:"partial_json"` // input_json_delta 时的 JSON 片段
 }
 
@@ -146,6 +148,11 @@ func NewErrorEvent(message string) *ClientEvent {
 // NewChunkEvent 创建一个流式文本片段事件
 func NewChunkEvent(content, conversationID string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content, ConversationID: conversationID}
+}
+
+// NewThinkingEvent 创建一个 AI 思考链增量事件
+func NewThinkingEvent(content, conversationID string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content, ConversationID: conversationID}
 }
 
 // NewDoneEvent 创建一个流结束事件

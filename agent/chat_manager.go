@@ -52,7 +52,7 @@ func (m *ChatManager) SetHistoryStore(store HistoryStore) {
 	m.historyStore = store
 }
 
-func (m *ChatManager) RegisterLLM(provider string, chatService chat.ChatService, isDefault bool) {
+func (m *ChatManager) RegisterChat(provider string, chatService chat.ChatService, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.registry.Register(provider, chatService, isDefault)
