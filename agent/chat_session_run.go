@@ -98,7 +98,9 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			stopReason = e.StopReason
 
 		case *chat.ErrorEvent:
-			evt := NewErrorEvent(e.Error()); evt.Done = true; s.addEvent(evt)
+			evt := NewErrorEvent(e.Error())
+			evt.Done = true
+			s.addEvent(evt)
 			return collector.take(), stopReason, e.Err
 
 		case *chat.MessageStopEvent:
@@ -159,7 +161,7 @@ func textBlocks(blocks []chat.ContentBlock) []chat.ContentBlock {
 func (s *chatSession) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.isRun {
+	if s.running {
 		if s.cancel != nil {
 			s.cancel()
 		}
@@ -169,7 +171,7 @@ func (s *chatSession) Stop() {
 func (s *chatSession) run(ctx context.Context) {
 	defer func() {
 		s.mu.Lock()
-		s.isRun = false
+		s.running = false
 		s.cancel = nil
 		s.mu.Unlock()
 	}()
@@ -185,13 +187,12 @@ func (s *chatSession) run(ctx context.Context) {
 		if messages == nil {
 			return
 		}
-		provider := s.provider
-		if provider == "" {
-			provider = s.unifiedChatService.DefaultProvider()
-		}
-		resp, err := s.unifiedChatService.ChatWithStream(ctx, provider, messages)
+		provider := s.registry.DefaultProvider()
+		resp, err := s.registry.ChatWithStream(ctx, provider, messages)
 		if err != nil {
-			evt := NewErrorEvent(err.Error()); evt.Done = true; s.addEvent(evt)
+			evt := NewErrorEvent(err.Error())
+			evt.Done = true
+			s.addEvent(evt)
 			s.saveHistory()
 			return
 		}

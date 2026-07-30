@@ -18,15 +18,15 @@ type ToolExecutor interface {
 	Execute(args map[string]any) (string, error)
 }
 
-// executeCommand 在本地终端执行 shell 命令的工具。
-type executeCommand struct{}
+// CommandTool 在本地终端执行 shell 命令的工具。
+type CommandTool struct{}
 
-// NewExecuteCommandTool 创建本地命令执行工具。
-func NewExecuteCommandTool() ToolExecutor {
-	return &executeCommand{}
+// NewCommandTool 创建本地命令执行工具。
+func NewCommandTool() ToolExecutor {
+	return &CommandTool{}
 }
 
-func (t *executeCommand) Definition() *chat.ToolFunction {
+func (t *CommandTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name:        "execute_command",
 		Description: "在本地终端执行命令并返回输出。可用于：查看文件、列出目录、运行脚本、打开应用程序等。打开 GUI 程序（浏览器、记事本等）时必须使用 start 命令，例如：start \"\" chrome、start \"\" notepad。命令有 30 秒超时限制。禁止执行破坏性命令（如 rm -rf、mkfs、shutdown 等）。",
@@ -97,7 +97,7 @@ func needsStartPrefix(cmd string) bool {
 	return guiApps[prog]
 }
 
-func (t *executeCommand) Execute(args map[string]any) (string, error) {
+func (t *CommandTool) Execute(args map[string]any) (string, error) {
 	cmd, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(cmd) == "" {
 		return "", fmt.Errorf("缺少 command 参数")

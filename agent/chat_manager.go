@@ -8,13 +8,13 @@ import (
 
 // ChatManager 聊天会话管理器
 type ChatManager struct {
-	chats              map[string]*chatSession
-	lock               *sync.RWMutex
-	unifiedChatService *chat.UnifiedChatService
-	toolExecutors      map[string]ToolExecutor
-	system             string
-	opts               *Options
-	historyStore       HistoryStore
+	chats         map[string]*chatSession
+	lock          *sync.RWMutex
+	registry      *chat.ProviderRegistry
+	toolExecutors map[string]ToolExecutor
+	system        string
+	opts          *Options
+	historyStore  HistoryStore
 }
 
 func NewChatManager(opt ...Option) *ChatManager {
@@ -23,11 +23,11 @@ func NewChatManager(opt ...Option) *ChatManager {
 		o(opts)
 	}
 	return &ChatManager{
-		chats:              make(map[string]*chatSession),
-		lock:               new(sync.RWMutex),
-		unifiedChatService: chat.NewUnifiedChatService(),
-		toolExecutors:      make(map[string]ToolExecutor),
-		opts:               opts,
+		chats:         make(map[string]*chatSession),
+		lock:          new(sync.RWMutex),
+		registry:      chat.NewProviderRegistry(),
+		toolExecutors: make(map[string]ToolExecutor),
+		opts:          opts,
 	}
 }
 
@@ -36,7 +36,11 @@ func (m *ChatManager) AddTool(exec ToolExecutor) {
 	defer m.lock.Unlock()
 	m.toolExecutors[exec.Definition().Name] = exec
 }
-func (m *ChatManager) System(system string) {
+
+// SetSystem 设置全局系统提示词，对之后新建的会话生效。
+func (m *ChatManager) SetSystem(system string) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	m.system = system
 }
 
@@ -46,10 +50,10 @@ func (m *ChatManager) SetHistoryStore(store HistoryStore) {
 	m.historyStore = store
 }
 
-func (m *ChatManager) RegisterLLM(provider string, chatService chat.IChatService, isDefault bool) {
+func (m *ChatManager) RegisterLLM(provider string, chatService chat.ChatService, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.unifiedChatService.Register(provider, chatService, isDefault)
+	m.registry.Register(provider, chatService, isDefault)
 }
 
 func (m *ChatManager) GetChat(id string) *ChatClient {
@@ -64,7 +68,22 @@ func (m *ChatManager) GetChat(id string) *ChatClient {
 	if c, ok = m.chats[id]; ok {
 		return c.newClient()
 	}
-	session := newChatSession(id, m.unifiedChatService, m.toolExecutors, m.system, m.opts, m.historyStore)
+	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
+	tools := make(map[string]ToolExecutor, len(m.toolExecutors))
+	for k, v := range m.toolExecutors {
+		tools[k] = v
+	}
+	session := newChatSession(id, m.registry, tools, m.system, m.opts, m.historyStore)
 	m.chats[id] = session
 	return session.newClient()
+}
+
+// RemoveChat 关闭并移除指定会话。若会话不存在则无操作。
+func (m *ChatManager) RemoveChat(id string) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if session, ok := m.chats[id]; ok {
+		session.Stop()
+		delete(m.chats, id)
+	}
 }

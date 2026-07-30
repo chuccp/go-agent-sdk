@@ -9,38 +9,43 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// chatSession 完整会话实体，管理消息队列、对话历史和 LLM 调用
-type chatSession struct {
-	id                 string
-	mu                 sync.Mutex
-	unifiedChatService *chat.UnifiedChatService
-	revQueue           *util.SliceQueueSafe[*chat.Message]
-	events             *eventStore
-	history            []chat.Message
-	isRun              bool
-	provider           string
-	queues             []*util.Queue[bool]
-	toolExecutors      map[string]ToolExecutor
-	system             string
-	opts               *Options
-	cancel             context.CancelFunc
-	seq                uint
-	historyStore       HistoryStore
+// queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
+type queuedMessage struct {
+	id  uint
+	msg *chat.Message
 }
 
-func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore HistoryStore) *chatSession {
+// chatSession 完整会话实体，管理消息队列、对话历史和 LLM 调用
+type chatSession struct {
+	id            string
+	mu            sync.Mutex
+	registry      *chat.ProviderRegistry
+	inbox         *util.SliceQueueSafe[*queuedMessage]
+	events        *eventStore
+	history       []chat.Message
+	running       bool
+	subscribers   []*subscriber
+	toolExecutors map[string]ToolExecutor
+	system        string
+	opts          *Options
+	cancel        context.CancelFunc
+	seq           uint
+	historyStore  HistoryStore
+}
+
+func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore HistoryStore) *chatSession {
 	s := &chatSession{
-		id:                 id,
-		unifiedChatService: unifiedChatService,
-		revQueue:           util.NewSliceQueueSafe[*chat.Message](),
-		events:             newEventStore(),
-		history:            make([]chat.Message, 0),
-		isRun:              false,
-		queues:             make([]*util.Queue[bool], 0),
-		toolExecutors:      toolExecutors,
-		system:             system,
-		opts:               opts,
-		historyStore:       historyStore,
+		id:            id,
+		registry:      registry,
+		inbox:         util.NewSliceQueueSafe[*queuedMessage](),
+		events:        newEventStore(),
+		history:       make([]chat.Message, 0),
+		running:       false,
+		subscribers:   make([]*subscriber, 0),
+		toolExecutors: toolExecutors,
+		system:        system,
+		opts:          opts,
+		historyStore:  historyStore,
 	}
 	// 从持久化存储加载历史记录
 	if historyStore != nil {
@@ -60,46 +65,69 @@ func (s *chatSession) getSeq() uint {
 	return s.seq
 }
 func (s *chatSession) newClient() *ChatClient {
-	queue := util.NewQueue[bool]()
+	sub := &subscriber{queue: util.NewQueue[bool]()}
 	s.mu.Lock()
-	s.queues = append(s.queues, queue)
+	s.subscribers = append(s.subscribers, sub)
 	s.mu.Unlock()
 	return &ChatClient{
 		handler: s,
-		queue:   queue,
+		sub:     sub,
 	}
 }
 
 func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, q := range s.queues {
-		if q == client.queue {
-			s.queues = append(s.queues[:i], s.queues[i+1:]...)
-			q.Close()
-			return
+	for i, sub := range s.subscribers {
+		if sub == client.sub {
+			s.subscribers = append(s.subscribers[:i], s.subscribers[i+1:]...)
+			sub.queue.Close()
+			break
 		}
 	}
+	minOff := s.minAckOffset()
+	s.mu.Unlock()
+	// 客户端断开后尝试截断已消费事件
+	s.events.compact(minOff)
+}
+
+// minAckOffset 返回所有订阅者中最小的已消费偏移。调用方必须持有 s.mu。
+// 无订阅者时返回当前事件总数（可全部截断）。
+func (s *chatSession) minAckOffset() uint {
+	if len(s.subscribers) == 0 {
+		return s.events.len()
+	}
+	min := s.subscribers[0].offset
+	for _, sub := range s.subscribers[1:] {
+		if sub.offset < min {
+			min = sub.offset
+		}
+	}
+	return min
 }
 
 func (s *chatSession) SendMessage(message *chat.Message) error {
-	message.MessageID = s.getSeq()
-	err := s.revQueue.Write(message)
+	qm := &queuedMessage{
+		id:  s.getSeq(),
+		msg: message,
+	}
+	err := s.inbox.Write(qm)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	started := false
-	if !s.isRun {
+	if !s.running {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
-		s.isRun = true
+		s.running = true
 		started = true
 		util.GoWithRecover(func() {
 			s.run(ctx)
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
-			evt := NewErrorEvent("internal error"); evt.Done = true; s.addEvent(evt)
+			evt := NewErrorEvent("internal error")
+			evt.Done = true
+			s.addEvent(evt)
 		})
 	}
 	s.mu.Unlock()
@@ -107,31 +135,31 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(NewMessageSentEvent(message.MessageID, s.id))
+		s.addEvent(NewMessageSentEvent(qm.id, s.id))
 	} else {
 		// 消息没有立马发出，通知发送者将消息标记为队列待处理
-		s.addEvent(NewMessageQueuedEvent(message.MessageID, s.id))
+		s.addEvent(NewMessageQueuedEvent(qm.id, s.id))
 	}
 	return nil
 }
 
 // build 从队列中取出所有待处理消息，追加到历史记录，构建 LLM 请求
-func (s *chatSession) build() *chat.Messages {
+func (s *chatSession) build() *chat.Request {
 	for {
-		msg, err := s.revQueue.Read()
+		qm, err := s.inbox.Read()
 		if err != nil {
 			break
 		}
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(NewMessageConsumedEvent(msg.MessageID, s.id))
-		s.history = append(s.history, *msg)
+		s.addEvent(NewMessageConsumedEvent(qm.id, s.id))
+		s.history = append(s.history, *qm.msg)
 	}
 
 	if len(s.history) == 0 {
 		return nil
 	}
 
-	messages := &chat.Messages{
+	messages := &chat.Request{
 		Messages: make([]chat.Message, len(s.history)),
 		System:   s.system,
 	}
@@ -169,7 +197,7 @@ func (s *chatSession) saveHistory() {
 	}
 }
 
-func (s *chatSession) addEvent(event *Event) {
+func (s *chatSession) addEvent(event *ClientEvent) {
 	s.events.add(event)
 	s.flush()
 }
@@ -177,12 +205,12 @@ func (s *chatSession) addEvent(event *Event) {
 // flush 通知所有客户端有新事件
 func (s *chatSession) flush() {
 	s.mu.Lock()
-	queues := make([]*util.Queue[bool], len(s.queues))
-	copy(queues, s.queues)
+	subs := make([]*subscriber, len(s.subscribers))
+	copy(subs, s.subscribers)
 	s.mu.Unlock()
 
-	for _, queue := range queues {
-		err := queue.Offer(true)
+	for _, sub := range subs {
+		err := sub.queue.Offer(true)
 		if err != nil {
 			log.Printf("Error offering chat session: %v", err)
 		}

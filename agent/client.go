@@ -1,0 +1,52 @@
+package agent
+
+import (
+	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/util"
+)
+
+// subscriber 是一个事件订阅者，包含通知队列和已消费偏移。
+type subscriber struct {
+	queue  *util.Queue[bool]
+	offset uint
+}
+
+// ChatHandler 会话处理接口，由 chatSession 实现
+type ChatHandler interface {
+	SendMessage(message *chat.Message) error
+	ReadEvent(start uint) *EventEntry
+	DeleteClient(client *ChatClient)
+	Stop()
+}
+
+// ChatClient 面向调用方的客户端句柄
+type ChatClient struct {
+	handler ChatHandler
+	sub     *subscriber
+}
+
+func (c *ChatClient) SendText(message string) error {
+	msg := chat.Text(message)
+	return c.handler.SendMessage(&msg)
+}
+
+func (c *ChatClient) ReadEvent() *ClientEvent {
+	_, hasValue := c.sub.queue.Dequeue()
+	if !hasValue {
+		return nil
+	}
+	entry := c.handler.ReadEvent(c.sub.offset)
+	if entry == nil {
+		return nil
+	}
+	c.sub.offset += entry.Offset
+	return entry.Event
+}
+
+func (c *ChatClient) Stop() {
+	c.handler.Stop()
+}
+
+func (c *ChatClient) Close() {
+	c.handler.DeleteClient(c)
+}
