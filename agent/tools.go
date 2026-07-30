@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -28,13 +29,13 @@ func NewExecuteCommandTool() ToolExecutor {
 func (t *executeCommand) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name:        "execute_command",
-		Description: "在本地终端执行一个 shell 命令并返回输出。可用于查看文件、列出目录、运行脚本等只读操作。命令有 30 秒超时限制。禁止执行破坏性命令（如 rm -rf、mkfs、shutdown 等）。",
+		Description: "在本地终端执行命令并返回输出。可用于：查看文件、列出目录、运行脚本、打开应用程序等。打开 GUI 程序（浏览器、记事本等）时必须使用 start 命令，例如：start \"\" chrome、start \"\" notepad。命令有 30 秒超时限制。禁止执行破坏性命令（如 rm -rf、mkfs、shutdown 等）。",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{
 					"type":        "string",
-					"description": "要执行的 shell 命令。例如：ls -la、cat file.txt、go version",
+					"description": "要执行的命令。例如：dir、type file.txt、go version、start \"\" chrome、start \"\" notepad、start \"\" calc",
 				},
 			},
 			"required": []string{"command"},
@@ -44,17 +45,17 @@ func (t *executeCommand) Definition() *chat.ToolFunction {
 
 // dangerousPatterns 匹配危险的命令模式。
 var dangerousPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\brm\s+(-[rRf]+\s+)*[/~]`),       // rm -rf / 或 rm -rf ~
-	regexp.MustCompile(`\bmkfs\b`),                         // 格式化文件系统
-	regexp.MustCompile(`\b(mkswap|swapon|swapoff)\b`),      // swap 操作
-	regexp.MustCompile(`\bshutdown\b`),                     // 关机
-	regexp.MustCompile(`\breboot\b`),                       // 重启
-	regexp.MustCompile(`\bdd\s+if=`),                       // dd 磁盘写入
-	regexp.MustCompile(`\bchmod\s+(-R\s+)?777\s+[/~]`),    // chmod 777 / 或 ~
-	regexp.MustCompile(`:\(\)\s*\{`),                       // fork 炸弹
-	regexp.MustCompile(`>\s*/dev/(sd|hd|nvme|mmcblk)`),     // 写入块设备
-	regexp.MustCompile(`\bfdisk\b`),                        // 磁盘分区
-	regexp.MustCompile(`\bparted\b`),                       // 磁盘分区
+	regexp.MustCompile(`\brm\s+(-[rRf]+\s+)*[/~]`),    // rm -rf / 或 rm -rf ~
+	regexp.MustCompile(`\bmkfs\b`),                     // 格式化文件系统
+	regexp.MustCompile(`\b(mkswap|swapon|swapoff)\b`),  // swap 操作
+	regexp.MustCompile(`\bshutdown\b`),                 // 关机
+	regexp.MustCompile(`\breboot\b`),                   // 重启
+	regexp.MustCompile(`\bdd\s+if=`),                   // dd 磁盘写入
+	regexp.MustCompile(`\bchmod\s+(-R\s+)?777\s+[/~]`), // chmod 777 / 或 ~
+	regexp.MustCompile(`:\(\)\s*\{`),                   // fork 炸弹
+	regexp.MustCompile(`>\s*/dev/(sd|hd|nvme|mmcblk)`), // 写入块设备
+	regexp.MustCompile(`\bfdisk\b`),                    // 磁盘分区
+	regexp.MustCompile(`\bparted\b`),                   // 磁盘分区
 }
 
 // validateCommand 检查命令是否包含危险操作。
@@ -67,6 +68,35 @@ func validateCommand(cmd string) error {
 	return nil
 }
 
+// guiApps 列出常见的 Windows GUI 程序名（小写），用于自动添加 start "" 前缀。
+var guiApps = map[string]bool{
+	"chrome": true, "msedge": true, "firefox": true, "iexplore": true,
+	"notepad": true, "notepad++": true, "calc": true, "explorer": true,
+	"winword": true, "excel": true, "powerpnt": true,
+	"code": true, "devenv": true, "paint": true, "mspaint": true,
+}
+
+// needsStartPrefix 判断命令是否是直接启动 GUI 程序（没有 start 前缀）。
+func needsStartPrefix(cmd string) bool {
+	lower := strings.ToLower(strings.TrimSpace(cmd))
+	// 已经有 start 前缀则不需要
+	if strings.HasPrefix(lower, "start") {
+		return false
+	}
+	// 提取第一个 token（程序名）
+	fields := strings.Fields(lower)
+	if len(fields) == 0 {
+		return false
+	}
+	prog := fields[0]
+	// 去掉路径和扩展名，只保留程序名
+	if idx := strings.LastIndexAny(prog, "/\\"); idx >= 0 {
+		prog = prog[idx+1:]
+	}
+	prog = strings.TrimSuffix(prog, ".exe")
+	return guiApps[prog]
+}
+
 func (t *executeCommand) Execute(args map[string]any) (string, error) {
 	cmd, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(cmd) == "" {
@@ -76,6 +106,11 @@ func (t *executeCommand) Execute(args map[string]any) (string, error) {
 
 	if err := validateCommand(cmd); err != nil {
 		return err.Error(), nil
+	}
+
+	// Windows 下对 GUI 程序自动加 start "" 前缀，防止 CombinedOutput 阻塞
+	if isWindows() && needsStartPrefix(cmd) {
+		cmd = `start "" ` + cmd
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -107,7 +142,5 @@ func (t *executeCommand) Execute(args map[string]any) (string, error) {
 }
 
 func isWindows() bool {
-	// 简单判断：Windows 下路径分隔符为 \
-	// 更准确的做法是用 runtime.GOOS，但这里保持简洁
-	return false
+	return runtime.GOOS == "windows"
 }
