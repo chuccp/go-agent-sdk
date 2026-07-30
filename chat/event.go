@@ -34,7 +34,7 @@ const (
 // 客户端推送事件
 const (
 	EventTypeChunk           = "chunk"
-	EventTypeThinking        = "thinking"        // AI 思考链增量
+	EventTypeThinking        = "thinking" // AI 思考链增量
 	EventTypeDone            = "done"
 	EventTypeToolExecution   = "tool_execution"   // 工具正在执行，携带工具名称和输出
 	EventTypeMessageSent     = "message_sent"     // 消息已被立即处理，发送者可直接显示在对话列表
@@ -254,4 +254,20 @@ func (l *EventStore) Len() uint {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.base + uint(len(l.entries))
+}
+// Reset 清空所有事件，将 base 推进到当前序列点。
+// 用于与大模型对话前重置事件流，新事件从 base 继续编号。
+// 调用方需同步重置订阅者的 offset 到 Base()。
+func (l *EventStore) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.base = l.base + uint(len(l.entries))
+	l.entries = l.entries[:0]
+}
+
+// Base 返回当前全局起始偏移。
+func (l *EventStore) Base() uint {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.base
 }

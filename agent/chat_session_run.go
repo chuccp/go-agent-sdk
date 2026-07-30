@@ -200,6 +200,9 @@ func (s *chatSession) run(ctx context.Context) {
 		if messages == nil {
 			return
 		}
+		// 对话前清空过期事件，同步重置订阅者偏移
+		s.events.Reset()
+		s.resetSubscribers()
 		provider := s.registry.DefaultProvider()
 		resp, err := s.registry.ChatWithStream(ctx, provider, messages)
 		if err != nil {

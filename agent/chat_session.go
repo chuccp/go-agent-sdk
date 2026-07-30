@@ -243,3 +243,14 @@ func (s *chatSession) flush() {
 func (s *chatSession) ReadEvent(start uint) *chat.EventEntry {
 	return s.events.ReadFrom(start)
 }
+
+// resetSubscribers 将所有订阅者的 offset 同步到事件存储的新 base，
+// 避免 Reset 后客户端从过期偏移读取。
+func (s *chatSession) resetSubscribers() {
+	base := s.events.Base()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sub := range s.subscribers {
+		sub.offset = base
+	}
+}
