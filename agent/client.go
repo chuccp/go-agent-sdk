@@ -13,7 +13,7 @@ type subscriber struct {
 
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
-	SendMessage(message *chat.Message) error
+	SendMessage(message *chat.Message, opt ...Option) error
 	ReadEvent(start uint) *chat.EventEntry
 	DeleteClient(client *ChatClient)
 	Stop()
@@ -25,9 +25,9 @@ type ChatClient struct {
 	sub     *subscriber
 }
 
-func (c *ChatClient) SendText(message string) error {
+func (c *ChatClient) SendText(message string, opt ...Option) error {
 	msg := chat.Text(message)
-	return c.handler.SendMessage(&msg)
+	return c.handler.SendMessage(&msg, opt...)
 }
 
 func (c *ChatClient) ReadEvent() *chat.ClientEvent {

@@ -11,8 +11,9 @@ import (
 
 // queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
 type queuedMessage struct {
-	id  uint
-	msg *chat.Message
+	id   uint
+	msg  *chat.Message
+	opts []Option // 本次消息附带的per-turn选项覆盖
 }
 
 // chatSession 完整会话实体，管理消息队列、对话历史和 LLM 调用
@@ -105,10 +106,11 @@ func (s *chatSession) minAckOffset() uint {
 	return min
 }
 
-func (s *chatSession) SendMessage(message *chat.Message) error {
+func (s *chatSession) SendMessage(message *chat.Message, opt ...Option) error {
 	qm := &queuedMessage{
-		id:  s.getSeq(),
-		msg: message,
+		id:   s.getSeq(),
+		msg:  message,
+		opts: opt,
 	}
 	err := s.inbox.Write(qm)
 	if err != nil {
@@ -145,6 +147,7 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 
 // build 从队列中取出所有待处理消息，追加到历史记录，构建 LLM 请求
 func (s *chatSession) build() *chat.Request {
+	var turnOpts []Option
 	for {
 		qm, err := s.inbox.Read()
 		if err != nil {
@@ -153,28 +156,48 @@ func (s *chatSession) build() *chat.Request {
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
 		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id))
 		s.history = append(s.history, *qm.msg)
+		if len(qm.opts) > 0 {
+			turnOpts = qm.opts
+		}
 	}
 
 	if len(s.history) == 0 {
 		return nil
 	}
 
-	messages := &chat.Request{
-		Messages: make([]chat.Message, len(s.history)),
-		System:   s.system,
+	// 合并会话级选项与 per-turn 选项（per-turn 优先）
+	effective := s.opts
+	if len(turnOpts) > 0 {
+		merged := *s.opts
+		for _, o := range turnOpts {
+			o(&merged)
+		}
+		effective = &merged
 	}
-	if s.opts != nil {
-		messages.Model = s.opts.Model
-		messages.MaxTokens = s.opts.MaxTokens
-		messages.Temperature = s.opts.Temperature
-		messages.TopP = s.opts.TopP
-		messages.TopK = s.opts.TopK
-		messages.StopSequences = s.opts.StopSequences
-		messages.Stream = s.opts.Stream
+
+	messages := &chat.Request{
+		System: s.system,
+	}
+	if effective != nil {
+		messages.Model = effective.Model
+		messages.MaxTokens = effective.MaxTokens
+		messages.Temperature = effective.Temperature
+		messages.TopP = effective.TopP
+		messages.TopK = effective.TopK
+		messages.StopSequences = effective.StopSequences
+		messages.Stream = effective.Stream
+		messages.Thinking = effective.Thinking.toThinkingConfig()
 	} else {
 		messages.Stream = true
 	}
-	copy(messages.Messages, s.history)
+
+	// 截断上下文：仅保留最近的 N 条消息
+	history := s.history
+	if effective != nil && effective.MaxContext > 0 && len(history) > effective.MaxContext {
+		history = history[len(history)-effective.MaxContext:]
+	}
+	messages.Messages = make([]chat.Message, len(history))
+	copy(messages.Messages, history)
 
 	if len(s.toolExecutors) > 0 {
 		tools := make([]chat.ToolFunction, 0, len(s.toolExecutors))
