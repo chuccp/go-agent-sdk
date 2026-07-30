@@ -21,7 +21,7 @@ type chatSession struct {
 	mu            sync.Mutex
 	registry      *chat.ProviderRegistry
 	inbox         *util.SliceQueueSafe[*queuedMessage]
-	events        *eventStore
+	events        *chat.EventStore
 	history       []chat.Message
 	running       bool
 	subscribers   []*subscriber
@@ -38,7 +38,7 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 		id:            id,
 		registry:      registry,
 		inbox:         util.NewSliceQueueSafe[*queuedMessage](),
-		events:        newEventStore(),
+		events:        chat.NewEventStore(),
 		history:       make([]chat.Message, 0),
 		running:       false,
 		subscribers:   make([]*subscriber, 0),
@@ -87,14 +87,14 @@ func (s *chatSession) DeleteClient(client *ChatClient) {
 	minOff := s.minAckOffset()
 	s.mu.Unlock()
 	// 客户端断开后尝试截断已消费事件
-	s.events.compact(minOff)
+	s.events.Compact(minOff)
 }
 
 // minAckOffset 返回所有订阅者中最小的已消费偏移。调用方必须持有 s.mu。
 // 无订阅者时返回当前事件总数（可全部截断）。
 func (s *chatSession) minAckOffset() uint {
 	if len(s.subscribers) == 0 {
-		return s.events.len()
+		return s.events.Len()
 	}
 	min := s.subscribers[0].offset
 	for _, sub := range s.subscribers[1:] {
@@ -125,7 +125,7 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 			s.run(ctx)
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
-			evt := NewErrorEvent("internal error")
+			evt := chat.NewErrorEvent("internal error")
 			evt.Done = true
 			s.addEvent(evt)
 		})
@@ -135,10 +135,10 @@ func (s *chatSession) SendMessage(message *chat.Message) error {
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(NewMessageSentEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id))
 	} else {
 		// 消息没有立马发出，通知发送者将消息标记为队列待处理
-		s.addEvent(NewMessageQueuedEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id))
 	}
 	return nil
 }
@@ -151,7 +151,7 @@ func (s *chatSession) build() *chat.Request {
 			break
 		}
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(NewMessageConsumedEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id))
 		s.history = append(s.history, *qm.msg)
 	}
 
@@ -197,8 +197,8 @@ func (s *chatSession) saveHistory() {
 	}
 }
 
-func (s *chatSession) addEvent(event *ClientEvent) {
-	s.events.add(event)
+func (s *chatSession) addEvent(event *chat.ClientEvent) {
+	s.events.Add(event)
 	s.flush()
 }
 
@@ -217,6 +217,6 @@ func (s *chatSession) flush() {
 	}
 }
 
-func (s *chatSession) ReadEvent(start uint) *EventEntry {
-	return s.events.readFrom(start)
+func (s *chatSession) ReadEvent(start uint) *chat.EventEntry {
+	return s.events.ReadFrom(start)
 }

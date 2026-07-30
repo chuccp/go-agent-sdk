@@ -86,7 +86,7 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			switch e.Delta.Type {
 			case "text_delta":
 				collector.appendText(e.Delta.Text)
-				s.addEvent(NewChunkEvent(e.Delta.Text, s.id))
+				s.addEvent(chat.NewChunkEvent(e.Delta.Text, s.id))
 			case "input_json_delta":
 				collector.appendJSON(e.Delta.PartialJSON)
 			}
@@ -98,7 +98,7 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks []chat.Content
 			stopReason = e.StopReason
 
 		case *chat.ErrorEvent:
-			evt := NewErrorEvent(e.Error())
+			evt := chat.NewErrorEvent(e.Error())
 			evt.Done = true
 			s.addEvent(evt)
 			return collector.take(), stopReason, e.Err
@@ -132,7 +132,7 @@ func (s *chatSession) executeTools(blocks []chat.ContentBlock) []chat.ContentBlo
 		args, _ := block.Input.(map[string]any)
 		output, execErr := exec.Execute(args)
 
-		s.addEvent(NewToolExecutionEvent(block.Name, output, s.id))
+		s.addEvent(chat.NewToolExecutionEvent(block.Name, output, s.id))
 
 		resultText := output
 		if execErr != nil {
@@ -190,7 +190,7 @@ func (s *chatSession) run(ctx context.Context) {
 		provider := s.registry.DefaultProvider()
 		resp, err := s.registry.ChatWithStream(ctx, provider, messages)
 		if err != nil {
-			evt := NewErrorEvent(err.Error())
+			evt := chat.NewErrorEvent(err.Error())
 			evt.Done = true
 			s.addEvent(evt)
 			s.saveHistory()
@@ -223,7 +223,7 @@ func (s *chatSession) run(ctx context.Context) {
 				Role:    chat.RoleAssistant,
 				Content: textBlocks(blocks),
 			})
-			s.addEvent(NewDoneEvent(s.id))
+			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveHistory()
 			return
 		}

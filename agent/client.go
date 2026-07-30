@@ -14,7 +14,7 @@ type subscriber struct {
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
 	SendMessage(message *chat.Message) error
-	ReadEvent(start uint) *EventEntry
+	ReadEvent(start uint) *chat.EventEntry
 	DeleteClient(client *ChatClient)
 	Stop()
 }
@@ -30,7 +30,7 @@ func (c *ChatClient) SendText(message string) error {
 	return c.handler.SendMessage(&msg)
 }
 
-func (c *ChatClient) ReadEvent() *ClientEvent {
+func (c *ChatClient) ReadEvent() *chat.ClientEvent {
 	_, hasValue := c.sub.queue.Dequeue()
 	if !hasValue {
 		return nil
