@@ -20,9 +20,18 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-// Event 是流式响应中单个事件的接口。每个事件通过 Type() 标识其类型。
+// 事件来源
+const (
+	SourceAI     = "ai"     // AI 产生的事件（LLM 流式输出、工具执行）
+	SourceClient = "client" // 客户端消息状态确认
+	SourceSystem = "system" // 系统事件（错误）
+)
+
+// Event 是所有事件的统一接口。
+// Type() 标识事件类型，Source() 标识事件来源（AI / 客户端 / 系统）。
 type Event interface {
 	Type() string
+	Source() string
 }
 
 // -------- 事件类型常量 --------
@@ -47,7 +56,8 @@ type MessageStartEvent struct {
 	Usage Usage  `json:"usage"`
 }
 
-func (e *MessageStartEvent) Type() string { return EventTypeMessageStart }
+func (e *MessageStartEvent) Type() string   { return EventTypeMessageStart }
+func (e *MessageStartEvent) Source() string { return SourceAI }
 
 // ContentBlockStartEvent 在一个新的 content block 开始时触发。
 // 对于 tool_use block，可从 ContentBlock 中读取 ID 和 Name。
@@ -56,7 +66,8 @@ type ContentBlockStartEvent struct {
 	ContentBlock ContentBlock `json:"content_block"`
 }
 
-func (e *ContentBlockStartEvent) Type() string { return EventTypeContentBlockStart }
+func (e *ContentBlockStartEvent) Type() string   { return EventTypeContentBlockStart }
+func (e *ContentBlockStartEvent) Source() string { return SourceAI }
 
 // ContentBlockDeltaEvent 携带一段增量内容（文本或工具参数 JSON）。
 type ContentBlockDeltaEvent struct {
@@ -64,7 +75,8 @@ type ContentBlockDeltaEvent struct {
 	Delta ContentDelta `json:"delta"`
 }
 
-func (e *ContentBlockDeltaEvent) Type() string { return EventTypeContentBlockDelta }
+func (e *ContentBlockDeltaEvent) Type() string   { return EventTypeContentBlockDelta }
+func (e *ContentBlockDeltaEvent) Source() string { return SourceAI }
 
 // ContentDelta 是一次增量更新的内容。
 type ContentDelta struct {
@@ -78,7 +90,8 @@ type ContentBlockStopEvent struct {
 	Index int `json:"index"`
 }
 
-func (e *ContentBlockStopEvent) Type() string { return EventTypeContentBlockStop }
+func (e *ContentBlockStopEvent) Type() string   { return EventTypeContentBlockStop }
+func (e *ContentBlockStopEvent) Source() string { return SourceAI }
 
 // MessageDeltaEvent 携带停止原因和输出 token 用量（在 message_stop 之前触发）。
 type MessageDeltaEvent struct {
@@ -86,20 +99,23 @@ type MessageDeltaEvent struct {
 	Usage      Usage      `json:"usage"`
 }
 
-func (e *MessageDeltaEvent) Type() string { return EventTypeMessageDelta }
+func (e *MessageDeltaEvent) Type() string   { return EventTypeMessageDelta }
+func (e *MessageDeltaEvent) Source() string { return SourceAI }
 
 // MessageStopEvent 表示整个流正常结束。
 type MessageStopEvent struct{}
 
-func (e *MessageStopEvent) Type() string { return EventTypeMessageStop }
+func (e *MessageStopEvent) Type() string   { return EventTypeMessageStop }
+func (e *MessageStopEvent) Source() string { return SourceAI }
 
 // ErrorEvent 携带流处理过程中发生的错误。
 type ErrorEvent struct {
 	Err error
 }
 
-func (e *ErrorEvent) Type() string  { return EventTypeError }
-func (e *ErrorEvent) Error() string { return e.Err.Error() }
+func (e *ErrorEvent) Type() string   { return EventTypeError }
+func (e *ErrorEvent) Source() string { return SourceSystem }
+func (e *ErrorEvent) Error() string  { return e.Err.Error() }
 
 // -------- StreamWriter --------
 

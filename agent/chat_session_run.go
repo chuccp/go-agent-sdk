@@ -132,7 +132,7 @@ func (s *chatSession) executeTools(blocks []chat.ContentBlock) []chat.ContentBlo
 		args, _ := block.Input.(map[string]any)
 		output, execErr := exec.Execute(args)
 
-		s.addEvent(NewChunkEvent(fmt.Sprintf("\n🔧 执行命令: %v\n%s\n", args, output), s.id))
+		s.addEvent(NewToolExecutionEvent(block.Name, output, s.id))
 
 		resultText := output
 		if execErr != nil {
