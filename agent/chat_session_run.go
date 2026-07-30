@@ -176,6 +176,7 @@ func (s *chatSession) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			s.saveHistory()
 			return
 		default:
 
@@ -191,11 +192,13 @@ func (s *chatSession) run(ctx context.Context) {
 		resp, err := s.unifiedChatService.ChatWithStream(ctx, provider, messages)
 		if err != nil {
 			evt := NewErrorEvent(err.Error()); evt.Done = true; s.addEvent(evt)
+			s.saveHistory()
 			return
 		}
 
 		blocks, stopReason, err := s.streamResponse(resp)
 		if err != nil {
+			s.saveHistory()
 			return
 		}
 
@@ -220,6 +223,7 @@ func (s *chatSession) run(ctx context.Context) {
 				Content: textBlocks(blocks),
 			})
 			s.addEvent(NewDoneEvent(s.id))
+			s.saveHistory()
 			return
 		}
 	}

@@ -25,10 +25,11 @@ type chatSession struct {
 	opts               *Options
 	cancel             context.CancelFunc
 	seq                uint
+	historyStore       HistoryStore
 }
 
-func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string, opts *Options) *chatSession {
-	return &chatSession{
+func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore HistoryStore) *chatSession {
+	s := &chatSession{
 		id:                 id,
 		unifiedChatService: unifiedChatService,
 		revQueue:           util.NewSliceQueueSafe[*chat.Message](),
@@ -39,7 +40,18 @@ func newChatSession(id string, unifiedChatService *chat.UnifiedChatService, tool
 		toolExecutors:      toolExecutors,
 		system:             system,
 		opts:               opts,
+		historyStore:       historyStore,
 	}
+	// 从持久化存储加载历史记录
+	if historyStore != nil {
+		if msgs, err := historyStore.LoadHistory(id); err != nil {
+			log.Printf("[chatSession] load history failed for %s: %v", id, err)
+		} else if len(msgs) > 0 {
+			s.history = msgs
+			s.seq = uint(len(msgs))
+		}
+	}
+	return s
 }
 func (s *chatSession) getSeq() uint {
 	s.mu.Lock()
@@ -145,6 +157,16 @@ func (s *chatSession) build() *chat.Messages {
 	}
 
 	return messages
+}
+
+// saveHistory 将当前历史保存到持久化存储
+func (s *chatSession) saveHistory() {
+	if s.historyStore == nil {
+		return
+	}
+	if err := s.historyStore.SaveHistory(s.id, s.history); err != nil {
+		log.Printf("[chatSession] save history failed for %s: %v", s.id, err)
+	}
 }
 
 func (s *chatSession) addEvent(event *Event) {
