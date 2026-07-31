@@ -41,6 +41,11 @@ func (sa *SliceArraySafe[T]) Slice() []T {
 	defer sa.lock.Unlock()
 	return sa.sliceArray.Slice()
 }
+func (sa *SliceArraySafe[T]) Delete(index int) {
+	sa.lock.Lock()
+	defer sa.lock.Unlock()
+	sa.sliceArray.Delete(index)
+}
 
 // SliceArray is a generic dynamic array with automatic power-of-2 growth.
 // Zero value is valid — first Append allocates the initial buffer.
@@ -61,6 +66,13 @@ func (a *SliceArray[T]) Append(v T) {
 // Get returns the element at index. Panics if index is out of bounds.
 func (a *SliceArray[T]) Get(index int) T {
 	return a.buf[index]
+}
+
+// Delete removes the element at index, preserving order.
+// Elements after index are shifted left. Panics if index is out of bounds.
+func (a *SliceArray[T]) Delete(index int) {
+	copy(a.buf[index:], a.buf[index+1:a.len])
+	a.len--
 }
 
 // Len returns the number of elements.
