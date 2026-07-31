@@ -14,7 +14,7 @@ type ChatManager struct {
 	toolExecutors map[string]ToolExecutor
 	system        string
 	opts          *Options
-	historyStore  HistoryStore
+	historyStore  chat.HistoryStore
 }
 
 func NewChatManager(opt ...Option) *ChatManager {
@@ -46,7 +46,7 @@ func (m *ChatManager) SetSystem(system string) {
 
 // SetHistoryStore 设置聊天记录持久化实现。
 // 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *ChatManager) SetHistoryStore(store HistoryStore) {
+func (m *ChatManager) SetHistoryStore(store chat.HistoryStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.historyStore = store

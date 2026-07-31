@@ -5,12 +5,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// subscriber 是一个事件订阅者，包含通知队列和已消费偏移。
-type subscriber struct {
-	queue  *util.Queue[bool]
-	offset uint
-}
-
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
 	SendMessage(message *chat.Message, opt ...Option) error
@@ -22,7 +16,8 @@ type ChatHandler interface {
 // ChatClient 面向调用方的客户端句柄
 type ChatClient struct {
 	handler ChatHandler
-	sub     *subscriber
+	queue   *util.Queue[bool]
+	offset  uint
 }
 
 func (c *ChatClient) SendText(message string, opt ...Option) error {
@@ -31,15 +26,15 @@ func (c *ChatClient) SendText(message string, opt ...Option) error {
 }
 
 func (c *ChatClient) ReadEvent() *chat.ClientEvent {
-	_, hasValue := c.sub.queue.Dequeue()
+	_, hasValue := c.queue.Dequeue()
 	if !hasValue {
 		return nil
 	}
-	entry := c.handler.ReadEvent(c.sub.offset)
+	entry := c.handler.ReadEvent(c.offset)
 	if entry == nil {
 		return nil
 	}
-	c.sub.offset += entry.Offset
+	c.offset += entry.Offset
 	return entry.Event
 }
 

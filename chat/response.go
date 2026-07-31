@@ -1,6 +1,8 @@
 package chat
 
-import "github.com/chuccp/go-agent-sdk/util"
+import (
+	"github.com/chuccp/go-agent-sdk/util"
+)
 
 // StopReason 是模型停止生成的原因
 type StopReason string
@@ -70,11 +72,11 @@ func (r *Response) ReadEvent() Event {
 
 // Collect 消费所有事件并聚合成文本和工具调用结果。
 // 这是一个便捷方法，适用于不需要逐事件处理的简单场景。
-func (r *Response) Collect() (text string, toolCalls []ContentBlock) {
+func (r *Response) Collect() (text string, toolCalls Blocks) {
 	for evt := r.ReadEvent(); evt != nil; evt = r.ReadEvent() {
 		switch e := evt.(type) {
 		case *ContentBlockDeltaEvent:
-			if e.Delta.Type == "text_delta" {
+			if e.Delta.Type == DeltaTypeText {
 				text += e.Delta.Text
 			}
 		case *ContentBlockStopEvent:

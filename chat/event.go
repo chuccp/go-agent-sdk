@@ -1,7 +1,5 @@
 package chat
 
-import "sync"
-
 // ==================== 统一事件接口 ====================
 
 // 事件来源
@@ -56,10 +54,10 @@ func (e *MessageStartEvent) Type() string   { return EventTypeMessageStart }
 func (e *MessageStartEvent) Source() string { return SourceAI }
 
 // ContentBlockStartEvent 在一个新的 content block 开始时触发。
-// 对于 tool_use block，可从 ContentBlock 中读取 ID 和 Name。
+// 对于 tool_use block，可从 Block 中读取 ID 和 Name。
 type ContentBlockStartEvent struct {
-	Index        int          `json:"index"`
-	ContentBlock ContentBlock `json:"content_block"`
+	Index        int   `json:"index"`
+	ContentBlock Block `json:"content_block"`
 }
 
 func (e *ContentBlockStartEvent) Type() string   { return EventTypeContentBlockStart }
@@ -187,87 +185,4 @@ type EventEntry struct {
 	Start  uint
 	Offset uint
 	Event  *ClientEvent
-}
-
-// EventStore 追加式事件日志，支持截断已消费的事件以防止无界增长。
-type EventStore struct {
-	mu      sync.RWMutex
-	entries []*EventEntry
-	base    uint // entries[0] 对应的全局偏移
-}
-
-func NewEventStore() *EventStore {
-	return &EventStore{
-		entries: make([]*EventEntry, 0, 64),
-	}
-}
-
-func (l *EventStore) Add(event *ClientEvent) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	event.Seq = l.base + uint(len(l.entries))
-	l.entries = append(l.entries, &EventEntry{
-		Start:  event.Seq,
-		Offset: 1,
-		Event:  event,
-	})
-}
-
-// ReadFrom 从全局偏移 start 读取下一个事件，若无新事件返回 nil
-func (l *EventStore) ReadFrom(start uint) *EventEntry {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if start < l.base {
-		start = l.base
-	}
-	idx := int(start - l.base)
-	if idx >= len(l.entries) {
-		return nil
-	}
-	return l.entries[idx]
-}
-
-// Compact 截断全局偏移 minOffset 之前的已消费事件，释放内存。
-func (l *EventStore) Compact(minOffset uint) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if minOffset <= l.base {
-		return
-	}
-	idx := int(minOffset - l.base)
-	if idx > len(l.entries) {
-		idx = len(l.entries)
-	}
-	if idx == 0 {
-		return
-	}
-	// 释放已截断的引用，帮助 GC
-	for i := 0; i < idx; i++ {
-		l.entries[i] = nil
-	}
-	l.entries = l.entries[idx:]
-	l.base = minOffset
-}
-
-// Len 返回当前事件总数（base + 未截断条目数）。
-func (l *EventStore) Len() uint {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.base + uint(len(l.entries))
-}
-// Reset 清空所有事件，将 base 推进到当前序列点。
-// 用于与大模型对话前重置事件流，新事件从 base 继续编号。
-// 调用方需同步重置订阅者的 offset 到 Base()。
-func (l *EventStore) Reset() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.base = l.base + uint(len(l.entries))
-	l.entries = l.entries[:0]
-}
-
-// Base 返回当前全局起始偏移。
-func (l *EventStore) Base() uint {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.base
 }
