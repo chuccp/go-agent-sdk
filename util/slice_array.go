@@ -46,6 +46,11 @@ func (sa *SliceArraySafe[T]) Delete(index int) {
 	defer sa.lock.Unlock()
 	sa.sliceArray.Delete(index)
 }
+func (sa *SliceArraySafe[T]) Remove(fn func(T) bool) (T, bool) {
+	sa.lock.Lock()
+	defer sa.lock.Unlock()
+	return sa.sliceArray.Remove(fn)
+}
 
 // SliceArray is a generic dynamic array with automatic power-of-2 growth.
 // Zero value is valid — first Append allocates the initial buffer.
@@ -73,6 +78,20 @@ func (a *SliceArray[T]) Get(index int) T {
 func (a *SliceArray[T]) Delete(index int) {
 	copy(a.buf[index:], a.buf[index+1:a.len])
 	a.len--
+}
+
+// Remove finds the first element satisfying fn, removes it, and returns it.
+// Returns (zero, false) if no element matches.
+func (a *SliceArray[T]) Remove(fn func(T) bool) (T, bool) {
+	for i := 0; i < a.len; i++ {
+		if fn(a.buf[i]) {
+			v := a.buf[i]
+			a.Delete(i)
+			return v, true
+		}
+	}
+	var zero T
+	return zero, false
 }
 
 // Len returns the number of elements.

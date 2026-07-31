@@ -71,12 +71,8 @@ func (s *chatSession) newClient() *ChatClient {
 
 func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.mu.Lock()
-	for i, sub := range s.chatClients.Slice() {
-		if sub == client {
-			s.chatClients.Delete(i)
-			sub.queue.Close()
-			break
-		}
+	if removed, ok := s.chatClients.Remove(func(sub *ChatClient) bool { return sub == client }); ok {
+		removed.queue.Close()
 	}
 	s.mu.Unlock()
 }
