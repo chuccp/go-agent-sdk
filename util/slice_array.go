@@ -3,12 +3,12 @@ package util
 import "sync"
 
 // SliceArraySafe is a thread-safe wrapper around SliceArray.
-type SliceArraySafe[T any] struct {
+type SliceArraySafe[T comparable] struct {
 	sliceArray *SliceArray[T]
 	lock       *sync.Mutex
 }
 
-func NewSliceArraySafe[T any]() *SliceArraySafe[T] {
+func NewSliceArraySafe[T comparable]() *SliceArraySafe[T] {
 	return &SliceArraySafe[T]{sliceArray: new(SliceArray[T]), lock: new(sync.Mutex)}
 }
 func (sa *SliceArraySafe[T]) Append(v T) {
@@ -46,15 +46,15 @@ func (sa *SliceArraySafe[T]) Delete(index int) {
 	defer sa.lock.Unlock()
 	sa.sliceArray.Delete(index)
 }
-func (sa *SliceArraySafe[T]) Remove(fn func(T) bool) (T, bool) {
+func (sa *SliceArraySafe[T]) Remove(t T) (T, bool) {
 	sa.lock.Lock()
 	defer sa.lock.Unlock()
-	return sa.sliceArray.Remove(fn)
+	return sa.sliceArray.Remove(t)
 }
 
 // SliceArray is a generic dynamic array with automatic power-of-2 growth.
 // Zero value is valid — first Append allocates the initial buffer.
-type SliceArray[T any] struct {
+type SliceArray[T comparable] struct {
 	buf []T
 	len int
 }
@@ -80,11 +80,11 @@ func (a *SliceArray[T]) Delete(index int) {
 	a.len--
 }
 
-// Remove finds the first element satisfying fn, removes it, and returns it.
-// Returns (zero, false) if no element matches.
-func (a *SliceArray[T]) Remove(fn func(T) bool) (T, bool) {
+// Remove finds the first element equal to t, removes it, and returns it.
+// Returns (zero, false) if not found.
+func (a *SliceArray[T]) Remove(t T) (T, bool) {
 	for i := 0; i < a.len; i++ {
-		if fn(a.buf[i]) {
+		if a.buf[i] == t {
 			v := a.buf[i]
 			a.Delete(i)
 			return v, true
