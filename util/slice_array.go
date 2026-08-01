@@ -97,6 +97,8 @@ func (a *SliceArray[T]) Remove(t T) (T, bool) {
 // Len returns the number of elements.
 func (a *SliceArray[T]) Len() int { return a.len }
 
+func (a *SliceArray[T]) IsEmpty() bool { return a.len == 0 }
+
 // Cap returns the current capacity of the underlying buffer.
 func (a *SliceArray[T]) Cap() int { return cap(a.buf) }
 

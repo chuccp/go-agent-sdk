@@ -44,16 +44,10 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 		system:        system,
 		opts:          opts,
 	}
-	//// 从持久化存储加载历史记录
-	//if historyStore != nil {
-	//	if msgs, err := historyStore.LoadHistory(id); err != nil {
-	//		log.Printf("[chatSession] load history failed for %s: %v", id, err)
-	//	} else if len(msgs) > 0 {
-	//		s.history = msgs
-	//		s.seq = uint(len(msgs))
-	//	}
-	//}
 	return s
+}
+func (s *chatSession) History() []*chat.Message {
+	return s.events.History()
 }
 func (s *chatSession) getSeq() uint {
 	s.mu.Lock()
@@ -61,8 +55,13 @@ func (s *chatSession) getSeq() uint {
 	s.seq++
 	return s.seq
 }
-func (s *chatSession) newClient() *ChatClient {
-	chatClient := &ChatClient{queue: util.NewQueue[bool](), handler: s}
+func (s *chatSession) newClient(start uint) *ChatClient {
+	chatClient := &ChatClient{
+		queue:   util.NewQueue[bool](),
+		handler: s,
+		start:   start,
+		offset:  start, // 一次性初始偏移，之后随读取递增
+	}
 	s.mu.Lock()
 	s.chatClients.Append(chatClient)
 	s.mu.Unlock()
@@ -128,19 +127,24 @@ func (s *chatSession) build() *chat.Request {
 		if err != nil {
 			break
 		}
+		// 用户消息入历史（带事件流区间）
+		start := s.events.Position()
+		qm.msg.Start = start
+		s.events.AppendHistory(qm.msg)
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
 		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id))
-		//s.history = append(s.history, *qm.msg)
+		s.events.SetLastHistoryOffset(s.events.Position() - start)
 		if len(qm.opts) > 0 {
 			turnOpts = qm.opts
 		}
 	}
 
-	//if len(s.history) == 0 {
-	//	return nil
-	//}
+	// 注入历史上下文
+	history := s.events.History()
+	if len(history) == 0 {
+		return nil
+	}
 
-	// 合并会话级选项与 per-turn 选项（per-turn 优先）
 	effective := s.opts
 	if len(turnOpts) > 0 {
 		merged := *s.opts
@@ -151,8 +155,13 @@ func (s *chatSession) build() *chat.Request {
 	}
 
 	messages := &chat.Request{
-		System: s.system,
+		System:   s.system,
+		Messages: make([]chat.Message, 0, len(history)),
 	}
+	for _, m := range history {
+		messages.Messages = append(messages.Messages, *m)
+	}
+
 	if effective != nil {
 		messages.Model = effective.Model
 		messages.MaxTokens = effective.MaxTokens
@@ -166,14 +175,6 @@ func (s *chatSession) build() *chat.Request {
 		messages.Stream = true
 	}
 
-	// 截断上下文：仅保留最近的 N 条消息
-	//history := s.history
-	//if effective != nil && effective.MaxContext > 0 && len(history) > effective.MaxContext {
-	//	history = history[len(history)-effective.MaxContext:]
-	//}
-	//messages.Messages = make([]chat.Message, len(history))
-	//copy(messages.Messages, history)
-
 	if len(s.toolExecutors) > 0 {
 		tools := make([]chat.ToolFunction, 0, len(s.toolExecutors))
 		for _, exec := range s.toolExecutors {
@@ -184,16 +185,6 @@ func (s *chatSession) build() *chat.Request {
 
 	return messages
 }
-
-//// saveHistory 将当前历史保存到持久化存储
-//func (s *chatSession) saveHistory() {
-//	if s.historyStore == nil {
-//		return
-//	}
-//	if err := s.historyStore.SaveHistory(s.id, s.history); err != nil {
-//		log.Printf("[chatSession] save history failed for %s: %v", s.id, err)
-//	}
-//}
 
 func (s *chatSession) addEvent(event *chat.ClientEvent) {
 	s.events.Add(event)

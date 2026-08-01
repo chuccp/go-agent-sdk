@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
@@ -10,6 +11,7 @@ import (
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/util"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 )
 
@@ -47,16 +49,33 @@ func (r *Agent) Init(ctx *core.Context) error {
 func (r *Agent) GetSession() *Session {
 	return newSession(r.chatManager)
 }
+func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
+	messages, err := r.chatManager.History(cast.ToString(id))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*entity.ChatMessage, 0, len(messages))
+	for _, m := range messages {
+		contentJSON, _ := json.Marshal(m.Content)
+		result = append(result, &entity.ChatMessage{
+			Role:    string(m.Role),
+			Content: string(contentJSON),
+			Start:   m.Start,
+			Offset:  m.Offset,
+		})
+	}
+	return result, nil
+}
 
-func (r *Agent) HandleChat(chat *agent.ChatClient, message *entity.Message) error {
+func (r *Agent) HandleChat(chat *agent.ChatClient, message *entity.WsChatMessage) error {
 	if err := chat.SendText(message.Message); err != nil {
-		log.Warn("HandleChat: send failed", zap.String("session_id", message.GetSessionId()), zap.Error(err))
+		log.Warn("HandleChat: send failed", zap.Error(err))
 		return err
 	}
 	return nil
 }
 
-func (r *Agent) HandleStop(chat *agent.ChatClient, message *entity.Message) error {
+func (r *Agent) HandleStop(chat *agent.ChatClient, message *entity.WsStopMessage) error {
 	chat.Stop()
 	return nil
 }

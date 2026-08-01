@@ -87,9 +87,10 @@ func (c *blockCollector) take() chat.Blocks {
 	return c.blocks
 }
 
-// streamResponse 消费 SSE 流，返回所有 content block 和 stop_reason。
+// streamResponse 消费 SSE 流，返回所有 content block、stop_reason 和起始事件位置。
 // 同时在消费过程中通过 addEvent 向外广播文本增量。
-func (s *chatSession) streamResponse(resp *chat.Response) (blocks chat.Blocks, stopReason chat.StopReason, err error) {
+func (s *chatSession) streamResponse(resp *chat.Response) (blocks chat.Blocks, stopReason chat.StopReason, start uint, err error) {
+	start = s.events.Position()
 	var collector blockCollector
 
 	for evt := resp.ReadEvent(); evt != nil; evt = resp.ReadEvent() {
@@ -128,19 +129,20 @@ func (s *chatSession) streamResponse(resp *chat.Response) (blocks chat.Blocks, s
 			clientEvt := chat.NewErrorEvent(e.Error())
 			clientEvt.Done = true
 			s.addEvent(clientEvt)
-			return collector.take(), stopReason, e.Err
+			return collector.take(), stopReason, start, e.Err
 
 		case chat.EventTypeMessageStop:
-			return collector.take(), stopReason, nil
+			return collector.take(), stopReason, start, nil
 		}
 	}
 
 	// 流异常中断（ReadEvent 返回 nil 但未收到 MessageStop）
-	return collector.take(), stopReason, nil
+	return collector.take(), stopReason, start, nil
 }
 
-// executeTools 执行 tool_use blocks 中的工具，返回 tool_result blocks。
-func (s *chatSession) executeTools(blocks chat.Blocks) chat.Blocks {
+// executeTools 执行 tool_use blocks 中的工具，将 tool_result 作为 user 消息追加到历史。
+func (s *chatSession) executeTools(blocks chat.Blocks) {
+	start := s.events.Position()
 	toolResults := make(chat.Blocks, 0, len(blocks))
 	for _, block := range blocks {
 		tu, ok := block.(*chat.ToolUseBlock)
@@ -170,25 +172,10 @@ func (s *chatSession) executeTools(blocks chat.Blocks) chat.Blocks {
 			chat.Blocks{chat.NewTextBlock(resultText)},
 		))
 	}
-	return toolResults
-}
-
-// assistantBlocks 从 blocks 中提取需要保留到历史的 block（text + thinking）。
-func assistantBlocks(blocks chat.Blocks) chat.Blocks {
-	result := make(chat.Blocks, 0, len(blocks))
-	for _, block := range blocks {
-		switch b := block.(type) {
-		case *chat.TextBlock:
-			if b.Text != "" {
-				result = append(result, b)
-			}
-		case *chat.ThinkingBlock:
-			if b.Thinking != "" {
-				result = append(result, b)
-			}
-		}
-	}
-	return result
+	// tool_result 作为 user 消息入历史
+	msg := &chat.Message{Role: chat.RoleUser, Content: toolResults, Start: start}
+	s.events.AppendHistory(msg)
+	s.events.SetLastHistoryOffset(s.events.Position() - start)
 }
 
 func (s *chatSession) Stop() {
@@ -208,60 +195,62 @@ func (s *chatSession) run(ctx context.Context) {
 		s.cancel = nil
 		s.mu.Unlock()
 	}()
+
+	// 记录本轮开始前历史长度，用于计算新增消息数
+	historyBefore := s.events.HistoryLen()
+
 	for {
 		select {
 		case <-ctx.Done():
-			//s.saveHistory()
+			s.saveAndReset(historyBefore)
 			return
 		default:
-
 		}
+
 		messages := s.build()
 		if messages == nil {
 			return
 		}
-		// 对话前清空过期事件，同步重置订阅者偏移
-		//s.events.Reset()
-		//s.resetSubscribers()
+
 		provider := s.registry.DefaultProvider()
 		resp, err := s.registry.ChatWithStream(ctx, provider, messages)
 		if err != nil {
 			evt := chat.NewErrorEvent(err.Error())
 			evt.Done = true
 			s.addEvent(evt)
-			//s.saveHistory()
+			s.saveAndReset(historyBefore)
 			return
 		}
 
-		blocks, stopReason, err := s.streamResponse(resp)
+		blocks, stopReason, start, err := s.streamResponse(resp)
 		if err != nil {
-			//s.saveHistory()
+			s.saveAndReset(historyBefore)
 			return
 		}
+
+		// assistant 消息入历史（带事件流区间）
+		assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks, Start: start}
+		s.events.AppendHistory(assistantMsg)
+		s.events.SetLastHistoryOffset(s.events.Position() - start)
 
 		switch stopReason {
 		case chat.StopReasonToolUse:
-			//s.history = append(s.history, chat.Message{
-			//	Role:    chat.RoleAssistant,
-			//	Content: blocks,
-			//})
-
 			s.executeTools(blocks)
-			//s.history = append(s.history, chat.Message{
-			//	Role:    chat.RoleUser,
-			//	Content: toolResults,
-			//})
-
 			continue
 
 		default: // end_turn
-			//s.history = append(s.history, chat.Message{
-			//	Role:    chat.RoleAssistant,
-			//	Content: assistantBlocks(blocks),
-			//})
 			s.addEvent(chat.NewDoneEvent(s.id))
-			//s.saveHistory()
+			s.saveAndReset(historyBefore)
 			return
 		}
 	}
+}
+
+// saveAndReset 持久化本轮新增消息并清空事件缓冲区。
+func (s *chatSession) saveAndReset(historyBefore int) {
+	newCount := s.events.HistoryLen() - historyBefore
+	if err := s.events.SaveHistory(newCount); err != nil {
+		log.Printf("[chatSession] save history failed: %v", err)
+	}
+	s.events.Reset()
 }

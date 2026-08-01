@@ -17,13 +17,13 @@ type Session struct {
 	hasClient   chan bool
 }
 
-func (s *Session) HandleChat(message *entity.Message) error {
+func (s *Session) HandleChat(message *entity.WsChatMessage) error {
 	if s.chatClient == nil {
 		return errors.New("no chat client")
 	}
 	return s.chatClient.SendText(message.Message)
 }
-func (s *Session) CreateChat(message *entity.Message) error {
+func (s *Session) CreateChat(message *entity.WsCreateMessage) error {
 	err := s.getChatClient(message.GetSessionId(), message.Start)
 	if err != nil {
 		return err

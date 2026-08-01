@@ -12,7 +12,6 @@ import (
 	sdkutil "github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
-	"github.com/chuccp/go-web-frame/util"
 	"github.com/chuccp/go-web-frame/web"
 	"github.com/coder/websocket"
 	"go.uber.org/zap"
@@ -90,7 +89,7 @@ func (c *Chat) deleteSession(request *web.Request) (any, error) {
 // getSessionMessages returns all messages for a session ordered by creation time.
 func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 	sessionId := request.ParamUint("id")
-	messages, err := c.chatSessionService.GetSessionMessages(sessionId)
+	messages, err := c.agent.History(sessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -145,22 +144,21 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 		}
 		switch messageType {
 		case websocket.MessageText:
-			msg, err := util.JsonUnmarshal[*entity.Message](message)
+			msg, err := entity.ParseMessage(message)
 			if err != nil {
 				return err
 			}
-			switch msg.Type {
-			case entity.ChatType:
-				if err := session.HandleChat(msg); err != nil {
+			switch m := msg.(type) {
+			case *entity.WsChatMessage:
+				if err := session.HandleChat(m); err != nil {
 					writeError(stream, err)
 				}
-			case entity.CreateType:
-				if err := session.CreateChat(msg); err != nil {
+			case *entity.WsCreateMessage:
+				if err := session.CreateChat(m); err != nil {
 					writeError(stream, err)
 				}
-
-			case entity.StopType:
-				if err := session.HandleStop(msg); err != nil {
+			case *entity.WsStopMessage:
+				if err := session.HandleStop(); err != nil {
 					writeError(stream, err)
 				}
 			}

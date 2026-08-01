@@ -26,6 +26,8 @@ const (
 // Message 是 messages 数组中的一条消息。
 // Content 为 Block 接口数组，支持多态 JSON 序列化。
 type Message struct {
+	Start   uint   `json:"start"`
+	Offset  uint   `json:"offset"`
 	Role    Role   `json:"role"`    // "user" | "assistant"
 	Content Blocks `json:"content"` // content block 数组
 }

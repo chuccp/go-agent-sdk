@@ -58,12 +58,10 @@ func (m *ChatManager) RegisterChat(provider string, chatService chat.ChatService
 	m.registry.Register(provider, chatService, isDefault)
 }
 
-func (m *ChatManager) GetChat(id string, start uint) (*ChatClient, error) {
-
-	m.lock.Lock()
+// getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
+func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 	if c, ok := m.chats[id]; ok {
-		m.lock.Unlock()
-		return c.newClient(), nil
+		return c
 	}
 	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
 	tools := make(map[string]ToolExecutor, len(m.toolExecutors))
@@ -72,12 +70,27 @@ func (m *ChatManager) GetChat(id string, start uint) (*ChatClient, error) {
 	}
 	session := newChatSession(id, m.registry, tools, m.system, m.opts, m.historyStore)
 	m.chats[id] = session
+	return session
+}
+
+func (m *ChatManager) History(id string) ([]*chat.Message, error) {
+	m.lock.Lock()
+	session := m.getOrCreateSession(id)
 	m.lock.Unlock()
-	err := session.LoadHistory()
-	if err != nil {
+	if err := session.LoadHistory(); err != nil {
 		return nil, err
 	}
-	return session.newClient(), nil
+	return session.History(), nil
+}
+
+func (m *ChatManager) GetChat(id string, start uint) (*ChatClient, error) {
+	m.lock.Lock()
+	session := m.getOrCreateSession(id)
+	m.lock.Unlock()
+	if err := session.LoadHistory(); err != nil {
+		return nil, err
+	}
+	return session.newClient(start), nil
 }
 
 // RemoveChat 关闭并移除指定会话。若会话不存在则无操作。

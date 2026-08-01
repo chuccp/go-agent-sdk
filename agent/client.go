@@ -8,6 +8,7 @@ import (
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
 	SendMessage(message *chat.Message, opt ...Option) error
+	History() []*chat.Message
 	ReadEvent(start uint) *chat.EventEntry
 	DeleteClient(client *ChatClient)
 	Stop()
@@ -18,6 +19,7 @@ type ChatClient struct {
 	handler ChatHandler
 	queue   *util.Queue[bool]
 	offset  uint
+	start   uint
 }
 
 func (c *ChatClient) SendText(message string, opt ...Option) error {

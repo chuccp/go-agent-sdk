@@ -7,20 +7,19 @@ import (
 )
 
 // HistoryStore 聊天记录持久化接口，由主程序实现。
-// SDK 在创建会话时调用 LoadHistory 恢复历史，在每轮对话结束后调用 SaveHistory 保存。
+// SDK 在创建会话时调用 LoadHistory 恢复历史，在每轮对话结束后调用 AppendMessages 增量保存。
 type HistoryStore interface {
 	// LoadHistory 加载指定会话的历史消息。
 	// 返回空切片表示新会话，无历史记录。
 	LoadHistory(sessionID string) ([]Message, error)
 
-	// SaveHistory 保存指定会话的完整历史消息。
-	// 每次调用传入的是当前会话的完整 history（全量覆盖）。
-	SaveHistory(sessionID string, messages []Message) error
+	// AppendMessages 追加本批次新产生的消息到持久化存储。
+	AppendMessages(sessionID string, messages []Message) error
 }
 
 type Store struct {
 	sessionId    string
-	history      []Message
+	history      *util.SliceArray[*Message]
 	historyStore HistoryStore
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*EventEntry]
@@ -32,6 +31,7 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 		entries:      new(util.SliceArray[*EventEntry]),
 		historyStore: historyStore,
 		sessionId:    sessionId,
+		history:      new(util.SliceArray[*Message]),
 	}
 }
 
@@ -69,7 +69,85 @@ func (l *Store) Reset() {
 }
 
 func (l *Store) LoadHistory() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.historyStore == nil {
+		return nil
+	}
+	if l.history.IsEmpty() {
+		msgs, err := l.historyStore.LoadHistory(l.sessionId)
+		if err != nil {
+			return err
+		}
+		for i := range msgs {
+			l.history.Append(&msgs[i])
+		}
+	}
+	return nil
+}
+
+// History 返回当前全量历史消息快照。
+func (l *Store) History() []*Message {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return nil
+	result := make([]*Message, l.history.Len())
+	copy(result, l.history.Slice())
+	return result
+}
+
+// Position 返回当前事件流写头（下一个事件的 seq）。
+func (l *Store) Position() uint {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.base + uint(l.entries.Len())
+}
+
+// Base 返回活跃缓冲区的起始 seq（用于判断客户端 start 是否已过期）。
+func (l *Store) Base() uint {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.base
+}
+
+// AppendHistory 将一条消息追加到内存历史。
+func (l *Store) AppendHistory(msg *Message) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.history.Append(msg)
+}
+
+// HistoryLen 返回当前历史消息数量。
+func (l *Store) HistoryLen() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.history.Len()
+}
+
+// SetLastHistoryOffset 回填最后一条历史消息的 Offset。
+func (l *Store) SetLastHistoryOffset(offset uint) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.history.Len() > 0 {
+		l.history.Get(l.history.Len() - 1).Offset = offset
+	}
+}
+
+// SaveHistory 将本轮新增的消息增量持久化到存储。
+// newCount 为本轮新增的消息数量（从 history 尾部截取）。
+func (l *Store) SaveHistory(newCount int) error {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.historyStore == nil || newCount <= 0 {
+		return nil
+	}
+	all := l.history.Slice()
+	if newCount > len(all) {
+		newCount = len(all)
+	}
+	batch := all[len(all)-newCount:]
+	msgs := make([]Message, len(batch))
+	for i, m := range batch {
+		msgs[i] = *m
+	}
+	return l.historyStore.AppendMessages(l.sessionId, msgs)
 }

@@ -85,7 +85,9 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 	messages := make([]chat.Message, 0, len(rows))
 	for _, row := range rows {
 		msg := chat.Message{
-			Role: chat.Role(row.Role),
+			Role:   chat.Role(row.Role),
+			Start:  row.Start,
+			Offset: row.Offset,
 		}
 		if row.Content != "" {
 			var blocks chat.Blocks
@@ -101,28 +103,23 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 	return messages, nil
 }
 
-// SaveHistory persists the full chat history for a session to the database.
-// Strategy: delete old messages, then batch insert new ones.
-// Implements agent.HistoryStore interface.
-func (s *ChatSessionService) SaveHistory(sessionID string, messages []chat.Message) error {
+// AppendMessages persists new messages for a session to the database (incremental insert).
+// Implements chat.HistoryStore interface.
+func (s *ChatSessionService) AppendMessages(sessionID string, messages []chat.Message) error {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
 	if err != nil {
 		return nil
 	}
 	sid := uint(id)
 
-	// Delete old records
-	if err := s.messageModel.Delete().Where("session_id = ?", sid).Delete(); err != nil {
-		return err
-	}
-
-	// Batch insert new records
 	for _, msg := range messages {
 		contentJSON, _ := json.Marshal(msg.Content)
 		row := &entity.ChatMessage{
 			SessionId: sid,
 			Role:      string(msg.Role),
 			Content:   string(contentJSON),
+			Start:     msg.Start,
+			Offset:    msg.Offset,
 		}
 		if err := s.messageModel.Save(row); err != nil {
 			return err

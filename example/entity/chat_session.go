@@ -20,6 +20,8 @@ type ChatMessage struct {
 	SessionId   uint      `gorm:"index" json:"session_id"`
 	Role        string    `gorm:"size:32" json:"role"`
 	Content     string    `gorm:"type:text" json:"content"`
+	Start       uint      `json:"start"`
+	Offset      uint      `json:"offset"`
 	ToolCalls   string    `gorm:"type:text" json:"tool_calls,omitempty"`   // JSON-serialized tool calls
 	ToolResults string    `gorm:"type:text" json:"tool_results,omitempty"` // JSON-serialized tool results
 	CreatedAt   time.Time `json:"created_at"`
