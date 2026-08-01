@@ -55,8 +55,13 @@ func (c *blockCollector) start(blockType chat.ContentType, id, name string) {
 // flush 完成当前 block 并将其加入列表。
 func (c *blockCollector) flush() {
 	if c.current != nil {
-		c.blocks = append(c.blocks, c.current.finalize())
+		b := c.current.finalize()
 		c.current = nil
+		// 跳过空的 thinking block（避免产生 {"type":"thinking"} 脏数据）
+		if tb, ok := b.(*chat.ThinkingBlock); ok && tb.Thinking == "" {
+			return
+		}
+		c.blocks = append(c.blocks, b)
 	}
 }
 
@@ -247,9 +252,18 @@ func (s *chatSession) run(ctx context.Context) {
 		default: // end_turn
 			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveAndReset(historyBefore)
-			// 不直接退出：回到循环顶部检查队列是否还有待处理消息
 			historyBefore = s.events.HistoryLen()
-			continue
+			// 队列无待处理消息则退出（原子检查防竞态）；
+			// 有则回到循环顶部继续处理（不能无条件 continue，
+			// 否则 build() 会用相同 history 重复调用 LLM）
+			s.mu.Lock()
+			if s.inbox.Len() == 0 {
+				s.running = false
+				s.cancel = nil
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Unlock()
 		}
 	}
 }

@@ -159,7 +159,13 @@ func (s *chatSession) build() *chat.Request {
 		Messages: make([]chat.Message, 0, len(history)),
 	}
 	for _, m := range history {
-		messages.Messages = append(messages.Messages, *m)
+		msg := *m
+		msg.Content = withoutThinking(m.Content)
+		// 剥离后内容为空的消息不发送（避免空 content 报错）
+		if len(msg.Content) == 0 {
+			continue
+		}
+		messages.Messages = append(messages.Messages, msg)
 	}
 
 	if effective != nil {
@@ -189,6 +195,22 @@ func (s *chatSession) build() *chat.Request {
 func (s *chatSession) addEvent(event *chat.ClientEvent) {
 	s.events.Add(event)
 	s.flush()
+}
+
+// withoutThinking 从 blocks 中剩离 thinking block。
+// 发送给 LLM 的历史不需要思考链：Anthropic 要求历史中的 thinking block 必须携带
+// signature 字段原样传回，否则报 400；且空 thinking 会因 omitempty 序列化为
+// {"type":"thinking"} 缺少 thinking 字段。思考链仍保留在 history/DB 中供展示，
+// 仅不回传给模型。
+func withoutThinking(blocks chat.Blocks) chat.Blocks {
+	result := make(chat.Blocks, 0, len(blocks))
+	for _, b := range blocks {
+		if _, ok := b.(*chat.ThinkingBlock); ok {
+			continue
+		}
+		result = append(result, b)
+	}
+	return result
 }
 
 // flush 通知所有客户端有新事件

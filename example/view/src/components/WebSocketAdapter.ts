@@ -27,6 +27,7 @@ export function createSimpleWebSocketAdapter(
   getWs: () => WebSocket | null,
   getSessionId: () => number,
   onQueueEvent?: QueueEventListener,
+  getThinking?: () => string,
 ): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }): AsyncGenerator<ChatModelRunResult> {
@@ -116,7 +117,10 @@ export function createSimpleWebSocketAdapter(
       // Send create (idempotent) to ensure server session is initialized, then chat
       const sessionId = getSessionId()
       ws.send(JSON.stringify({ type: 'create', session_id: sessionId, start: 0 }))
-      ws.send(JSON.stringify({ type: 'chat', message: textContent.trim() }))
+      const chatMsg: Record<string, string> = { type: 'chat', message: textContent.trim() }
+      const thinking = getThinking?.()
+      if (thinking && thinking !== 'off') chatMsg.thinking = thinking
+      ws.send(JSON.stringify(chatMsg))
 
       // Yield results as they arrive
       while (!done) {

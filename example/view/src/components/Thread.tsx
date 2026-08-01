@@ -4,6 +4,7 @@ import {
   ComposerPrimitive,
   useThread,
   useComposerRuntime,
+  useComposer,
   useMessage,
 } from '@assistant-ui/react'
 import Markdown from 'react-markdown'
@@ -76,29 +77,39 @@ export function Thread() {
 // ── Message Queue Bar ──
 
 function MessageQueueBar() {
-  const { queuedMessages, queueCount } = useMessageQueue()
+  const { queuedMessages, queueCount, pendingQueue } = useMessageQueue()
 
-  if (queuedMessages.length === 0) return null
+  if (queuedMessages.length === 0 && pendingQueue.length === 0) return null
 
   return (
     <div style={{
       padding: '8px 24px', flexShrink: 0,
       background: '#fff8e1', borderTop: '1px solid #ffe082',
     }}>
-      <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 20, height: 20, borderRadius: '50%',
+          minWidth: 20, height: 20, borderRadius: 10, padding: '0 6px',
           background: '#f9a825', color: '#fff', fontSize: 11, fontWeight: 700,
         }}>
-          {queueCount}
+          {queueCount + pendingQueue.length}
         </span>
         <span style={{ fontSize: 13, color: '#5f6368' }}>
-          {queueCount > 0
-            ? `${queueCount} 条消息排队等待处理中…`
-            : '消息已被消费，即将显示…'}
+          {pendingQueue.length > 0
+            ? `${pendingQueue.length} 条消息排队等待发送…`
+            : `${queueCount} 条消息排队等待处理…`}
         </span>
-        <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          {pendingQueue.map((text, i) => (
+            <span key={`p-${i}`} style={{
+              display: 'inline-block', padding: '2px 10px', maxWidth: 220,
+              borderRadius: 10, fontSize: 11,
+              background: '#fff3e0', color: '#e65100', border: '1px solid #ffcc80',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              ⏳ {text}
+            </span>
+          ))}
           {queuedMessages.map(m => (
             <span key={m.id} style={{
               display: 'inline-block', padding: '2px 8px',
@@ -245,6 +256,19 @@ function AssistantMessage() {
 function Composer() {
   const isRunning = useThread((state) => state.isRunning)
   const composerRuntime = useComposerRuntime()
+  const text = useComposer((c) => c.text)
+  const { queueSend, thinkingLevel, setThinkingLevel } = useMessageQueue()
+
+  const hasText = text.trim().length > 0
+  // AI 输出中且已输入文字 → 显示发送键（加入队列）；AI 输出中但未输入 → 停止键
+  const showQueueSend = isRunning && hasText
+
+  const handleQueueSend = () => {
+    const t = text.trim()
+    if (!t) return
+    queueSend(t)
+    composerRuntime.setText('')
+  }
 
   return (
     <div>
@@ -266,20 +290,38 @@ function Composer() {
         />
 
         {isRunning ? (
-          <button
-            onClick={() => composerRuntime.cancel()}
-            style={{
-              width: 36, height: 36, borderRadius: '50%', border: 'none',
-              background: '#ea4335', color: '#fff', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-            title="Stop"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          </button>
+          showQueueSend ? (
+            <button
+              onClick={handleQueueSend}
+              style={{
+                width: 36, height: 36, borderRadius: '50%', border: 'none',
+                background: '#f9a825', color: '#fff', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}
+              title="加入队列发送"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={() => composerRuntime.cancel()}
+              style={{
+                width: 36, height: 36, borderRadius: '50%', border: 'none',
+                background: '#ea4335', color: '#fff', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}
+              title="Stop"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          )
         ) : (
           <ComposerPrimitive.Send
             style={{
@@ -298,12 +340,50 @@ function Composer() {
       </ComposerPrimitive.Root>
 
       <div style={{
-        display: 'flex', alignItems: 'center', marginTop: 6, paddingLeft: 4,
+        display: 'flex', alignItems: 'center', marginTop: 6, paddingLeft: 4, gap: 10,
       }}>
-        <span style={{ fontSize: 11, color: '#80868b' }}>Enter 发送 · 用于调试 agent 的纯聊天界面</span>
+        <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
+        <span style={{ fontSize: 11, color: '#80868b' }}>Enter 发送 · AI 回复中可继续输入排队</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#dadce0', fontFamily: 'monospace' }}>
           /ws/chat
         </span>
+      </div>
+    </div>
+  )
+}
+
+// ── Thinking Level Selector ──
+
+const THINKING_LEVELS = [
+  { value: 'off', label: '关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+]
+
+function ThinkingSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <span style={{ fontSize: 11, color: '#80868b' }}>💭 思考</span>
+      <div style={{
+        display: 'inline-flex', borderRadius: 12, overflow: 'hidden',
+        border: '1px solid #dadce0', background: '#fff',
+      }}>
+        {THINKING_LEVELS.map(l => (
+          <button
+            key={l.value}
+            onClick={() => onChange(l.value)}
+            style={{
+              border: 'none', cursor: 'pointer', padding: '2px 10px',
+              fontSize: 11, lineHeight: '18px', fontFamily: 'inherit',
+              background: value === l.value ? '#8b5cf6' : 'transparent',
+              color: value === l.value ? '#fff' : '#5f6368',
+              transition: 'all 0.15s',
+            }}
+          >
+            {l.label}
+          </button>
+        ))}
       </div>
     </div>
   )

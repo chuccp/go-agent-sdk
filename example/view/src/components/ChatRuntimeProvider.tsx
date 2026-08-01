@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useRef, useEffect, useState, useCallback, createContext, useContext } from 'react'
-import { AssistantRuntimeProvider, useLocalRuntime, useAssistantRuntime } from '@assistant-ui/react'
+import { AssistantRuntimeProvider, useLocalRuntime, useAssistantRuntime, useThreadRuntime, useThread } from '@assistant-ui/react'
 import { createSimpleWebSocketAdapter, type QueueEvent } from './WebSocketAdapter'
 import { getSessionMessages, type ChatMessage } from '../api/chat'
 
@@ -116,9 +116,26 @@ export interface QueuedMessage {
 interface MessageQueueState {
   queuedMessages: QueuedMessage[]
   queueCount: number
+  /** 客户端排队待发送的消息内容 */
+  pendingQueue: string[]
+  /** 将消息加入客户端队列（AI 忙碌时调用） */
+  queueSend: (text: string) => void
+  /** 从队列头部出队一条 */
+  shiftPending: () => void
+  /** 思考等级 */
+  thinkingLevel: string
+  setThinkingLevel: (level: string) => void
 }
 
-const MessageQueueContext = createContext<MessageQueueState>({ queuedMessages: [], queueCount: 0 })
+const MessageQueueContext = createContext<MessageQueueState>({
+  queuedMessages: [],
+  queueCount: 0,
+  pendingQueue: [],
+  queueSend: () => {},
+  shiftPending: () => {},
+  thinkingLevel: 'off',
+  setThinkingLevel: () => {},
+})
 
 export function useMessageQueue() {
   return useContext(MessageQueueContext)
@@ -153,6 +170,20 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
 
   // 消息队列状态
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
+
+  // 客户端排队待发送的消息（AI 忙碌时用户提交的消息）
+  const [pendingQueue, setPendingQueue] = useState<string[]>([])
+  const queueSend = useCallback((text: string) => {
+    setPendingQueue(prev => [...prev, text])
+  }, [])
+  const shiftPending = useCallback(() => {
+    setPendingQueue(prev => prev.slice(1))
+  }, [])
+
+  // 思考等级
+  const [thinkingLevel, setThinkingLevel] = useState<string>('off')
+  const thinkingRef = useRef(thinkingLevel)
+  thinkingRef.current = thinkingLevel
 
   const handleQueueEvent = useCallback((evt: QueueEvent) => {
     switch (evt.type) {
@@ -208,7 +239,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const getSessionId = () => sessionIdRef.current
 
   const adapter = useMemo(
-    () => createSimpleWebSocketAdapter(getWs, getSessionId, handleQueueEvent),
+    () => createSimpleWebSocketAdapter(getWs, getSessionId, handleQueueEvent, () => thinkingRef.current),
     [handleQueueEvent],
   )
 
@@ -219,7 +250,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const queueState = useMemo<MessageQueueState>(() => ({
     queuedMessages,
     queueCount: queuedMessages.filter(m => m.status === 'queued').length,
-  }), [queuedMessages])
+    pendingQueue,
+    queueSend,
+    shiftPending,
+    thinkingLevel,
+    setThinkingLevel,
+  }), [queuedMessages, pendingQueue, queueSend, shiftPending, thinkingLevel])
 
   // 历史消息未加载完成时显示 loading
   if (initialMessages === null) {
@@ -234,10 +270,29 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     <MessageQueueContext.Provider value={queueState}>
       <AssistantRuntimeProvider runtime={runtime}>
         <SessionResetter sessionId={sessionId} />
+        <PendingSendWatcher />
         {children}
       </AssistantRuntimeProvider>
     </MessageQueueContext.Provider>
   )
+}
+
+/** 空闲时自动发送客户端队列中的下一条消息。 */
+function PendingSendWatcher() {
+  const threadRuntime = useThreadRuntime()
+  const isRunning = useThread(t => t.isRunning)
+  const { pendingQueue, shiftPending } = useMessageQueue()
+
+  useEffect(() => {
+    if (isRunning || pendingQueue.length === 0) return
+    const next = pendingQueue[0]
+    shiftPending()
+    threadRuntime.composer.setText(next)
+    threadRuntime.composer.send()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning, pendingQueue.length, threadRuntime])
+
+  return null
 }
 
 /** Resets the thread when sessionId changes. */

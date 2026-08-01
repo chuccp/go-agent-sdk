@@ -24,7 +24,8 @@ type Message interface {
 
 // WsChatMessage 客户端发送的聊天文本消息。
 type WsChatMessage struct {
-	Message string `json:"message"`
+	Message  string `json:"message"`
+	Thinking string `json:"thinking,omitempty"` // 思考等级：off / low / medium / high
 }
 
 func (m *WsChatMessage) Type() string { return ChatType }
