@@ -67,3 +67,9 @@ func (l *Store) Reset() {
 	l.base = l.base + uint(l.entries.Len())
 	l.entries.Reset()
 }
+
+func (l *Store) LoadHistory() error {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return nil
+}

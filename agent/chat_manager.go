@@ -58,17 +58,12 @@ func (m *ChatManager) RegisterChat(provider string, chatService chat.ChatService
 	m.registry.Register(provider, chatService, isDefault)
 }
 
-func (m *ChatManager) GetChat(id string) *ChatClient {
-	m.lock.RLock()
-	c, ok := m.chats[id]
-	m.lock.RUnlock()
-	if ok {
-		return c.newClient()
-	}
+func (m *ChatManager) GetChat(id string, start uint) (*ChatClient, error) {
+
 	m.lock.Lock()
-	defer m.lock.Unlock()
-	if c, ok = m.chats[id]; ok {
-		return c.newClient()
+	if c, ok := m.chats[id]; ok {
+		m.lock.Unlock()
+		return c.newClient(), nil
 	}
 	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
 	tools := make(map[string]ToolExecutor, len(m.toolExecutors))
@@ -77,7 +72,12 @@ func (m *ChatManager) GetChat(id string) *ChatClient {
 	}
 	session := newChatSession(id, m.registry, tools, m.system, m.opts, m.historyStore)
 	m.chats[id] = session
-	return session.newClient()
+	m.lock.Unlock()
+	err := session.LoadHistory()
+	if err != nil {
+		return nil, err
+	}
+	return session.newClient(), nil
 }
 
 // RemoveChat 关闭并移除指定会话。若会话不存在则无操作。

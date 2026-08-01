@@ -68,6 +68,11 @@ func (s *chatSession) newClient() *ChatClient {
 	s.mu.Unlock()
 	return chatClient
 }
+func (s *chatSession) LoadHistory() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.events.LoadHistory()
+}
 
 func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.mu.Lock()

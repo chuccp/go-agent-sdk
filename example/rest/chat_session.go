@@ -6,10 +6,10 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	sdkutil "github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/server"
 	"github.com/chuccp/go-agent-sdk/example/service"
+	sdkutil "github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/util"
@@ -154,6 +154,11 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 				if err := session.HandleChat(msg); err != nil {
 					writeError(stream, err)
 				}
+			case entity.CreateType:
+				if err := session.CreateChat(msg); err != nil {
+					writeError(stream, err)
+				}
+
 			case entity.StopType:
 				if err := session.HandleStop(msg); err != nil {
 					writeError(stream, err)

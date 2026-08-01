@@ -18,36 +18,46 @@ type Session struct {
 }
 
 func (s *Session) HandleChat(message *entity.Message) error {
-	client, err := s.getChatClient(message.GetSessionId())
-	if err != nil {
-		return err
+	if s.chatClient == nil {
+		return errors.New("no chat client")
 	}
-	return client.SendText(message.Message)
+	return s.chatClient.SendText(message.Message)
 }
-
-func (s *Session) HandleStop(message *entity.Message) error {
-	client, err := s.getChatClient(message.GetSessionId())
+func (s *Session) CreateChat(message *entity.Message) error {
+	err := s.getChatClient(message.GetSessionId(), message.Start)
 	if err != nil {
 		return err
 	}
-	client.Stop()
 	return nil
 }
 
-func (s *Session) getChatClient(id string) (*agent.ChatClient, error) {
+func (s *Session) HandleStop() error {
+	if s.chatClient == nil {
+		return errors.New("no chat client")
+	}
+	s.chatClient.Stop()
+	return nil
+}
+
+func (s *Session) getChatClient(id string, start uint) error {
 	if util.IsBlank(id) {
-		return nil, errors.New("id is blank")
+		return errors.New("id is blank")
 	}
 	s.lock.Lock()
 
 	if s.chatClient != nil {
 		s.lock.Unlock()
-		return s.chatClient, nil
+		return nil
 	}
-	s.chatClient = s.chatManager.GetChat(id)
+	chatClient, err := s.chatManager.GetChat(id, start)
+	if err != nil {
+		s.lock.Unlock()
+		return err
+	}
+	s.chatClient = chatClient
 	s.lock.Unlock()
 	s.hasClient <- true
-	return s.chatClient, nil
+	return nil
 }
 
 func (s *Session) ReadEvent() *chat.ClientEvent {
