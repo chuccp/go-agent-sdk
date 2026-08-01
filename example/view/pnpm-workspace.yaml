@@ -1,0 +1,3 @@
+overrides:
+  "@assistant-ui/core": "0.2.12"
+  "@assistant-ui/store": "0.2.14"
