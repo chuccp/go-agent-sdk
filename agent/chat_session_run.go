@@ -189,27 +189,31 @@ func (s *chatSession) Stop() {
 }
 
 func (s *chatSession) run(ctx context.Context) {
-	defer func() {
-		s.mu.Lock()
-		s.running = false
-		s.cancel = nil
-		s.mu.Unlock()
-	}()
-
-	// 记录本轮开始前历史长度，用于计算新增消息数
+	// 记录本次 run 开始前历史长度，用于计算新增消息数
 	historyBefore := s.events.HistoryLen()
 
 	for {
 		select {
 		case <-ctx.Done():
 			s.saveAndReset(historyBefore)
+			s.exitRun()
 			return
 		default:
 		}
 
 		messages := s.build()
 		if messages == nil {
-			return
+			// 队列为空：原子地检查 inbox 并置 running=false，
+			// 避免“检查空 → 消息到达 → 已退出”的竞态窗口
+			s.mu.Lock()
+			if s.inbox.Len() == 0 {
+				s.running = false
+				s.cancel = nil
+				s.mu.Unlock()
+				return
+			}
+			s.mu.Unlock()
+			continue // 有消息在检查间隙到达，继续处理
 		}
 
 		provider := s.registry.DefaultProvider()
@@ -219,12 +223,14 @@ func (s *chatSession) run(ctx context.Context) {
 			evt.Done = true
 			s.addEvent(evt)
 			s.saveAndReset(historyBefore)
+			s.exitRun()
 			return
 		}
 
 		blocks, stopReason, start, err := s.streamResponse(resp)
 		if err != nil {
 			s.saveAndReset(historyBefore)
+			s.exitRun()
 			return
 		}
 
@@ -241,9 +247,19 @@ func (s *chatSession) run(ctx context.Context) {
 		default: // end_turn
 			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveAndReset(historyBefore)
-			return
+			// 不直接退出：回到循环顶部检查队列是否还有待处理消息
+			historyBefore = s.events.HistoryLen()
+			continue
 		}
 	}
+}
+
+// exitRun 非正常退出时清理 running 状态。
+func (s *chatSession) exitRun() {
+	s.mu.Lock()
+	s.running = false
+	s.cancel = nil
+	s.mu.Unlock()
 }
 
 // saveAndReset 持久化本轮新增消息并清空事件缓冲区。
