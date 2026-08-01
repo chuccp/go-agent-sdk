@@ -40,3 +40,10 @@ go.work.sum
 # SQLite database
 *.db
 example/data/
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
