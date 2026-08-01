@@ -10,6 +10,8 @@ export interface ChatMessage {
   session_id: number
   role: string
   content: string
+  start: number
+  offset: number
   tool_calls?: string
   tool_results?: string
   created_at: string

@@ -4,14 +4,16 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
  * WebSocket adapter for the go-agent-sdk chat protocol.
  *
  * Protocol:
- *   Send:    { type: "chat",  message: "user text", session_id: 123 }
+ *   Send:    { type: "create", session_id: N, start: 0 }  — 初始化会话（每次 run 前发送，服务端幂等）
+ *   Send:    { type: "chat",  message: "user text" }
  *   Send:    { type: "stop" }
- *   Receive: { type: "chunk", content: "text", done: false, conversation_id: "..." }
+ *   Receive: { type: "chunk", content: "text", source: "ai" }
+ *   Receive: { type: "thinking", content: "...", source: "ai" }
  *   Receive: { type: "done",  done: true }
  *   Receive: { type: "error", message: "error text" }
- *   Receive: { type: "message_sent", message_id: N }      — 消息已被立即处理
- *   Receive: { type: "message_queued", message_id: N }    — 消息进入等待队列
- *   Receive: { type: "message_consumed", message_id: N }  — 队列消息已被消费
+ *   Receive: { type: "message_sent", message_id: N }
+ *   Receive: { type: "message_queued", message_id: N }
+ *   Receive: { type: "message_consumed", message_id: N }
  */
 
 export interface QueueEvent {
@@ -111,9 +113,10 @@ export function createSimpleWebSocketAdapter(
         done = true
       })
 
-      // Send the message with session_id
+      // Send create (idempotent) to ensure server session is initialized, then chat
       const sessionId = getSessionId()
-      ws.send(JSON.stringify({ type: 'chat', message: textContent.trim(), session_id: sessionId }))
+      ws.send(JSON.stringify({ type: 'create', session_id: sessionId, start: 0 }))
+      ws.send(JSON.stringify({ type: 'chat', message: textContent.trim() }))
 
       // Yield results as they arrive
       while (!done) {
