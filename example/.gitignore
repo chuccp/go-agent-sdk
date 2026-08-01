@@ -26,8 +26,9 @@ go.work.sum
 
 # env file
 .env
-.yml
-.ini
+*.env
+*.yml
+*.ini
 # Editor/IDE
 # .idea/
 # .vscode/
