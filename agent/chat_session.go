@@ -21,9 +21,10 @@ type queuedMessage struct {
 type chatSession struct {
 	id            string
 	clientMutex   sync.Mutex // 保护 chatClients
-	runMutex      sync.Mutex // 保护 running / cancel（生命周期状态）
+	runMutex      sync.Mutex // 保护 inbox / running / cancel
+	cond          *sync.Cond // 基于 runMutex，唤醒 run() 处理新消息
 	registry      *chat.ProviderRegistry
-	inbox         *util.SliceQueueSafe[*queuedMessage]
+	inbox         []*queuedMessage // 用户输入消息队列（runMutex 保护）
 	events        *chat.Store
 	running       bool
 	chatClients   *util.SliceArray[*ChatClient]
@@ -38,7 +39,6 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 	s := &chatSession{
 		id:            id,
 		registry:      registry,
-		inbox:         util.NewSliceQueueSafe[*queuedMessage](),
 		events:        chat.NewStore(id, historyStore),
 		running:       false,
 		chatClients:   new(util.SliceArray[*ChatClient]),
@@ -46,6 +46,7 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 		system:        system,
 		opts:          opts,
 	}
+	s.cond = sync.NewCond(&s.runMutex)
 	return s
 }
 func (s *chatSession) History() []*chat.Message {
@@ -83,12 +84,9 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 		msg:  message,
 		opts: opt,
 	}
-	err := s.inbox.Write(qm)
-	if err != nil {
-		return err
-	}
 	s.runMutex.Lock()
-	defer s.runMutex.Unlock()
+	s.inbox = append(s.inbox, qm)
+	s.cond.Signal()
 	if !s.running {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
@@ -105,29 +103,21 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 	} else {
 		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id, message))
 	}
+	s.runMutex.Unlock()
 	return nil
 }
 
-// build 从队列中取出所有待处理消息，追加到历史记录，构建 LLM 请求
+// build 从 inbox 中取出所有待处理消息，追加到历史记录，构建 LLM 请求。
+// 调用方必须持有 runMutex。
 func (s *chatSession) build() *chat.Request {
 	var turnOpts []Option
-	for {
-		qm, err := s.inbox.Read()
-		if err != nil {
-			break
-		}
-		// 用户消息入历史（带事件流区间）
-		start := s.events.Position()
-		msg := qm.msg.ToMessage()
-		msg.Start = start
-		s.events.AppendHistory(&msg)
-		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id, qm.msg))
-		s.events.SetLastHistoryOffset(s.events.Position() - start)
+	for _, qm := range s.inbox {
+		s.consumeMessage(qm)
 		if len(qm.opts) > 0 {
 			turnOpts = qm.opts
 		}
 	}
+	s.inbox = s.inbox[:0]
 
 	// 注入历史上下文
 	history := s.events.History()
@@ -185,6 +175,25 @@ func (s *chatSession) build() *chat.Request {
 func (s *chatSession) addEvent(event *chat.ClientEvent) {
 	s.events.Add(event)
 	s.flush()
+}
+
+// consumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
+func (s *chatSession) consumeMessage(qm *queuedMessage) {
+	start := s.events.Position()
+	msg := qm.msg.ToMessage()
+	msg.Start = start
+	s.events.AppendHistory(&msg)
+	s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id, qm.msg))
+	s.events.SetLastHistoryOffset(s.events.Position() - start)
+}
+
+// drainInbox 排干 inbox 中所有剩余消息，将它们写入历史（不丢失）。
+// 调用方必须持有 runMutex。
+func (s *chatSession) drainInbox() {
+	for _, qm := range s.inbox {
+		s.consumeMessage(qm)
+	}
+	s.inbox = s.inbox[:0]
 }
 
 // withoutThinking 从 blocks 中剩离 thinking block。

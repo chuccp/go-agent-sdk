@@ -185,40 +185,63 @@ func (s *chatSession) executeTools(blocks chat.Blocks) {
 
 func (s *chatSession) Stop() {
 	s.runMutex.Lock()
-	defer s.runMutex.Unlock()
-	if s.running {
-		if s.cancel != nil {
-			s.cancel()
-		}
+	if s.cancel != nil {
+		s.cancel()
 	}
+	s.cond.Broadcast() // 唤醒 run() 使其检测 ctx 取消并退出
+	s.runMutex.Unlock()
 }
 
 func (s *chatSession) run(ctx context.Context) {
+	// 安全网：panic 时确保 running 状态清理（正常退出路径已显式清理，此处为幂等兜底）
+	defer func() {
+		s.runMutex.Lock()
+		s.running = false
+		s.cancel = nil
+		s.runMutex.Unlock()
+	}()
+
 	// 记录本次 run 开始前历史长度，用于计算新增消息数
 	historyBefore := s.events.HistoryLen()
+	needWait := true // tool_use 后置 false，跳过等待直接再调 LLM
 
 	for {
-		select {
-		case <-ctx.Done():
-			s.saveAndReset(historyBefore)
-			s.exitRun()
-			return
-		default:
-		}
+		s.runMutex.Lock()
 
-		messages := s.build()
-		if messages == nil {
-			// 队列为空：原子地检查 inbox 并置 running=false，
-			// 避免“检查空 → 消息到达 → 已退出”的竞态窗口
-			s.runMutex.Lock()
-			if s.inbox.Len() == 0 {
+		// 等待新消息：仅当 inbox 为空且无待处理的工具结果时阻塞
+		for len(s.inbox) == 0 && needWait {
+			select {
+			case <-ctx.Done():
+				s.drainInbox()
+				s.saveAndReset(historyBefore)
 				s.running = false
 				s.cancel = nil
 				s.runMutex.Unlock()
 				return
+			default:
 			}
+			s.cond.Wait()
+		}
+
+		// 检查取消
+		select {
+		case <-ctx.Done():
+			s.drainInbox()
+			s.saveAndReset(historyBefore)
+			s.running = false
+			s.cancel = nil
 			s.runMutex.Unlock()
-			continue // 有消息在检查间隙到达，继续处理
+			return
+		default:
+		}
+
+		// 排干 inbox，构建 LLM 请求
+		messages := s.build()
+		s.runMutex.Unlock()
+
+		if messages == nil {
+			needWait = true
+			continue
 		}
 
 		provider := s.registry.DefaultProvider()
@@ -227,15 +250,23 @@ func (s *chatSession) run(ctx context.Context) {
 			evt := chat.NewErrorEvent(err.Error())
 			evt.Done = true
 			s.addEvent(evt)
+			s.runMutex.Lock()
+			s.drainInbox()
 			s.saveAndReset(historyBefore)
-			s.exitRun()
+			s.running = false
+			s.cancel = nil
+			s.runMutex.Unlock()
 			return
 		}
 
 		blocks, stopReason, start, err := s.streamResponse(resp)
 		if err != nil {
+			s.runMutex.Lock()
+			s.drainInbox()
 			s.saveAndReset(historyBefore)
-			s.exitRun()
+			s.running = false
+			s.cancel = nil
+			s.runMutex.Unlock()
 			return
 		}
 
@@ -247,33 +278,15 @@ func (s *chatSession) run(ctx context.Context) {
 		switch stopReason {
 		case chat.StopReasonToolUse:
 			s.executeTools(blocks)
-			continue
+			needWait = false // 工具结果已入历史，立即再调 LLM
 
 		default: // end_turn
 			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveAndReset(historyBefore)
 			historyBefore = s.events.HistoryLen()
-			// 队列无待处理消息则退出（原子检查防竞态）；
-			// 有则回到循环顶部继续处理（不能无条件 continue，
-			// 否则 build() 会用相同 history 重复调用 LLM）
-			s.runMutex.Lock()
-			if s.inbox.Len() == 0 {
-				s.running = false
-				s.cancel = nil
-				s.runMutex.Unlock()
-				return
-			}
-			s.runMutex.Unlock()
+			needWait = true // 本轮结束，等待下一条用户消息
 		}
 	}
-}
-
-// exitRun 非正常退出时清理 running 状态。
-func (s *chatSession) exitRun() {
-	s.runMutex.Lock()
-	s.running = false
-	s.cancel = nil
-	s.runMutex.Unlock()
 }
 
 // saveAndReset 持久化本轮新增消息并清空事件缓冲区。
