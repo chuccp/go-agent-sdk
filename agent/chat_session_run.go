@@ -188,41 +188,15 @@ func (s *chatSession) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.cond.Broadcast() // 唤醒 run() 使其检测 ctx 取消并退出
 	s.runMutex.Unlock()
 }
 
+// run 会话主循环。持有 runMutex 运行，仅在 LLM 网络调用期间释放（允许 SendMessage 写入 inbox）。
 func (s *chatSession) run(ctx context.Context) {
-	// 安全网：panic 时确保 running 状态清理（正常退出路径已显式清理，此处为幂等兜底）
-	defer func() {
-		s.runMutex.Lock()
-		s.running = false
-		s.cancel = nil
-		s.runMutex.Unlock()
-	}()
-
-	// 记录本次 run 开始前历史长度，用于计算新增消息数
 	historyBefore := s.events.HistoryLen()
-	needWait := true // tool_use 后置 false，跳过等待直接再调 LLM
 
+	s.runMutex.Lock()
 	for {
-		s.runMutex.Lock()
-
-		// 等待新消息：仅当 inbox 为空且无待处理的工具结果时阻塞
-		for len(s.inbox) == 0 && needWait {
-			select {
-			case <-ctx.Done():
-				s.drainInbox()
-				s.saveAndReset(historyBefore)
-				s.running = false
-				s.cancel = nil
-				s.runMutex.Unlock()
-				return
-			default:
-			}
-			s.cond.Wait()
-		}
-
 		// 检查取消
 		select {
 		case <-ctx.Done():
@@ -235,56 +209,70 @@ func (s *chatSession) run(ctx context.Context) {
 		default:
 		}
 
-		// 排干 inbox，构建 LLM 请求
+		// 排干 inbox，构建请求
 		messages := s.build()
+		if messages == nil {
+			s.running = false
+			s.cancel = nil
+			s.runMutex.Unlock()
+			return
+		}
+
+		// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 		s.runMutex.Unlock()
 
-		if messages == nil {
-			needWait = true
-			continue
-		}
-
 		provider := s.registry.DefaultProvider()
-		resp, err := s.registry.ChatWithStream(ctx, provider, messages)
-		if err != nil {
-			evt := chat.NewErrorEvent(err.Error())
-			evt.Done = true
-			s.addEvent(evt)
-			s.runMutex.Lock()
+		resp, callErr := s.registry.ChatWithStream(ctx, provider, messages)
+
+		var blocks chat.Blocks
+		var stopReason chat.StopReason
+		var start uint
+		var streamErr error
+		if callErr == nil {
+			blocks, stopReason, start, streamErr = s.streamResponse(resp)
+		}
+
+		// ===== 重新持锁 =====
+		s.runMutex.Lock()
+
+		if callErr != nil || streamErr != nil {
 			s.drainInbox()
 			s.saveAndReset(historyBefore)
 			s.running = false
 			s.cancel = nil
 			s.runMutex.Unlock()
+			// streamResponse 内部已发送过 ErrorEvent，仅连接失败时补发
+			if callErr != nil {
+				evt := chat.NewErrorEvent(callErr.Error())
+				evt.Done = true
+				s.addEvent(evt)
+			}
 			return
 		}
 
-		blocks, stopReason, start, err := s.streamResponse(resp)
-		if err != nil {
-			s.runMutex.Lock()
-			s.drainInbox()
-			s.saveAndReset(historyBefore)
-			s.running = false
-			s.cancel = nil
-			s.runMutex.Unlock()
-			return
-		}
-
-		// assistant 消息入历史（带事件流区间）
+		// assistant 消息入历史
 		assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks, Start: start}
 		s.events.AppendHistory(assistantMsg)
 		s.events.SetLastHistoryOffset(s.events.Position() - start)
 
 		switch stopReason {
 		case chat.StopReasonToolUse:
+			// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
+			s.runMutex.Unlock()
 			s.executeTools(blocks)
-			needWait = false // 工具结果已入历史，立即再调 LLM
+			s.runMutex.Lock()
 
 		default: // end_turn
 			s.addEvent(chat.NewDoneEvent(s.id))
 			s.saveAndReset(historyBefore)
 			historyBefore = s.events.HistoryLen()
-			needWait = true // 本轮结束，等待下一条用户消息
+			// inbox 还有消息则继续处理，否则退出
+			if len(s.inbox) == 0 {
+				s.running = false
+				s.cancel = nil
+				s.runMutex.Unlock()
+				return
+			}
 		}
 	}
 }

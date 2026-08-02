@@ -22,7 +22,6 @@ type chatSession struct {
 	id            string
 	clientMutex   sync.Mutex // 保护 chatClients
 	runMutex      sync.Mutex // 保护 inbox / running / cancel
-	cond          *sync.Cond // 基于 runMutex，唤醒 run() 处理新消息
 	registry      *chat.ProviderRegistry
 	inbox         []*queuedMessage // 用户输入消息队列（runMutex 保护）
 	events        *chat.Store
@@ -46,7 +45,6 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 		system:        system,
 		opts:          opts,
 	}
-	s.cond = sync.NewCond(&s.runMutex)
 	return s
 }
 func (s *chatSession) History() []*chat.Message {
@@ -86,7 +84,6 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 	}
 	s.runMutex.Lock()
 	s.inbox = append(s.inbox, qm)
-	s.cond.Signal()
 	if !s.running {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
