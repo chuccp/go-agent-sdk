@@ -20,7 +20,7 @@ type queuedMessage struct {
 // chatSession 完整会话实体，管理消息队列、对话历史和 LLM 调用
 type chatSession struct {
 	id            string
-	mu            sync.Mutex
+	clientMutex   sync.Mutex
 	registry      *chat.ProviderRegistry
 	inbox         *util.SliceQueueSafe[*queuedMessage]
 	events        *chat.Store
@@ -60,22 +60,20 @@ func (s *chatSession) newClient(start uint) *ChatClient {
 		start:   start,
 		offset:  start, // 一次性初始偏移，之后随读取递增
 	}
-	s.mu.Lock()
+	s.clientMutex.Lock()
 	s.chatClients.Append(chatClient)
-	s.mu.Unlock()
+	s.clientMutex.Unlock()
 	return chatClient
 }
 func (s *chatSession) LoadHistory() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.events.LoadHistory()
 }
 
 func (s *chatSession) DeleteClient(client *ChatClient) {
-	s.mu.Lock()
+	s.clientMutex.Lock()
 	s.chatClients.Remove(client)
 	client.queue.Close()
-	s.mu.Unlock()
+	s.clientMutex.Unlock()
 }
 
 func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error {
@@ -88,7 +86,6 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
 	started := false
 	if !s.running {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -104,8 +101,6 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 			s.addEvent(evt)
 		})
 	}
-	s.mu.Unlock()
-
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
