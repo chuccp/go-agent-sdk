@@ -159,35 +159,35 @@ func NewDoneEvent(sessionId string) *ClientEvent {
 }
 
 // NewMessageSentEvent 创建一个消息已被立即处理事件
-func NewMessageSentEvent(messageID uint, sessionId string, content string) *ClientEvent {
+func NewMessageSentEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageSent,
 		MessageId:   messageID,
 		SessionId:   sessionId,
-		Content:     content,
+		Content:     msg.Text,
 	}
 }
 
 // NewMessageQueuedEvent 创建一个消息进入等待队列事件
-func NewMessageQueuedEvent(messageID uint, sessionId string, content string) *ClientEvent {
+func NewMessageQueuedEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageQueued,
 		MessageId:   messageID,
 		SessionId:   sessionId,
-		Content:     content,
+		Content:     msg.Text,
 	}
 }
 
 // NewMessageConsumedEvent 创建一个队列消息已被消费事件
-func NewMessageConsumedEvent(messageID uint, sessionId string, content string) *ClientEvent {
+func NewMessageConsumedEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageConsumed,
 		MessageId:   messageID,
 		SessionId:   sessionId,
-		Content:     content,
+		Content:     msg.Text,
 	}
 }
 

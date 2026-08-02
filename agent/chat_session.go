@@ -111,10 +111,10 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id, message.Text))
+		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id, message))
 	} else {
 		// 消息没有立马发出，通知发送者将消息标记为队列待处理
-		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id, message.Text))
+		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id, message))
 	}
 	return nil
 }
@@ -133,7 +133,7 @@ func (s *chatSession) build() *chat.Request {
 		msg.Start = start
 		s.events.AppendHistory(&msg)
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id, qm.msg.Text))
+		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id, qm.msg))
 		s.events.SetLastHistoryOffset(s.events.Position() - start)
 		if len(qm.opts) > 0 {
 			turnOpts = qm.opts
