@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
@@ -11,7 +12,7 @@ import (
 
 // queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
 type queuedMessage struct {
-	id   uint
+	id   uint64
 	msg  *chat.RevMessage
 	opts []Option // 本次消息附带的per-turn选项覆盖
 }
@@ -29,7 +30,7 @@ type chatSession struct {
 	system        string
 	opts          *Options
 	cancel        context.CancelFunc
-	seq           uint
+	seq           uint64
 }
 
 func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore chat.HistoryStore) *chatSession {
@@ -49,11 +50,8 @@ func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors ma
 func (s *chatSession) History() []*chat.Message {
 	return s.events.History()
 }
-func (s *chatSession) getSeq() uint {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.seq++
-	return s.seq
+func (s *chatSession) getSeq() uint64 {
+	return atomic.AndUint64(&s.seq, 1)
 }
 func (s *chatSession) newClient(start uint) *ChatClient {
 	chatClient := &ChatClient{

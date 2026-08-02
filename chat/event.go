@@ -123,7 +123,7 @@ type ClientEvent struct {
 	Content     string `json:"content,omitempty"`
 	Done        bool   `json:"done,omitempty"`
 	Message     string `json:"message,omitempty"`
-	MessageId   uint   `json:"message_id,omitempty"`
+	MessageId   uint64 `json:"message_id,omitempty"`
 	SessionId   string `json:"session_id"`
 }
 
@@ -159,7 +159,7 @@ func NewDoneEvent(sessionId string) *ClientEvent {
 }
 
 // NewMessageSentEvent 创建一个消息已被立即处理事件
-func NewMessageSentEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageSentEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageSent,
@@ -170,7 +170,7 @@ func NewMessageSentEvent(messageID uint, sessionId string, msg *RevMessage) *Cli
 }
 
 // NewMessageQueuedEvent 创建一个消息进入等待队列事件
-func NewMessageQueuedEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageQueuedEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageQueued,
@@ -181,7 +181,7 @@ func NewMessageQueuedEvent(messageID uint, sessionId string, msg *RevMessage) *C
 }
 
 // NewMessageConsumedEvent 创建一个队列消息已被消费事件
-func NewMessageConsumedEvent(messageID uint, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageConsumed,
