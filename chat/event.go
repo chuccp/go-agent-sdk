@@ -117,14 +117,14 @@ func (e *ErrorEvent) Error() string  { return e.Err.Error() }
 // ClientEvent 是面向客户端的推送事件。
 // 实现 Event 接口，与协议层事件统一处理。
 type ClientEvent struct {
-	Seq            uint   `json:"seq"`    // 事件序列号，单调递增，客户端可用于去重和断线续传
-	EventSource    string `json:"source"` // 事件来源："ai" | "client" | "system"
-	EventType      string `json:"type"`
-	Content        string `json:"content,omitempty"`
-	Done           bool   `json:"done,omitempty"`
-	Message        string `json:"message,omitempty"`
-	MessageID      uint   `json:"message_id,omitempty"`
-	ConversationID string `json:"conversation_id,omitempty"`
+	Seq         uint   `json:"seq"`    // 事件序列号，单调递增，客户端可用于去重和断线续传
+	EventSource string `json:"source"` // 事件来源："ai" | "client" | "system"
+	EventType   string `json:"type"`
+	Content     string `json:"content,omitempty"`
+	Done        bool   `json:"done,omitempty"`
+	Message     string `json:"message,omitempty"`
+	MessageId   uint   `json:"message_id,omitempty"`
+	SessionId   string `json:"session_id"`
 }
 
 // Type 实现 Event 接口。
@@ -144,38 +144,56 @@ func NewErrorEvent(message string) *ClientEvent {
 }
 
 // NewChunkEvent 创建一个流式文本片段事件
-func NewChunkEvent(content, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content, ConversationID: conversationID}
+func NewChunkEvent(content, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content, SessionId: sessionId}
 }
 
 // NewThinkingEvent 创建一个 AI 思考链增量事件
-func NewThinkingEvent(content, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content, ConversationID: conversationID}
+func NewThinkingEvent(content, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content, SessionId: sessionId}
 }
 
 // NewDoneEvent 创建一个流结束事件
-func NewDoneEvent(conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeDone, Done: true, ConversationID: conversationID}
+func NewDoneEvent(sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeDone, Done: true, SessionId: sessionId}
 }
 
 // NewMessageSentEvent 创建一个消息已被立即处理事件
-func NewMessageSentEvent(messageID uint, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceClient, EventType: EventTypeMessageSent, MessageID: messageID, ConversationID: conversationID}
+func NewMessageSentEvent(messageID uint, sessionId string, content string) *ClientEvent {
+	return &ClientEvent{
+		EventSource: SourceClient,
+		EventType:   EventTypeMessageSent,
+		MessageId:   messageID,
+		SessionId:   sessionId,
+		Content:     content,
+	}
 }
 
 // NewMessageQueuedEvent 创建一个消息进入等待队列事件
-func NewMessageQueuedEvent(messageID uint, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceClient, EventType: EventTypeMessageQueued, MessageID: messageID, ConversationID: conversationID}
+func NewMessageQueuedEvent(messageID uint, sessionId string, content string) *ClientEvent {
+	return &ClientEvent{
+		EventSource: SourceClient,
+		EventType:   EventTypeMessageQueued,
+		MessageId:   messageID,
+		SessionId:   sessionId,
+		Content:     content,
+	}
 }
 
 // NewMessageConsumedEvent 创建一个队列消息已被消费事件
-func NewMessageConsumedEvent(messageID uint, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceClient, EventType: EventTypeMessageConsumed, MessageID: messageID, ConversationID: conversationID}
+func NewMessageConsumedEvent(messageID uint, sessionId string, content string) *ClientEvent {
+	return &ClientEvent{
+		EventSource: SourceClient,
+		EventType:   EventTypeMessageConsumed,
+		MessageId:   messageID,
+		SessionId:   sessionId,
+		Content:     content,
+	}
 }
 
 // NewToolExecutionEvent 创建一个工具执行事件，携带工具名称和执行输出。
-func NewToolExecutionEvent(toolName, output, conversationID string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, ConversationID: conversationID}
+func NewToolExecutionEvent(toolName, output, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, SessionId: sessionId}
 }
 
 // ==================== 事件存储 ====================

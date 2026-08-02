@@ -12,7 +12,7 @@ import (
 // queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
 type queuedMessage struct {
 	id   uint
-	msg  *chat.Message
+	msg  *chat.RevMessage
 	opts []Option // 本次消息附带的per-turn选项覆盖
 }
 
@@ -80,7 +80,7 @@ func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.mu.Unlock()
 }
 
-func (s *chatSession) SendMessage(message *chat.Message, opt ...Option) error {
+func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error {
 	qm := &queuedMessage{
 		id:   s.getSeq(),
 		msg:  message,
@@ -111,10 +111,10 @@ func (s *chatSession) SendMessage(message *chat.Message, opt ...Option) error {
 	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
 	if started {
 		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id, message.Text))
 	} else {
 		// 消息没有立马发出，通知发送者将消息标记为队列待处理
-		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id, message.Text))
 	}
 	return nil
 }
@@ -129,10 +129,11 @@ func (s *chatSession) build() *chat.Request {
 		}
 		// 用户消息入历史（带事件流区间）
 		start := s.events.Position()
-		qm.msg.Start = start
-		s.events.AppendHistory(qm.msg)
+		msg := qm.msg.ToMessage()
+		msg.Start = start
+		s.events.AppendHistory(&msg)
 		// 队列消息已使用，通知发送者将对应消息显示在对话框
-		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id))
+		s.addEvent(chat.NewMessageConsumedEvent(qm.id, s.id, qm.msg.Text))
 		s.events.SetLastHistoryOffset(s.events.Position() - start)
 		if len(qm.opts) > 0 {
 			turnOpts = qm.opts

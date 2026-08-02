@@ -7,7 +7,7 @@ import (
 
 // ChatHandler 会话处理接口，由 chatSession 实现
 type ChatHandler interface {
-	SendMessage(message *chat.Message, opt ...Option) error
+	SendMessage(message *chat.RevMessage, opt ...Option) error
 	History() []*chat.Message
 	ReadEvent(start uint) *chat.EventEntry
 	DeleteClient(client *ChatClient)
@@ -23,8 +23,12 @@ type ChatClient struct {
 }
 
 func (c *ChatClient) SendText(message string, opt ...Option) error {
-	msg := chat.Text(message)
-	return c.handler.SendMessage(&msg, opt...)
+	return c.handler.SendMessage(&chat.RevMessage{Text: message}, opt...)
+}
+
+// SendMessage 发送用户输入消息（支持文本 + 附件）。
+func (c *ChatClient) SendMessage(message *chat.RevMessage, opt ...Option) error {
+	return c.handler.SendMessage(message, opt...)
 }
 
 func (c *ChatClient) ReadEvent() *chat.ClientEvent {
