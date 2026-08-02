@@ -184,8 +184,8 @@ func (s *chatSession) executeTools(blocks chat.Blocks) {
 }
 
 func (s *chatSession) Stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.runMutex.Lock()
+	defer s.runMutex.Unlock()
 	if s.running {
 		if s.cancel != nil {
 			s.cancel()
@@ -210,14 +210,14 @@ func (s *chatSession) run(ctx context.Context) {
 		if messages == nil {
 			// 队列为空：原子地检查 inbox 并置 running=false，
 			// 避免“检查空 → 消息到达 → 已退出”的竞态窗口
-			s.mu.Lock()
+			s.runMutex.Lock()
 			if s.inbox.Len() == 0 {
 				s.running = false
 				s.cancel = nil
-				s.mu.Unlock()
+				s.runMutex.Unlock()
 				return
 			}
-			s.mu.Unlock()
+			s.runMutex.Unlock()
 			continue // 有消息在检查间隙到达，继续处理
 		}
 
@@ -256,24 +256,24 @@ func (s *chatSession) run(ctx context.Context) {
 			// 队列无待处理消息则退出（原子检查防竞态）；
 			// 有则回到循环顶部继续处理（不能无条件 continue，
 			// 否则 build() 会用相同 history 重复调用 LLM）
-			s.mu.Lock()
+			s.runMutex.Lock()
 			if s.inbox.Len() == 0 {
 				s.running = false
 				s.cancel = nil
-				s.mu.Unlock()
+				s.runMutex.Unlock()
 				return
 			}
-			s.mu.Unlock()
+			s.runMutex.Unlock()
 		}
 	}
 }
 
 // exitRun 非正常退出时清理 running 状态。
 func (s *chatSession) exitRun() {
-	s.mu.Lock()
+	s.runMutex.Lock()
 	s.running = false
 	s.cancel = nil
-	s.mu.Unlock()
+	s.runMutex.Unlock()
 }
 
 // saveAndReset 持久化本轮新增消息并清空事件缓冲区。

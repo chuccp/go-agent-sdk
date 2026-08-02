@@ -20,7 +20,8 @@ type queuedMessage struct {
 // chatSession 完整会话实体，管理消息队列、对话历史和 LLM 调用
 type chatSession struct {
 	id            string
-	clientMutex   sync.Mutex
+	clientMutex   sync.Mutex // 保护 chatClients
+	runMutex      sync.Mutex // 保护 running / cancel（生命周期状态）
 	registry      *chat.ProviderRegistry
 	inbox         *util.SliceQueueSafe[*queuedMessage]
 	events        *chat.Store
@@ -86,12 +87,13 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 	if err != nil {
 		return err
 	}
-	started := false
+	s.runMutex.Lock()
+	defer s.runMutex.Unlock()
 	if !s.running {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 		s.running = true
-		started = true
+		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id, message))
 		util.GoWithRecover(func() {
 			s.run(ctx)
 		}, func(r any) {
@@ -100,13 +102,7 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 			evt.Done = true
 			s.addEvent(evt)
 		})
-	}
-	// 在锁外发送事件，避免 addEvent -> flush -> s.mu.Lock 死锁
-	if started {
-		// 消息可以立马发出，通知发送者将消息显示在对话列表
-		s.addEvent(chat.NewMessageSentEvent(qm.id, s.id, message))
 	} else {
-		// 消息没有立马发出，通知发送者将消息标记为队列待处理
 		s.addEvent(chat.NewMessageQueuedEvent(qm.id, s.id, message))
 	}
 	return nil
@@ -209,7 +205,10 @@ func withoutThinking(blocks chat.Blocks) chat.Blocks {
 
 // flush 通知所有客户端有新事件
 func (s *chatSession) flush() {
-	for _, sub := range s.chatClients.Slice() {
+	s.clientMutex.Lock()
+	clients := s.chatClients.Slice()
+	s.clientMutex.Unlock()
+	for _, sub := range clients {
 		err := sub.queue.Offer(true)
 		if err != nil {
 			log.Printf("Error offering chat session: %v", err)
