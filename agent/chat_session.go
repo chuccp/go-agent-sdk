@@ -51,7 +51,7 @@ func (s *chatSession) History() []*chat.Message {
 	return s.events.History()
 }
 func (s *chatSession) getSeq() uint64 {
-	return atomic.AndUint64(&s.seq, 1)
+	return atomic.AddUint64(&s.seq, 1)
 }
 func (s *chatSession) newClient(start uint) *ChatClient {
 	chatClient := &ChatClient{
