@@ -58,10 +58,10 @@ func (b *bucket) len() int {
 }
 
 type Timer struct {
-	C      <-chan bool
-	c      chan bool
-	onFire func()
-	mu     sync.Mutex
+	C       <-chan bool
+	c       chan bool
+	onFire  func()
+	mu      sync.Mutex
 	isClose int32
 }
 

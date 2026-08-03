@@ -3,7 +3,7 @@ package chat
 // ThinkingConfig 控制模型的扩展思考（extended thinking）行为。
 // 与 Anthropic Messages API 的 thinking 字段对齐。
 type ThinkingConfig struct {
-	Type         string `json:"type"                    ` // "enabled" | "disabled"
+	Type         string `json:"type"                    `  // "enabled" | "disabled"
 	BudgetTokens int    `json:"budget_tokens,omitempty"  ` // 思考链最大 token 预算（仅 enabled 时有效）
 }
 

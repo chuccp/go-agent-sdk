@@ -45,7 +45,7 @@ func (t *CommandTool) Definition() *chat.ToolFunction {
 
 // dangerousPatterns 匹配危险的命令模式。
 var dangerousPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\brm\s+(-[rRf]+\s+)*[/~]`),    // rm -rf / 或 rm -rf ~
+	regexp.MustCompile(`\brm\s+(-[rRf]+\s+)*[/~]`),     // rm -rf / 或 rm -rf ~
 	regexp.MustCompile(`\bmkfs\b`),                     // 格式化文件系统
 	regexp.MustCompile(`\b(mkswap|swapon|swapoff)\b`),  // swap 操作
 	regexp.MustCompile(`\bshutdown\b`),                 // 关机
