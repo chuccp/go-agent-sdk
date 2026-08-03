@@ -2,14 +2,27 @@
 
 一个轻量级 Go AI Agent SDK，提供流式对话、工具调用、历史持久化和断线续传能力，单进程即可运行完整的 Agent 服务。
 
+## 设计理念
+
+大多数 AI Agent SDK 把 SSE 流式转发当作旁路处理——事件要么透传给前端后丢弃，要么依赖外部基础设施（Redis PubSub、Kafka）来做持久化和回放。当需要支持多客户端订阅和断线续传时，问题就变成了基础设施问题。
+
+这个 SDK 走了一条不同的路：**把续传状态放在协议层，而不是基础设施层**。
+
+每条 Message 携带 `[Start, Offset)` —— 该消息产出了哪些事件。客户端只需一个 `start` 值就能精确续读，不需要 cursor 映射表。客户端断开后不保留任何状态（`*Position` 注销即可），重连时 `GetChat(id, start)` 重新创建，状态全在 Store 里。
+
+这使得整个系统可以在零外部依赖的前提下，支持任意数量的客户端同时订阅同一个会话——每个客户端独立推进自己的读取位置，互不干扰。
+
+**定位：** 这是一个聚焦于"SSE → 存储 → 多客户端推送"链路的嵌入式 SDK，不是编排框架或多 Agent 协作平台。它适合作为聊天应用的 Agent 层，不适合需要复杂工作流引擎的场景。
+
 ## 核心特性
 
-- **流式对话** — 支持 SSE 流式输出，实时推送 thinking / text 增量
+- **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 Position 独立追踪读取进度，互不阻塞
+- **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
+- **Client 无状态** — `ChatClient` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
+- **流式对话** — SSE 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
-- **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
 - **多提供商** — Provider Registry 支持注册多个 LLM 后端，运行时选择
-- **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），基于 Position 追踪各自读取进度
 - **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result
 
 ## 架构概览
@@ -265,12 +278,13 @@ agent.NewChatManager(
 )
 ```
 
-## 设计亮点
+## 关键设计决策
 
-- **零基础设施断线续传** — 消息自带 `[Start, Offset)` 区间，客户端只需持有一个 `start` 值，无需外部 broker
-- **Store 双区模型** — entries（易失事件缓冲区）+ history（持久消息），`Reset()` 按客户端最小读取位置推进 base，零 GC
-- **协议/推送事件分离** — 换 LLM 提供商只改协议适配，前端推送协议不动
-- **runMutex 持有/释放** — 主循环持锁运行，仅在 LLM 调用和工具执行期间释放，兼顾状态安全与用户输入响应
+- **协议层续传 → 零基础设施** — 不同于 Mastra/Durable Streams 等依赖 Redis 或 CDN 做事件回放，这里让 Message 携带 `[Start, Offset)` 区间，把续传变成纯协议问题。结果：零外部依赖、单二进制部署。
+- **Position 外挂 → Client 无状态** — 读取进度不记在 Client 上，而是注册到 Store 的 `positions` 列表。Client 断开即注销，不影响其他 Client 的 Reset 水位计算。重连时重新注册，无需 session affinity。
+- **Store 双区模型** — entries（易失事件缓冲区）+ history（持久消息）。`Reset()` 取所有 Position 中最小的 `start` 作为安全水位线，只清理所有客户端均已读取的条目。
+- **协议/推送事件分离** — LLM SSE 协议事件（`ContentBlockDelta` 等）→ SDK 内部消费；`ClientEvent`（chunk / thinking / done）→ 面向前端。换 LLM 提供商只改协议适配层。
+- **runMutex 三段式** — 主循环持锁运行（操作 inbox、history），LLM 调用和工具执行期间释放锁。同步可追踪的调用链，不依赖 channel 通信。
 
 ## License
 
