@@ -283,11 +283,10 @@ func (p *messageProcessor) buildRequest() *chat.Request {
 // consumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 func (p *messageProcessor) consumeMessage(qm *queuedMessage) {
 	start := p.events.Position()
+	p.addEvent(chat.NewMessageConsumedEvent(qm.id, p.sessionId, qm.msg))
 	msg := qm.msg.ToMessage()
 	msg.Start = start
 	p.events.AppendHistory(&msg)
-	p.addEvent(chat.NewMessageConsumedEvent(qm.id, p.sessionId, qm.msg))
-	p.events.SetLastHistoryOffset(p.events.Position() - start)
 }
 
 func (p *messageProcessor) addEvent(event *chat.ClientEvent) {
@@ -401,14 +400,12 @@ func (p *messageProcessor) executeTools(blocks chat.Blocks) {
 	// tool_result 作为 user 消息入历史
 	msg := &chat.Message{Role: chat.RoleUser, Content: toolResults, Start: start}
 	p.events.AppendHistory(msg)
-	p.events.SetLastHistoryOffset(p.events.Position() - start)
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
 func (p *messageProcessor) appendAssistantMessage(blocks chat.Blocks, start uint) {
 	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks, Start: start}
 	p.events.AppendHistory(assistantMsg)
-	p.events.SetLastHistoryOffset(p.events.Position() - start)
 }
 
 // saveAndReset 持久化自上次保存以来新增的消息并清空事件缓冲区。

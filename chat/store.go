@@ -112,9 +112,14 @@ func (l *Store) Base() uint {
 }
 
 // AppendHistory 将一条消息追加到内存历史。
+// 若 msg.Start 已设置，自动计算 Offset（该消息关联的事件数量）。
 func (l *Store) AppendHistory(msg *Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	currentPos := l.base + uint(l.entries.Len())
+	if currentPos >= msg.Start {
+		msg.Offset = currentPos - msg.Start
+	}
 	l.history.Append(msg)
 }
 
@@ -123,15 +128,6 @@ func (l *Store) HistoryLen() int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.history.Len()
-}
-
-// SetLastHistoryOffset 回填最后一条历史消息的 Offset。
-func (l *Store) SetLastHistoryOffset(offset uint) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.history.Len() > 0 {
-		l.history.Get(l.history.Len() - 1).Offset = offset
-	}
 }
 
 // SaveHistory 将自上次保存以来新增的消息持久化到存储。
