@@ -195,23 +195,45 @@ type HistoryStore interface {
 ### 客户端 → 服务端
 
 ```json
-{"type": "create", "session_id": 1, "start": 0}   // 初始化会话（幂等）
-{"type": "chat", "message": "你好"}                // 发送消息
-{"type": "stop"}                                   // 停止生成
-{"type": "ping"}                                   // 心跳
+// 初始化/续接会话（幂等，可在每次发送前调用）
+{"type": "create", "session_id": 1, "start": 0}
+
+// 发送消息（thinking 可选：off / low / medium / high）
+{"type": "chat", "message": "你好", "thinking": "low"}
+
+// 停止当前生成
+{"type": "stop"}
+
+// 心跳
+{"type": "ping"}
+{"type": "pong"}
 ```
 
 ### 服务端 → 客户端
 
-```json
-{"seq": 1, "source": "client", "type": "message_sent", "message_id": 1}
-{"seq": 2, "source": "client", "type": "message_consumed", "message_id": 1}
-{"seq": 3, "source": "ai", "type": "thinking", "content": "..."}
-{"seq": 4, "source": "ai", "type": "chunk", "content": "你好"}
-{"seq": 5, "source": "ai", "type": "tool_execution", "content": "...", "message": "execute_command"}
-{"seq": 6, "source": "ai", "type": "done", "done": true}
-{"seq": 7, "source": "system", "type": "error", "message": "..."}
+所有推送事件均为 `ClientEvent` JSON，公共字段为 `seq`, `source`, `type`, `session_id`，其余字段按事件类型出现。
+
 ```
+# 消息生命周期（send/display 分离）
+{"seq": 1, "source": "client", "type": "message_sent",     "message_id": 1, "content": "你好", "session_id": "1"}
+{"seq": 2, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好", "session_id": "1"}
+
+# AI 流式输出
+{"seq": 3, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录...",           "session_id": "1"}
+{"seq": 4, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是：",            "session_id": "1"}
+{"seq": 5, "source": "ai",     "type": "chunk",           "content": "\n\nproject/",                  "session_id": "1"}
+
+# 工具执行（如果有 tool_use）
+{"seq": 6, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "...", "session_id": "1"}
+
+# 本轮结束
+{"seq": 7, "source": "ai",     "type": "done",            "done": true,                              "session_id": "1"}
+
+# 错误
+{"seq": 8, "source": "system", "type": "error",           "message": "network timeout",              "session_id": "1"}
+```
+
+前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `message_consumed` 后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致。
 
 ## 运行示例
 
@@ -234,7 +256,6 @@ pnpm dev
 agent.NewChatManager(
     agent.WithModel("claude-opus-4-8"),     // 模型名称
     agent.WithMaxTokens(8192),              // 最大生成 token
-    agent.WithMaxContext(50),               // 上下文窗口（消息条数）
     agent.WithTemperature(0.7),             // 采样温度
     agent.WithTopP(0.9),                    // nucleus 采样
     agent.WithTopK(40),                     // top-k 采样
