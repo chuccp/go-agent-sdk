@@ -114,8 +114,8 @@ func (p *messageProcessor) LoadHistory() error {
 	return p.events.LoadHistory()
 }
 
-// ReadEvent 从指定事件位置开始读取事件条目。
-func (p *messageProcessor) ReadEvent(position *chat.Position) *chat.EventEntry {
+// ReadEvent 从指定事件位置开始读取事件。
+func (p *messageProcessor) ReadEvent(position *chat.Position) *chat.ClientEvent {
 	return p.events.ReadFrom(position)
 }
 

@@ -26,8 +26,8 @@ type Store struct {
 	history      *util.SliceArray[*Message]
 	historyStore HistoryStore
 	mu           sync.RWMutex
-	entries      *util.SliceArray[*EventEntry]
-	writeHead    uint // 下一个待分配的事件 seq，entries 被裁空也不回退
+	entries      *util.SliceArray[*ClientEvent]
+	seq          uint // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
 	savedLen     int  // 上次 SaveHistory 时的 history 长度
 	pending      int  // 自上次 AppendHistory 以来新增的事件数
 	positions    *util.SliceArray[*Position]
@@ -35,7 +35,7 @@ type Store struct {
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
 	return &Store{
-		entries:      new(util.SliceArray[*EventEntry]),
+		entries:      new(util.SliceArray[*ClientEvent]),
 		historyStore: historyStore,
 		sessionId:    sessionId,
 		history:      new(util.SliceArray[*Message]),
@@ -46,25 +46,22 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 func (l *Store) Add(event *ClientEvent) uint {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	event.Seq = l.writeHead
-	l.writeHead++
-	l.entries.Append(&EventEntry{
-		Start:  event.Seq,
-		Offset: 1,
-		Event:  event,
-	})
+	event.Seq = l.seq
+	l.seq++
+	l.entries.Append(event)
 	l.pending++
 	return event.Seq
 }
 
 // ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
-func (l *Store) ReadFrom(position *Position) *EventEntry {
+// 每个事件的 Offset 恒为 1，读后 position 前进 1。
+func (l *Store) ReadFrom(position *Position) *ClientEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.entries.IsEmpty() {
 		return nil
 	}
-	firstSeq := l.entries.Get(0).Start
+	firstSeq := l.entries.Get(0).Seq
 	start := position.start
 	if start < firstSeq {
 		start = firstSeq
@@ -73,12 +70,12 @@ func (l *Store) ReadFrom(position *Position) *EventEntry {
 	if idx >= l.entries.Len() {
 		return nil
 	}
-	entry := l.entries.Get(idx)
-	if entry == nil {
+	event := l.entries.Get(idx)
+	if event == nil {
 		return nil
 	}
-	position.start += entry.Offset
-	return entry
+	position.start++
+	return event
 }
 
 // GetPosition 创建并注册一个客户端读取位置。
@@ -88,8 +85,8 @@ func (l *Store) ReadFrom(position *Position) *EventEntry {
 func (l *Store) GetPosition(start uint) *Position {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if start > l.writeHead {
-		start = l.writeHead
+	if start > l.seq {
+		start = l.seq
 	}
 	position := &Position{start: start}
 	l.positions.Append(position)
@@ -131,7 +128,7 @@ func (l *Store) Reset() {
 	if l.entries.IsEmpty() {
 		return
 	}
-	firstSeq := l.entries.Get(0).Start
+	firstSeq := l.entries.Get(0).Seq
 	minPos := l.minPosition()
 	if minPos <= firstSeq {
 		return
@@ -164,8 +161,8 @@ func (l *Store) LoadHistory() error {
 		}
 		// 恢复事件流偏移：新事件的 seq 从持久化历史之后接续，
 		// 与前端根据历史计算的 start 对齐
-		if l.entries.IsEmpty() && head > l.writeHead {
-			l.writeHead = head
+		if l.entries.IsEmpty() && head > l.seq {
+			l.seq = head
 		}
 		l.savedLen = l.history.Len()
 	}
@@ -181,13 +178,6 @@ func (l *Store) History() []*Message {
 	return result
 }
 
-// WriteHead 返回当前事件流写头（下一个事件的 seq）。
-func (l *Store) WriteHead() uint {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.writeHead
-}
-
 // AppendHistory 将一条消息追加到内存历史。
 // 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
 func (l *Store) AppendHistory(msg *Message) {
@@ -195,7 +185,7 @@ func (l *Store) AppendHistory(msg *Message) {
 	defer l.mu.Unlock()
 	msg.Offset = uint(l.pending)
 	if l.pending > 0 {
-		msg.Start = l.writeHead - uint(l.pending)
+		msg.Start = l.seq - uint(l.pending)
 	}
 	l.pending = 0
 	l.history.Append(msg)

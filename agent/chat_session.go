@@ -109,6 +109,6 @@ func (s *chatSession) System() string { return s.system }
 // ToolExecutors 实现 sessionContext 接口。
 func (s *chatSession) ToolExecutors() map[string]ToolExecutor { return s.toolExecutors }
 
-func (s *chatSession) ReadEvent(position *chat.Position) *chat.EventEntry {
+func (s *chatSession) ReadEvent(position *chat.Position) *chat.ClientEvent {
 	return s.processor.ReadEvent(position)
 }

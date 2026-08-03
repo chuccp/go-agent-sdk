@@ -9,7 +9,7 @@ import (
 type ChatHandler interface {
 	SendMessage(message *chat.RevMessage, opt ...Option) error
 	History() []*chat.Message
-	ReadEvent(position *chat.Position) *chat.EventEntry
+	ReadEvent(position *chat.Position) *chat.ClientEvent
 	DeleteClient(client *ChatClient)
 	Stop()
 }
@@ -39,8 +39,8 @@ func (c *ChatClient) ReadEvent() *chat.ClientEvent {
 		if !hasValue {
 			return nil
 		}
-		if entry := c.handler.ReadEvent(c.position); entry != nil {
-			return entry.Event
+		if event := c.handler.ReadEvent(c.position); event != nil {
+			return event
 		}
 		// 当前位置暂不可读（如事件已被清理），等待下一次 flush 通知
 	}

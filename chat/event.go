@@ -195,12 +195,3 @@ func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage
 func NewToolExecutionEvent(toolName, output, sessionId string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, SessionId: sessionId}
 }
-
-// ==================== 事件存储 ====================
-
-// EventEntry 单个事件条目，含偏移量信息
-type EventEntry struct {
-	Start  uint
-	Offset uint
-	Event  *ClientEvent
-}
