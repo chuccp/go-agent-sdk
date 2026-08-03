@@ -226,14 +226,6 @@ agent.NewChatManager(
 )
 ```
 
-## 关键设计决策
-
-- **协议层续传 → 零基础设施** — 让 Message 携带 `[Start, Offset)` 区间，把续传变成协议问题而非基础设施问题。结果：零外部依赖、单二进制部署。
-- **Position 外挂 → Client 无状态** — 读取进度不记在 Client 上，而是注册到 Store。Client 断开即注销，重连时重新注册，无需 session affinity。
-- **Store 双区模型** — entries（易失）+ history（持久）。Reset 取所有 Client 最小已读位置为水位线，清理历史条目。
-- **协议/推送事件分离** — LLM SSE 协议事件由 SDK 内部消费，`ClientEvent` 面向前端。换 LLM 提供商只改适配层。
-- **主循环持锁运行** — 操作状态时持锁，LLM 调用和工具执行时释放锁，兼顾线程安全与用户输入响应。
-
 ## License
 
 [MIT](LICENSE)
