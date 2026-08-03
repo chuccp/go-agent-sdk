@@ -119,6 +119,21 @@ func (p *messageProcessor) ReadEvent(start uint) *chat.EventEntry {
 	return p.events.ReadFrom(start)
 }
 
+// AddEventClient 注册一个事件消费客户端，返回 Store 分配的客户端 ID。
+func (p *messageProcessor) AddEventClient(start uint) int {
+	return p.events.AddClient(start)
+}
+
+// RemoveEventClient 注销客户端。
+func (p *messageProcessor) RemoveEventClient(id int) {
+	p.events.RemoveClient(id)
+}
+
+// AckEventClient 更新客户端已确认读取到的全局偏移。
+func (p *messageProcessor) AckEventClient(id int, offset uint) {
+	p.events.Ack(id, offset)
+}
+
 // run 会话主循环。持有 runMutex 运行，仅在 LLM 网络调用期间释放（允许 handleMessage 写入 inbox）。
 func (p *messageProcessor) run() {
 	p.runMutex.Lock()
@@ -189,9 +204,10 @@ func (p *messageProcessor) run() {
 			p.runMutex.Lock()
 
 		default: // end_turn
+			log.Printf("[processor] end_turn, adding done event, inbox empty=%v", p.inbox.IsEmpty())
 			p.addEvent(chat.NewDoneEvent(p.sessionId))
 			p.saveAndReset()
-			// inbox 还有消息则继续处理，否则退出
+			// inbox 还有消息则继续循环，否则退出
 			if p.inbox.IsEmpty() {
 				p.running = false
 				p.cancel = nil
@@ -291,6 +307,9 @@ func (p *messageProcessor) consumeMessage(qm *queuedMessage) {
 }
 
 func (p *messageProcessor) addEvent(event *chat.ClientEvent) {
+	if event.EventType == chat.EventTypeDone {
+		log.Printf("[processor] addEvent DONE, sessionId=%s", p.sessionId)
+	}
 	p.events.Add(event)
 	p.ctx.Flush()
 }
@@ -404,7 +423,7 @@ func (p *messageProcessor) appendAssistantMessage(blocks chat.Blocks) {
 	p.events.AppendHistory(assistantMsg)
 }
 
-// saveAndReset 持久化自上次保存以来新增的消息并清空事件缓冲区。
+// saveAndReset 持久化自上次保存以来新增的消息，并清理 client 已读取的事件条目。
 func (p *messageProcessor) saveAndReset() {
 	if err := p.events.SaveHistory(); err != nil {
 		log.Printf("[chatSession] save history failed: %v", err)

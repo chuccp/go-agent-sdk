@@ -102,6 +102,20 @@ func (a *SliceArray[T]) IsEmpty() bool { return a.len == 0 }
 // Cap returns the current capacity of the underlying buffer.
 func (a *SliceArray[T]) Cap() int { return cap(a.buf) }
 
+// RemoveFront removes the first n elements, shifting the rest left.
+// If n >= len, the array is cleared. Panics if n < 0.
+func (a *SliceArray[T]) RemoveFront(n int) {
+	if n <= 0 {
+		return
+	}
+	if n >= a.len {
+		a.len = 0
+		return
+	}
+	copy(a.buf, a.buf[n:a.len])
+	a.len -= n
+}
+
 // Reset clears the array, retaining the underlying buffer for reuse.
 func (a *SliceArray[T]) Reset() {
 	a.len = 0

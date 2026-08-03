@@ -257,11 +257,18 @@ function Composer() {
   const isRunning = useThread((state) => state.isRunning)
   const composerRuntime = useComposerRuntime()
   const text = useComposer((c) => c.text)
-  const { queueSend, thinkingLevel, setThinkingLevel } = useMessageQueue()
+  const { queueSend, thinkingLevel, setThinkingLevel, sendDirect } = useMessageQueue()
 
   const hasText = text.trim().length > 0
   // AI 输出中且已输入文字 → 显示发送键（加入队列）；AI 输出中但未输入 → 停止键
   const showQueueSend = isRunning && hasText
+
+  const handleDirectSend = () => {
+    const t = text.trim()
+    if (!t) return
+    sendDirect(t)
+    composerRuntime.setText('')
+  }
 
   const handleQueueSend = () => {
     const t = text.trim()
@@ -287,6 +294,17 @@ function Composer() {
           }}
           placeholder="Type a message... (Enter to send)"
           rows={1}
+          onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              e.stopPropagation()
+              if (isRunning) {
+                handleQueueSend()
+              } else {
+                handleDirectSend()
+              }
+            }
+          }}
         />
 
         {isRunning ? (
@@ -323,19 +341,21 @@ function Composer() {
             </button>
           )
         ) : (
-          <ComposerPrimitive.Send
+          <button
+            onClick={handleDirectSend}
             style={{
               width: 36, height: 36, borderRadius: '50%', border: 'none',
               background: '#1a73e8', color: '#fff', cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}
+            title="发送"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
               <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-          </ComposerPrimitive.Send>
+          </button>
         )}
       </ComposerPrimitive.Root>
 

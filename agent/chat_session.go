@@ -40,11 +40,13 @@ func (s *chatSession) History() []*chat.Message {
 	return s.processor.History()
 }
 func (s *chatSession) newClient(start uint) *ChatClient {
+	storeID := s.processor.AddEventClient(start)
 	chatClient := &ChatClient{
 		queue:   util.NewQueue[bool](),
 		handler: s,
 		start:   start,
-		offset:  start, // 一次性初始偏移，之后随读取递增
+		offset:  start,   // 一次性初始偏移，之后随读取递增
+		storeID: storeID, // Store 中的客户端 ID，用于 Ack
 	}
 	s.clientMutex.Lock()
 	s.chatClients.Append(chatClient)
@@ -60,6 +62,7 @@ func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.chatClients.Remove(client)
 	client.queue.Close()
 	s.clientMutex.Unlock()
+	s.processor.RemoveEventClient(client.storeID)
 }
 
 func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error {
@@ -70,6 +73,11 @@ func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error
 // Stop 取消当前正在运行的会话主循环。
 func (s *chatSession) Stop() {
 	s.processor.Stop()
+}
+
+// AckEventClient 更新客户端已确认读取到的全局偏移。
+func (s *chatSession) AckEventClient(id int, offset uint) {
+	s.processor.AckEventClient(id, offset)
 }
 
 // flush 通知所有客户端有新事件

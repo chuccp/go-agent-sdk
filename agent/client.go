@@ -11,6 +11,7 @@ type ChatHandler interface {
 	History() []*chat.Message
 	ReadEvent(start uint) *chat.EventEntry
 	DeleteClient(client *ChatClient)
+	AckEventClient(id int, offset uint)
 	Stop()
 }
 
@@ -20,6 +21,7 @@ type ChatClient struct {
 	queue   *util.Queue[bool]
 	offset  uint
 	start   uint
+	storeID int // 在 Store 中的客户端 ID，用于 Ack
 }
 
 func (c *ChatClient) SendText(message string, opt ...Option) error {
@@ -41,6 +43,7 @@ func (c *ChatClient) ReadEvent() *chat.ClientEvent {
 		return nil
 	}
 	c.offset += entry.Offset
+	c.handler.AckEventClient(c.storeID, c.offset)
 	return entry.Event
 }
 

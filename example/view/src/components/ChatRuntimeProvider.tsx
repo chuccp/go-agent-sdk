@@ -1,7 +1,20 @@
 import { type ReactNode, useMemo, useRef, useEffect, useState, useCallback, createContext, useContext } from 'react'
-import { AssistantRuntimeProvider, useLocalRuntime, useAssistantRuntime, useThreadRuntime, useThread } from '@assistant-ui/react'
-import { createSimpleWebSocketAdapter, type QueueEvent } from './WebSocketAdapter'
+import {
+  AssistantRuntimeProvider,
+  useLocalRuntime,
+  useAssistantRuntime,
+  useThreadRuntime,
+  useThread,
+} from '@assistant-ui/react'
+import {
+  createStreamingAdapter,
+  setupStreamBridge,
+  triggerStream,
+  setStopCallback,
+} from './WebSocketAdapter'
 import { getSessionMessages, type ChatMessage } from '../api/chat'
+
+// ── 历史消息转换 ──
 
 interface ContentBlock {
   type: string
@@ -14,7 +27,6 @@ interface ContentBlock {
   id?: string
 }
 
-/** 解析 content 字段，返回 block 数组 */
 function parseBlocks(content: string): ContentBlock[] {
   if (!content) return []
   const trimmed = content.trim()
@@ -28,12 +40,10 @@ function parseBlocks(content: string): ContentBlock[] {
   }
 }
 
-/** 判断是否是 tool_result 消息 */
 function isToolResult(blocks: ContentBlock[]): boolean {
   return blocks.length > 0 && blocks.every(b => b.type === 'tool_result')
 }
 
-/** 从 tool_result block 提取结果文本 */
 function toolResultToText(blocks: ContentBlock[]): string {
   const parts: string[] = []
   for (const b of blocks) {
@@ -49,7 +59,6 @@ function toolResultToText(blocks: ContentBlock[]): string {
   return parts.join('\n')
 }
 
-/** 将 block 数组转换为带类型标记的文本 */
 function blocksToText(blocks: ContentBlock[]): string {
   const parts: string[] = []
   for (const b of blocks) {
@@ -66,24 +75,14 @@ function blocksToText(blocks: ContentBlock[]): string {
   return parts.join('\n\n')
 }
 
-/**
- * 将原始消息列表转换为可显示的对话记录：
- * - tool_result 消息作为 assistant 显示
- * - thinking 以折叠块显示
- * - 合并相邻的 assistant 消息
- */
 function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
   const result: { role: 'user' | 'assistant'; content: string }[] = []
-
   for (const m of msgs) {
     if (m.role !== 'user' && m.role !== 'assistant') continue
-
     const blocks = parseBlocks(m.content)
     let text: string
     let role: 'user' | 'assistant'
-
     if (isToolResult(blocks)) {
-      // tool_result 作为 assistant 显示
       role = 'assistant'
       const content = toolResultToText(blocks).trim()
       text = content ? `⟪result⟫${content}⟪/result⟫` : ''
@@ -91,10 +90,7 @@ function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'
       role = m.role as 'user' | 'assistant'
       text = blocksToText(blocks)
     }
-
     if (!text.trim()) continue
-
-    // 相邻 assistant 合并
     const last = result[result.length - 1]
     if (last && last.role === 'assistant' && role === 'assistant') {
       last.content += '\n\n' + text
@@ -102,7 +98,6 @@ function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'
       result.push({ role, content: text })
     }
   }
-
   return result
 }
 
@@ -116,15 +111,14 @@ export interface QueuedMessage {
 interface MessageQueueState {
   queuedMessages: QueuedMessage[]
   queueCount: number
-  /** 客户端排队待发送的消息内容 */
   pendingQueue: string[]
   /** 将消息加入客户端队列（AI 忙碌时调用） */
   queueSend: (text: string) => void
-  /** 从队列头部出队一条 */
   shiftPending: () => void
-  /** 思考等级 */
   thinkingLevel: string
   setThinkingLevel: (level: string) => void
+  /** 直接发送消息到后端（不经过框架），由 message_consumed 事件驱动显示 */
+  sendDirect: (text: string) => void
 }
 
 const MessageQueueContext = createContext<MessageQueueState>({
@@ -135,11 +129,14 @@ const MessageQueueContext = createContext<MessageQueueState>({
   shiftPending: () => {},
   thinkingLevel: 'off',
   setThinkingLevel: () => {},
+  sendDirect: () => {},
 })
 
 export function useMessageQueue() {
   return useContext(MessageQueueContext)
 }
+
+// ── Provider ──
 
 interface Props {
   children: ReactNode
@@ -151,10 +148,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
-  // 历史消息加载状态
+  // 历史消息
   const [initialMessages, setInitialMessages] = useState<{ role: 'user' | 'assistant'; content: string }[] | null>(null)
 
-  // 加载历史聊天记录
   useEffect(() => {
     let cancelled = false
     getSessionMessages(sessionId)
@@ -168,10 +164,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     return () => { cancelled = true }
   }, [sessionId])
 
-  // 消息队列状态
+  // 消息队列
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
-
-  // 客户端排队待发送的消息（AI 忙碌时用户提交的消息）
   const [pendingQueue, setPendingQueue] = useState<string[]>([])
   const queueSend = useCallback((text: string) => {
     setPendingQueue(prev => [...prev, text])
@@ -185,27 +179,29 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const thinkingRef = useRef(thinkingLevel)
   thinkingRef.current = thinkingLevel
 
-  const handleQueueEvent = useCallback((evt: QueueEvent) => {
-    switch (evt.type) {
-      case 'message_queued':
-        setQueuedMessages(prev => [...prev, { id: evt.message_id, status: 'queued' }])
-        break
-      case 'message_consumed':
-        setQueuedMessages(prev =>
-          prev.map(m => m.id === evt.message_id ? { ...m, status: 'consumed' as const } : m)
-        )
-        // 消费后短暂保留然后移除
-        setTimeout(() => {
-          setQueuedMessages(prev => prev.filter(m => m.id !== evt.message_id))
-        }, 600)
-        break
-      case 'message_sent':
-        // 消息已被立即处理，无需排队显示
-        break
+  // ── sendDirect: 只负责把消息发给后端，不操作 UI ──
+  const sendDirect = useCallback((text: string) => {
+    console.log('[sendDirect] sending:', text.substring(0, 30))
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.log('[sendDirect] WebSocket not open')
+      return
     }
+
+    // 初始化会话（幂等）
+    ws.send(JSON.stringify({ type: 'create', session_id: sessionIdRef.current, start: 0 }))
+
+    // 发送聊天消息
+    const chatMsg: Record<string, string> = { type: 'chat', message: text.trim() }
+    const thinking = thinkingRef.current
+    if (thinking && thinking !== 'off') chatMsg.thinking = thinking
+    ws.send(JSON.stringify(chatMsg))
   }, [])
 
-  // Connect WebSocket on mount
+  // ── consumeMessage: 后端确认消费后，将用户消息加入对话框并启动流 ──
+  const consumeMessageRef = useRef<(text: string) => void>(() => {})
+
+  // ── WebSocket 连接 + 事件处理 ──
   useEffect(() => {
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout>
@@ -214,14 +210,55 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     const connect = () => {
       if (!mounted) return
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      const wsUrl = `${proto}://${location.hostname}:19009/ws/chat`
-      ws = new WebSocket(wsUrl)
+      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat`)
       wsRef.current = ws
 
+      ws.onopen = () => {
+        // 安装流事件桥接
+        setupStreamBridge(ws!)
+        // 设置停止回调
+        setStopCallback(() => {
+          if (ws!.readyState === WebSocket.OPEN) {
+            ws!.send(JSON.stringify({ type: 'stop' }))
+          }
+        })
+      }
+
+      ws.onmessage = (evt: MessageEvent) => {
+        try {
+          const msg = JSON.parse(evt.data)
+          switch (msg.type) {
+            case 'message_sent':
+              // 消息已被立即处理，更新状态栏
+              setQueuedMessages(prev => [...prev, { id: msg.message_id, status: 'consumed' as const }])
+              setTimeout(() => {
+                setQueuedMessages(prev => prev.filter(m => m.id !== msg.message_id))
+              }, 600)
+              break
+            case 'message_queued':
+              // 消息进入等待队列
+              setQueuedMessages(prev => [...prev, { id: msg.message_id, status: 'queued' as const }])
+              break
+            case 'message_consumed':
+              console.log('[ws] message_consumed:', msg.message_id, 'content:', msg.content?.substring(0, 30))
+              // 后端确认消费 → 将用户消息加入对话框 + 触发流
+              setQueuedMessages(prev =>
+                prev.map(m => m.id === msg.message_id ? { ...m, status: 'consumed' as const } : m)
+              )
+              setTimeout(() => {
+                setQueuedMessages(prev => prev.filter(m => m.id !== msg.message_id))
+              }, 600)
+              // 核心：用户消息显示 + 启动助手响应
+              if (msg.content) {
+                consumeMessageRef.current(msg.content)
+              }
+              break
+          }
+        } catch { /* ignore */ }
+      }
+
       ws.onclose = () => {
-        if (mounted) {
-          reconnectTimer = setTimeout(connect, 2000)
-        }
+        if (mounted) reconnectTimer = setTimeout(connect, 2000)
       }
       ws.onerror = () => {}
     }
@@ -235,14 +272,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     }
   }, [])
 
-  const getWs = () => wsRef.current
-  const getSessionId = () => sessionIdRef.current
-
-  const adapter = useMemo(
-    () => createSimpleWebSocketAdapter(getWs, getSessionId, handleQueueEvent, () => thinkingRef.current),
-    [handleQueueEvent],
-  )
-
+  // ── Adapter + Runtime ──
+  const adapter = useMemo(() => createStreamingAdapter(), [])
   const runtime = useLocalRuntime(adapter, {
     initialMessages: initialMessages ?? [],
   })
@@ -255,9 +286,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     shiftPending,
     thinkingLevel,
     setThinkingLevel,
-  }), [queuedMessages, pendingQueue, queueSend, shiftPending, thinkingLevel])
+    sendDirect,
+  }), [queuedMessages, pendingQueue, queueSend, shiftPending, thinkingLevel, sendDirect])
 
-  // 历史消息未加载完成时显示 loading
   if (initialMessages === null) {
     return (
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#80868b', fontSize: 14 }}>
@@ -270,6 +301,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     <MessageQueueContext.Provider value={queueState}>
       <AssistantRuntimeProvider runtime={runtime}>
         <SessionResetter sessionId={sessionId} />
+        <MessageConsumedHandler consumeMessageRef={consumeMessageRef} />
         <PendingSendWatcher />
         {children}
       </AssistantRuntimeProvider>
@@ -277,20 +309,52 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   )
 }
 
-/** 空闲时自动发送客户端队列中的下一条消息。 */
-function PendingSendWatcher() {
+/**
+ * 注册 consumeMessage 回调：将用户消息追加到线程并启动 adapter 流。
+ * 必须在 AssistantRuntimeProvider 内部使用（需要 useThreadRuntime）。
+ */
+function MessageConsumedHandler({ consumeMessageRef }: { consumeMessageRef: React.MutableRefObject<(text: string) => void> }) {
   const threadRuntime = useThreadRuntime()
-  const isRunning = useThread(t => t.isRunning)
-  const { pendingQueue, shiftPending } = useMessageQueue()
 
   useEffect(() => {
-    if (isRunning || pendingQueue.length === 0) return
-    const next = pendingQueue[0]
-    shiftPending()
-    threadRuntime.composer.setText(next)
-    threadRuntime.composer.send()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning, pendingQueue.length, threadRuntime])
+    consumeMessageRef.current = (text: string) => {
+      console.log('[consumeMessage] appending user message, text:', text.substring(0, 30))
+      triggerStream()
+      // 使用 append 的 startRun 选项，一步完成：追加消息 + 启动 adapter
+      threadRuntime.append({
+        role: 'user',
+        content: [{ type: 'text', text }],
+        startRun: true,
+      } as any)
+    }
+  }, [threadRuntime, consumeMessageRef])
+
+  return null
+}
+
+/**
+ * 空闲时自动发送客户端队列中的下一条消息。
+ */
+function PendingSendWatcher() {
+  const isRunning = useThread(t => t.isRunning)
+  const { pendingQueue, shiftPending, sendDirect } = useMessageQueue()
+
+  // 使用 ref 确保 effect 内始终能访问最新的函数
+  const shiftRef = useRef(shiftPending)
+  shiftRef.current = shiftPending
+  const sendRef = useRef(sendDirect)
+  sendRef.current = sendDirect
+  const queueRef = useRef(pendingQueue)
+  queueRef.current = pendingQueue
+
+  useEffect(() => {
+    console.log('[PendingSendWatcher] isRunning:', isRunning, 'queueLen:', queueRef.current.length)
+    if (isRunning || queueRef.current.length === 0) return
+    const next = queueRef.current[0]
+    console.log('[PendingSendWatcher] auto-sending:', next.substring(0, 30))
+    shiftRef.current()
+    sendRef.current(next)
+  }, [isRunning])
 
   return null
 }
