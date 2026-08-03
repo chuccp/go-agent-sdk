@@ -25,6 +25,7 @@ type Store struct {
 	entries      *util.SliceArray[*EventEntry]
 	base         uint
 	savedLen     int // 上次 SaveHistory 时的 history 长度
+	pending      int // 自上次 AppendHistory 以来新增的事件数
 }
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
@@ -45,6 +46,7 @@ func (l *Store) Add(event *ClientEvent) uint {
 		Offset: 1,
 		Event:  event,
 	})
+	l.pending++
 	return event.Seq
 }
 
@@ -112,14 +114,16 @@ func (l *Store) Base() uint {
 }
 
 // AppendHistory 将一条消息追加到内存历史。
-// 若 msg.Start 已设置，自动计算 Offset（该消息关联的事件数量）。
+// 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
 func (l *Store) AppendHistory(msg *Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	currentPos := l.base + uint(l.entries.Len())
-	if currentPos >= msg.Start {
-		msg.Offset = currentPos - msg.Start
+	msg.Offset = uint(l.pending)
+	if l.pending > 0 {
+		msg.Start = currentPos - uint(l.pending)
 	}
+	l.pending = 0
 	l.history.Append(msg)
 }
 

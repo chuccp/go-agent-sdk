@@ -151,10 +151,9 @@ func (p *messageProcessor) run() {
 
 		var blocks chat.Blocks
 		var stopReason chat.StopReason
-		var start uint
 		var streamErr error
 		if callErr == nil {
-			blocks, stopReason, start, streamErr = p.streamResponse(resp)
+			blocks, stopReason, streamErr = p.streamResponse(resp)
 		}
 
 		// ===== 重新持锁 =====
@@ -166,17 +165,21 @@ func (p *messageProcessor) run() {
 			p.running = false
 			p.cancel = nil
 			p.runMutex.Unlock()
-			// streamResponse 内部已发送过 ErrorEvent，仅连接失败时补发
+			// 统一发送错误事件
+			var errMsg string
 			if callErr != nil {
-				evt := chat.NewErrorEvent(callErr.Error())
-				evt.Done = true
-				p.addEvent(evt)
+				errMsg = callErr.Error()
+			} else {
+				errMsg = streamErr.Error()
 			}
+			evt := chat.NewErrorEvent(errMsg)
+			evt.Done = true
+			p.addEvent(evt)
 			return
 		}
 
 		// assistant 消息入历史
-		p.appendAssistantMessage(blocks, start)
+		p.appendAssistantMessage(blocks)
 
 		switch stopReason {
 		case chat.StopReasonToolUse:
@@ -282,10 +285,8 @@ func (p *messageProcessor) buildRequest() *chat.Request {
 
 // consumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 func (p *messageProcessor) consumeMessage(qm *queuedMessage) {
-	start := p.events.Position()
 	p.addEvent(chat.NewMessageConsumedEvent(qm.id, p.sessionId, qm.msg))
 	msg := qm.msg.ToMessage()
-	msg.Start = start
 	p.events.AppendHistory(&msg)
 }
 
@@ -311,10 +312,9 @@ func (p *messageProcessor) drainInbox() {
 	p.inbox.Reset()
 }
 
-// streamResponse 消费 SSE 流，返回所有 content block、stop_reason 和起始事件位置。
+// streamResponse 消费 SSE 流，返回所有 content block 和 stop_reason。
 // 同时在消费过程中通过 addEvent 向外广播文本增量。
-func (p *messageProcessor) streamResponse(resp *chat.Response) (blocks chat.Blocks, stopReason chat.StopReason, start uint, err error) {
-	start = p.events.Position()
+func (p *messageProcessor) streamResponse(resp *chat.Response) (blocks chat.Blocks, stopReason chat.StopReason, err error) {
 	var collector blockCollector
 
 	for evt := resp.ReadEvent(); evt != nil; evt = resp.ReadEvent() {
@@ -350,23 +350,19 @@ func (p *messageProcessor) streamResponse(resp *chat.Response) (blocks chat.Bloc
 
 		case chat.EventTypeError:
 			e := evt.(*chat.ErrorEvent)
-			clientEvt := chat.NewErrorEvent(e.Error())
-			clientEvt.Done = true
-			p.addEvent(clientEvt)
-			return collector.take(), stopReason, start, e.Err
+			return collector.take(), stopReason, e.Err
 
 		case chat.EventTypeMessageStop:
-			return collector.take(), stopReason, start, nil
+			return collector.take(), stopReason, nil
 		}
 	}
 
 	// 流异常中断（ReadEvent 返回 nil 但未收到 MessageStop）
-	return collector.take(), stopReason, start, nil
+	return collector.take(), stopReason, nil
 }
 
 // executeTools 执行 tool_use blocks 中的工具，将 tool_result 作为 user 消息追加到历史。
 func (p *messageProcessor) executeTools(blocks chat.Blocks) {
-	start := p.events.Position()
 	toolExecutors := p.ctx.ToolExecutors()
 	toolResults := make(chat.Blocks, 0, len(blocks))
 	for _, block := range blocks {
@@ -398,13 +394,13 @@ func (p *messageProcessor) executeTools(blocks chat.Blocks) {
 		))
 	}
 	// tool_result 作为 user 消息入历史
-	msg := &chat.Message{Role: chat.RoleUser, Content: toolResults, Start: start}
+	msg := &chat.Message{Role: chat.RoleUser, Content: toolResults}
 	p.events.AppendHistory(msg)
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (p *messageProcessor) appendAssistantMessage(blocks chat.Blocks, start uint) {
-	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks, Start: start}
+func (p *messageProcessor) appendAssistantMessage(blocks chat.Blocks) {
+	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
 	p.events.AppendHistory(assistantMsg)
 }
 
