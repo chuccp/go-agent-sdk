@@ -78,9 +78,14 @@ func (l *Store) ReadFrom(position *Position) *EventEntry {
 
 // GetPosition 创建并注册一个客户端读取位置。
 // start 为初始读取偏移，返回的 Position 由 client 持有并随读取推进。
+// 若 start 超过当前写头（如根据持久化历史计算的偏移，而事件流已随服务重启重置），
+// 则钳制到写头，保证之后新产生的事件（seq 从写头开始分配）都能被读到。
 func (l *Store) GetPosition(start uint) *Position {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if head := l.base + uint(l.entries.Len()); start > head {
+		start = head
+	}
 	position := &Position{start: start}
 	l.positions.Append(position)
 	return position
@@ -142,8 +147,18 @@ func (l *Store) LoadHistory() error {
 		if err != nil {
 			return err
 		}
+		var base uint
 		for i := range msgs {
 			l.history.Append(&msgs[i])
+			// 取所有消息 start+offset 的最大值作为事件流偏移恢复点
+			if end := msgs[i].Start + msgs[i].Offset; end > base {
+				base = end
+			}
+		}
+		// 恢复事件流偏移：新事件的 seq 从持久化历史之后接续，
+		// 与前端根据历史计算的 start 对齐
+		if l.entries.IsEmpty() && base > l.base {
+			l.base = base
 		}
 		l.savedLen = l.history.Len()
 	}

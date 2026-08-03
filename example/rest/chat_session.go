@@ -162,6 +162,9 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			case *entity.WsCreateMessage:
 				if err := session.CreateChat(m); err != nil {
 					writeError(stream, err)
+				} else {
+					// 回执：通知前端会话已就绪，可以开始发送消息
+					writeCreated(stream, m.SessionId)
 				}
 			case *entity.WsStopMessage:
 				if err := session.HandleStop(); err != nil {
@@ -180,5 +183,11 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 // writeError 向前端发送错误事件
 func writeError(stream *web.WebSocketStream, err error) {
 	data, _ := json.Marshal(chat.NewErrorEvent(err.Error()))
+	_ = stream.WriteText(context.Background(), data)
+}
+
+// writeCreated 向前端发送会话就绪确认消息
+func writeCreated(stream *web.WebSocketStream, sessionId uint) {
+	data, _ := json.Marshal(entity.NewCreatedMessage(sessionId))
 	_ = stream.WriteText(context.Background(), data)
 }

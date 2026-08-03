@@ -5,6 +5,7 @@ import {
   useAssistantRuntime,
   useThreadRuntime,
   useThread,
+  type ChatModelAdapter,
 } from '@assistant-ui/react'
 import {
   createStreamingAdapter,
@@ -148,21 +149,46 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
-  // 历史消息
+  // 历史消息 + 事件流起始位置（start = 最后一条历史消息的 start + offset）
   const [initialMessages, setInitialMessages] = useState<{ role: 'user' | 'assistant'; content: string }[] | null>(null)
+  const startRef = useRef<number | null>(null)
+
+  // 会话就绪状态：收到服务端 created 回执后才允许发送聊天消息
+  const createdRef = useRef(false)
+  const pendingChatRef = useRef<string[]>([]) // 回执到达前暂存的聊天消息报文
+
+  // ── sendCreate: WS 打开后发送 create 消息，接入事件流（从 start 位置开始） ──
+  const sendCreate = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (startRef.current === null) return // 历史尚未加载完成
+    ws.send(JSON.stringify({ type: 'create', session_id: sessionIdRef.current, start: startRef.current }))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
+    // 切换会话时重置，等待新历史加载后再重新发送 create
+    startRef.current = null
+    createdRef.current = false
+    pendingChatRef.current = []
+    setInitialMessages(null) // 回到加载态，运行时将随新历史重建
     getSessionMessages(sessionId)
       .then(msgs => {
         if (cancelled) return
+        // 事件流从最后一条历史消息之后的位置继续；无历史则从 0 开始
+        const last = msgs[msgs.length - 1]
+        startRef.current = last ? last.start + last.offset : 0
         setInitialMessages(buildDisplayMessages(msgs))
+        sendCreate()
       })
       .catch(() => {
-        if (!cancelled) setInitialMessages([])
+        if (cancelled) return
+        startRef.current = 0
+        setInitialMessages([])
+        sendCreate()
       })
     return () => { cancelled = true }
-  }, [sessionId])
+  }, [sessionId, sendCreate])
 
   // 消息队列
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
@@ -188,15 +214,20 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       return
     }
 
-    // 初始化会话（幂等）
-    ws.send(JSON.stringify({ type: 'create', session_id: sessionIdRef.current, start: 0 }))
+    // 初始化会话（幂等；历史加载完成后携带事件流起始位置）
+    sendCreate()
 
-    // 发送聊天消息
+    // 发送聊天消息：未收到 created 回执时暂存，由回执触发补发
     const chatMsg: Record<string, string> = { type: 'chat', message: text.trim() }
     const thinking = thinkingRef.current
     if (thinking && thinking !== 'off') chatMsg.thinking = thinking
-    ws.send(JSON.stringify(chatMsg))
-  }, [])
+    const payload = JSON.stringify(chatMsg)
+    if (createdRef.current) {
+      ws.send(payload)
+    } else {
+      pendingChatRef.current.push(payload)
+    }
+  }, [sendCreate])
 
   // ── consumeMessage: 后端确认消费后，将用户消息加入对话框并启动流 ──
   const consumeMessageRef = useRef<(text: string) => void>(() => {})
@@ -222,12 +253,22 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
             ws!.send(JSON.stringify({ type: 'stop' }))
           }
         })
+        // 历史已加载完成则立即接入事件流（重连时恢复）
+        sendCreate()
       }
 
       ws.onmessage = (evt: MessageEvent) => {
         try {
           const msg = JSON.parse(evt.data)
           switch (msg.type) {
+            case 'created':
+              // 会话就绪回执：补发暂存的聊天消息，之后可直接发送
+              createdRef.current = true
+              for (const payload of pendingChatRef.current) {
+                ws!.send(payload)
+              }
+              pendingChatRef.current = []
+              break
             case 'message_sent':
               // 消息已被立即处理，更新状态栏
               setQueuedMessages(prev => [...prev, { id: msg.message_id, status: 'consumed' as const }])
@@ -270,13 +311,10 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       clearTimeout(reconnectTimer)
       ws?.close()
     }
-  }, [])
+  }, [sendCreate])
 
   // ── Adapter + Runtime ──
   const adapter = useMemo(() => createStreamingAdapter(), [])
-  const runtime = useLocalRuntime(adapter, {
-    initialMessages: initialMessages ?? [],
-  })
 
   const queueState = useMemo<MessageQueueState>(() => ({
     queuedMessages,
@@ -299,13 +337,42 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
 
   return (
     <MessageQueueContext.Provider value={queueState}>
-      <AssistantRuntimeProvider runtime={runtime}>
-        <SessionResetter sessionId={sessionId} />
-        <MessageConsumedHandler consumeMessageRef={consumeMessageRef} />
-        <PendingSendWatcher />
+      <RuntimeGate
+        adapter={adapter}
+        initialMessages={initialMessages}
+        sessionId={sessionId}
+        consumeMessageRef={consumeMessageRef}
+      >
         {children}
-      </AssistantRuntimeProvider>
+      </RuntimeGate>
     </MessageQueueContext.Provider>
+  )
+}
+
+/**
+ * 历史加载完成后才挂载，在此创建运行时，
+ * 保证 useLocalRuntime 的 initialMessages 在创建时即为完整历史
+ * （useLocalRuntime 只在创建时读取一次 initialMessages）。
+ * 切换会话时父级回到加载态，本组件卸载后随新历史重新挂载。
+ */
+function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, children }: {
+  adapter: ChatModelAdapter
+  initialMessages: { role: 'user' | 'assistant'; content: string }[]
+  sessionId: number
+  consumeMessageRef: React.MutableRefObject<(text: string) => void>
+  children: ReactNode
+}) {
+  const runtime = useLocalRuntime(adapter, {
+    initialMessages,
+  })
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <SessionResetter sessionId={sessionId} />
+      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} />
+      <PendingSendWatcher />
+      {children}
+    </AssistantRuntimeProvider>
   )
 }
 

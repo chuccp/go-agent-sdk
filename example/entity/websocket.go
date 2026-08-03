@@ -8,11 +8,12 @@ import (
 
 // WebSocket message type constants.
 const (
-	ChatType   = "chat"
-	CreateType = "create"
-	PingType   = "ping"
-	PongType   = "pong"
-	StopType   = "stop"
+	ChatType    = "chat"
+	CreateType  = "create"
+	CreatedType = "created" // 服务端回执：会话已就绪，前端可以开始发送消息
+	PingType    = "ping"
+	PongType    = "pong"
+	StopType    = "stop"
 )
 
 // Message is the common interface shared by all incoming WebSocket messages.
@@ -41,6 +42,20 @@ func (m *WsCreateMessage) Type() string { return CreateType }
 // GetSessionId 返回字符串形式的会话 ID。
 func (m *WsCreateMessage) GetSessionId() string {
 	return cast.ToString(m.SessionId)
+}
+
+// WsCreatedMessage 服务端成功接入会话后发给前端的确认消息。
+// type 字段参与 JSON 序列化，前端据此判断可以开始发送聊天消息。
+type WsCreatedMessage struct {
+	MsgType   string `json:"type"`
+	SessionId uint   `json:"session_id"`
+}
+
+func (m *WsCreatedMessage) Type() string { return CreatedType }
+
+// NewCreatedMessage 创建一条会话就绪确认消息。
+func NewCreatedMessage(sessionId uint) *WsCreatedMessage {
+	return &WsCreatedMessage{MsgType: CreatedType, SessionId: sessionId}
 }
 
 // WsPingMessage 心跳请求。

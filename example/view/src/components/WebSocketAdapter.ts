@@ -46,6 +46,9 @@ export function setStopCallback(cb: () => void): void {
  */
 export function triggerStream(): void {
   console.log('[adapter] triggerStream called')
+  // 丢弃触发前缓冲的终结性事件（上一轮残留的 done/error：
+  // 当前轮在 message_consumed 之前不可能产生本轮的终结事件）
+  pendingBuffer = pendingBuffer.filter(e => e.kind !== 'done' && e.kind !== 'error')
   if (triggerResolve) {
     triggerResolve()
     triggerResolve = null

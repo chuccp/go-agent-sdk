@@ -183,11 +183,10 @@ func (p *messageProcessor) run() {
 			return
 		}
 
-		// assistant 消息入历史
-		p.appendAssistantMessage(blocks)
-
 		switch stopReason {
 		case chat.StopReasonToolUse:
+			// assistant 消息入历史
+			p.appendAssistantMessage(blocks)
 			// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
 			p.runMutex.Unlock()
 			p.executeTools(blocks)
@@ -195,7 +194,10 @@ func (p *messageProcessor) run() {
 
 		default: // end_turn
 			log.Printf("[processor] end_turn, adding done event, inbox empty=%v", p.inbox.IsEmpty())
+			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
+			// 前端根据历史计算的 start 会落在 done 之后，重连时不会重放残留的 done
 			p.addEvent(chat.NewDoneEvent(p.sessionId))
+			p.appendAssistantMessage(blocks)
 			p.saveAndReset()
 			// inbox 还有消息则继续循环，否则退出
 			if p.inbox.IsEmpty() {

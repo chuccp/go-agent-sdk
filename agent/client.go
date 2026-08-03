@@ -30,17 +30,20 @@ func (c *ChatClient) SendMessage(message *chat.RevMessage, opt ...Option) error 
 	return c.handler.SendMessage(message, opt...)
 }
 
+// ReadEvent 阻塞读取下一个事件。
+// 仅当连接关闭（queue 被关闭）时返回 nil；
+// 若收到通知但当前位置暂时无可读事件，则继续等待下一次通知，不退出读取循环。
 func (c *ChatClient) ReadEvent() *chat.ClientEvent {
-	_, hasValue := c.queue.Dequeue()
-	if !hasValue {
-		return nil
+	for {
+		_, hasValue := c.queue.Dequeue()
+		if !hasValue {
+			return nil
+		}
+		if entry := c.handler.ReadEvent(c.position); entry != nil {
+			return entry.Event
+		}
+		// 当前位置暂不可读（如事件已被清理），等待下一次 flush 通知
 	}
-	entry := c.handler.ReadEvent(c.position)
-	if entry == nil {
-		return nil
-	}
-
-	return entry.Event
 }
 
 func (c *ChatClient) Stop() {
