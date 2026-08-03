@@ -115,23 +115,13 @@ func (p *messageProcessor) LoadHistory() error {
 }
 
 // ReadEvent 从指定事件位置开始读取事件条目。
-func (p *messageProcessor) ReadEvent(start uint) *chat.EventEntry {
-	return p.events.ReadFrom(start)
+func (p *messageProcessor) ReadEvent(position *chat.Position) *chat.EventEntry {
+	return p.events.ReadFrom(position)
 }
 
-// AddEventClient 注册一个事件消费客户端，返回 Store 分配的客户端 ID。
-func (p *messageProcessor) AddEventClient(start uint) int {
-	return p.events.AddClient(start)
-}
-
-// RemoveEventClient 注销客户端。
-func (p *messageProcessor) RemoveEventClient(id int) {
-	p.events.RemoveClient(id)
-}
-
-// AckEventClient 更新客户端已确认读取到的全局偏移。
-func (p *messageProcessor) AckEventClient(id int, offset uint) {
-	p.events.Ack(id, offset)
+// RemoveEventPosition 注销客户端的读取位置。
+func (p *messageProcessor) RemoveEventPosition(position *chat.Position) {
+	p.events.RemovePosition(position)
 }
 
 // run 会话主循环。持有 runMutex 运行，仅在 LLM 网络调用期间释放（允许 handleMessage 写入 inbox）。
@@ -429,6 +419,10 @@ func (p *messageProcessor) saveAndReset() {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
 	p.events.Reset()
+}
+
+func (p *messageProcessor) GetPosition(start uint) *chat.Position {
+	return p.events.GetPosition(start)
 }
 
 // withoutThinking 从 blocks 中剩离 thinking block。

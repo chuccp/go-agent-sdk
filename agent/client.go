@@ -9,19 +9,16 @@ import (
 type ChatHandler interface {
 	SendMessage(message *chat.RevMessage, opt ...Option) error
 	History() []*chat.Message
-	ReadEvent(start uint) *chat.EventEntry
+	ReadEvent(position *chat.Position) *chat.EventEntry
 	DeleteClient(client *ChatClient)
-	AckEventClient(id int, offset uint)
 	Stop()
 }
 
 // ChatClient 面向调用方的客户端句柄
 type ChatClient struct {
-	handler ChatHandler
-	queue   *util.Queue[bool]
-	offset  uint
-	start   uint
-	storeID int // 在 Store 中的客户端 ID，用于 Ack
+	handler  ChatHandler
+	queue    *util.Queue[bool]
+	position *chat.Position
 }
 
 func (c *ChatClient) SendText(message string, opt ...Option) error {
@@ -38,12 +35,11 @@ func (c *ChatClient) ReadEvent() *chat.ClientEvent {
 	if !hasValue {
 		return nil
 	}
-	entry := c.handler.ReadEvent(c.offset)
+	entry := c.handler.ReadEvent(c.position)
 	if entry == nil {
 		return nil
 	}
-	c.offset += entry.Offset
-	c.handler.AckEventClient(c.storeID, c.offset)
+
 	return entry.Event
 }
 

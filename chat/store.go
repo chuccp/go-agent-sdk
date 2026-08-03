@@ -17,6 +17,10 @@ type HistoryStore interface {
 	AppendMessages(sessionID string, messages []Message) error
 }
 
+type Position struct {
+	start uint
+}
+
 type Store struct {
 	sessionId    string
 	history      *util.SliceArray[*Message]
@@ -24,11 +28,9 @@ type Store struct {
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*EventEntry]
 	base         uint
-	savedLen     int  // 上次 SaveHistory 时的 history 长度
-	pending      int  // 自上次 AppendHistory 以来新增的事件数
-	ackMu        sync.Mutex
-	acks         map[int]uint // clientID → 已确认读取的全局偏移
-	clientSeq    int          // 自增 client ID
+	savedLen     int // 上次 SaveHistory 时的 history 长度
+	pending      int // 自上次 AppendHistory 以来新增的事件数
+	positions    *util.SliceArray[*Position]
 }
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
@@ -37,7 +39,7 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 		historyStore: historyStore,
 		sessionId:    sessionId,
 		history:      new(util.SliceArray[*Message]),
-		acks:         make(map[int]uint),
+		positions:    new(util.SliceArray[*Position]),
 	}
 }
 
@@ -54,10 +56,11 @@ func (l *Store) Add(event *ClientEvent) uint {
 	return event.Seq
 }
 
-// ReadFrom 从全局偏移 start 读取下一个事件，若无新事件返回 nil。
-func (l *Store) ReadFrom(start uint) *EventEntry {
+// ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
+func (l *Store) ReadFrom(position *Position) *EventEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	start := position.start
 	if start < l.base {
 		start = l.base
 	}
@@ -65,44 +68,42 @@ func (l *Store) ReadFrom(start uint) *EventEntry {
 	if idx >= l.entries.Len() {
 		return nil
 	}
-	return l.entries.Get(idx)
+	entry := l.entries.Get(idx)
+	if entry == nil {
+		return nil
+	}
+	position.start += entry.Offset
+	return entry
 }
 
-// AddClient 注册一个事件消费客户端，返回其唯一 ID。
-// start 为该客户端的初始读取偏移（通常为 Position()）。
-func (l *Store) AddClient(start uint) int {
-	l.ackMu.Lock()
-	defer l.ackMu.Unlock()
-	l.clientSeq++
-	l.acks[l.clientSeq] = start
-	return l.clientSeq
+// GetPosition 创建并注册一个客户端读取位置。
+// start 为初始读取偏移，返回的 Position 由 client 持有并随读取推进。
+func (l *Store) GetPosition(start uint) *Position {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	position := &Position{start: start}
+	l.positions.Append(position)
+	return position
 }
 
-// RemoveClient 注销客户端，后续 Reset 不再考虑其读取位置。
-func (l *Store) RemoveClient(id int) {
-	l.ackMu.Lock()
-	defer l.ackMu.Unlock()
-	delete(l.acks, id)
+// RemovePosition 注销客户端读取位置，后续 Reset 不再考虑该 position。
+func (l *Store) RemovePosition(position *Position) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.positions.Remove(position)
 }
 
-// Ack 更新指定客户端已确认读取到的全局偏移。
-func (l *Store) Ack(id int, offset uint) {
-	l.ackMu.Lock()
-	defer l.ackMu.Unlock()
-	l.acks[id] = offset
-}
-
-// minAck 返回所有已注册客户端中的最小已确认偏移。
-// 若无客户端注册，返回 0。
-func (l *Store) minAck() uint {
-	l.ackMu.Lock()
-	defer l.ackMu.Unlock()
-	if len(l.acks) == 0 {
+// minPosition 返回所有已注册 position 中 Start 最小的值。
+// 若无 position，返回 0。
+func (l *Store) minPosition() uint {
+	// 调用方已持有 l.mu，无需再加锁
+	if l.positions.Len() == 0 {
 		return 0
 	}
 	var min uint
 	first := true
-	for _, v := range l.acks {
+	for i := 0; i < l.positions.Len(); i++ {
+		v := l.positions.Get(i).start
 		if first || v < min {
 			min = v
 			first = false
@@ -112,22 +113,21 @@ func (l *Store) minAck() uint {
 }
 
 // Reset 清理所有客户端均已读取的事件条目，保留未读部分。
-// 以所有 client 中已确认偏移最小的为准，只清理该偏移之前的条目。
+// 以所有 position 中 Start 最小的为准，只清理该偏移之前的条目。
 func (l *Store) Reset() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	minAck := l.minAck()
-	if minAck <= l.base {
-		// 所有 client 尚未读取新条目，不清理
+	minPos := l.minPosition()
+	if minPos <= l.base {
 		l.pending = 0
 		return
 	}
-	removeCount := int(minAck - l.base)
+	removeCount := int(minPos - l.base)
 	if removeCount > l.entries.Len() {
 		removeCount = l.entries.Len()
 	}
 	l.entries.RemoveFront(removeCount)
-	l.base = minAck
+	l.base = minPos
 	l.pending = 0
 }
 
@@ -159,8 +159,8 @@ func (l *Store) History() []*Message {
 	return result
 }
 
-// Position 返回当前事件流写头（下一个事件的 seq）。
-func (l *Store) Position() uint {
+// WriteHead 返回当前事件流写头（下一个事件的 seq）。
+func (l *Store) WriteHead() uint {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.base + uint(l.entries.Len())
