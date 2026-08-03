@@ -107,16 +107,16 @@ func (l *Store) minPosition() uint {
 	if l.positions.Len() == 0 {
 		return 0
 	}
-	var min uint
+	var m uint
 	first := true
 	for i := 0; i < l.positions.Len(); i++ {
 		v := l.positions.Get(i).start
-		if first || v < min {
-			min = v
+		if first || v < m {
+			m = v
 			first = false
 		}
 	}
-	return min
+	return m
 }
 
 // Reset 清理所有客户端均已读取的事件条目，保留未读部分。
