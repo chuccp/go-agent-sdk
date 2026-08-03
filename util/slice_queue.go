@@ -75,11 +75,12 @@ func (q *SliceQueue[T]) Reset() {
 	q.write = 0
 	q.count = 0
 }
+func (q *SliceQueue[T]) IsEmpty() bool { return q.empty() }
 
-func (q *SliceQueue[T]) cap() int { return cap(q.buf) }
+func (q *SliceQueue[T]) cap() int  { return cap(q.buf) }
 func (q *SliceQueue[T]) mask() int { return q.cap() - 1 }
 
-func (q *SliceQueue[T]) full() bool { return q.count == q.cap() }
+func (q *SliceQueue[T]) full() bool  { return q.count == q.cap() }
 func (q *SliceQueue[T]) empty() bool { return q.count == 0 }
 
 // grow doubles the capacity and reorders elements linearly.

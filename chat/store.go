@@ -24,6 +24,7 @@ type Store struct {
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*EventEntry]
 	base         uint
+	savedLen     int // 上次 SaveHistory 时的 history 长度
 }
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
@@ -82,6 +83,7 @@ func (l *Store) LoadHistory() error {
 		for i := range msgs {
 			l.history.Append(&msgs[i])
 		}
+		l.savedLen = l.history.Len()
 	}
 	return nil
 }
@@ -132,22 +134,26 @@ func (l *Store) SetLastHistoryOffset(offset uint) {
 	}
 }
 
-// SaveHistory 将本轮新增的消息增量持久化到存储。
-// newCount 为本轮新增的消息数量（从 history 尾部截取）。
-func (l *Store) SaveHistory(newCount int) error {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if l.historyStore == nil || newCount <= 0 {
+// SaveHistory 将自上次保存以来新增的消息持久化到存储。
+func (l *Store) SaveHistory() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.historyStore == nil {
 		return nil
 	}
 	all := l.history.Slice()
-	if newCount > len(all) {
-		newCount = len(all)
+	newCount := len(all) - l.savedLen
+	if newCount <= 0 {
+		return nil
 	}
-	batch := all[len(all)-newCount:]
+	batch := all[l.savedLen:]
 	msgs := make([]Message, len(batch))
 	for i, m := range batch {
 		msgs[i] = *m
 	}
-	return l.historyStore.AppendMessages(l.sessionId, msgs)
+	err := l.historyStore.AppendMessages(l.sessionId, msgs)
+	if err == nil {
+		l.savedLen = len(all)
+	}
+	return err
 }
