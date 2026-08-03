@@ -27,9 +27,9 @@ type Store struct {
 	historyStore HistoryStore
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*EventEntry]
-	base         uint
-	savedLen     int // 上次 SaveHistory 时的 history 长度
-	pending      int // 自上次 AppendHistory 以来新增的事件数
+	writeHead    uint // 下一个待分配的事件 seq，entries 被裁空也不回退
+	savedLen     int  // 上次 SaveHistory 时的 history 长度
+	pending      int  // 自上次 AppendHistory 以来新增的事件数
 	positions    *util.SliceArray[*Position]
 }
 
@@ -46,7 +46,8 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 func (l *Store) Add(event *ClientEvent) uint {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	event.Seq = l.base + uint(l.entries.Len())
+	event.Seq = l.writeHead
+	l.writeHead++
 	l.entries.Append(&EventEntry{
 		Start:  event.Seq,
 		Offset: 1,
@@ -60,11 +61,15 @@ func (l *Store) Add(event *ClientEvent) uint {
 func (l *Store) ReadFrom(position *Position) *EventEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	start := position.start
-	if start < l.base {
-		start = l.base
+	if l.entries.IsEmpty() {
+		return nil
 	}
-	idx := int(start - l.base)
+	firstSeq := l.entries.Get(0).Start
+	start := position.start
+	if start < firstSeq {
+		start = firstSeq
+	}
+	idx := int(start - firstSeq)
 	if idx >= l.entries.Len() {
 		return nil
 	}
@@ -83,8 +88,8 @@ func (l *Store) ReadFrom(position *Position) *EventEntry {
 func (l *Store) GetPosition(start uint) *Position {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if head := l.base + uint(l.entries.Len()); start > head {
-		start = head
+	if start > l.writeHead {
+		start = l.writeHead
 	}
 	position := &Position{start: start}
 	l.positions.Append(position)
@@ -122,18 +127,20 @@ func (l *Store) minPosition() uint {
 func (l *Store) Reset() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	minPos := l.minPosition()
-	if minPos <= l.base {
-		l.pending = 0
+	defer func() { l.pending = 0 }()
+	if l.entries.IsEmpty() {
 		return
 	}
-	removeCount := int(minPos - l.base)
+	firstSeq := l.entries.Get(0).Start
+	minPos := l.minPosition()
+	if minPos <= firstSeq {
+		return
+	}
+	removeCount := int(minPos - firstSeq)
 	if removeCount > l.entries.Len() {
 		removeCount = l.entries.Len()
 	}
 	l.entries.RemoveFront(removeCount)
-	l.base = minPos
-	l.pending = 0
 }
 
 func (l *Store) LoadHistory() error {
@@ -147,18 +154,18 @@ func (l *Store) LoadHistory() error {
 		if err != nil {
 			return err
 		}
-		var base uint
+		var head uint
 		for i := range msgs {
 			l.history.Append(&msgs[i])
 			// 取所有消息 start+offset 的最大值作为事件流偏移恢复点
-			if end := msgs[i].Start + msgs[i].Offset; end > base {
-				base = end
+			if end := msgs[i].Start + msgs[i].Offset; end > head {
+				head = end
 			}
 		}
 		// 恢复事件流偏移：新事件的 seq 从持久化历史之后接续，
 		// 与前端根据历史计算的 start 对齐
-		if l.entries.IsEmpty() && base > l.base {
-			l.base = base
+		if l.entries.IsEmpty() && head > l.writeHead {
+			l.writeHead = head
 		}
 		l.savedLen = l.history.Len()
 	}
@@ -178,14 +185,7 @@ func (l *Store) History() []*Message {
 func (l *Store) WriteHead() uint {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.base + uint(l.entries.Len())
-}
-
-// Base 返回活跃缓冲区的起始 seq（用于判断客户端 start 是否已过期）。
-func (l *Store) Base() uint {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.base
+	return l.writeHead
 }
 
 // AppendHistory 将一条消息追加到内存历史。
@@ -193,10 +193,9 @@ func (l *Store) Base() uint {
 func (l *Store) AppendHistory(msg *Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	currentPos := l.base + uint(l.entries.Len())
 	msg.Offset = uint(l.pending)
 	if l.pending > 0 {
-		msg.Start = currentPos - uint(l.pending)
+		msg.Start = l.writeHead - uint(l.pending)
 	}
 	l.pending = 0
 	l.history.Append(msg)
