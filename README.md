@@ -133,51 +133,11 @@ ToolUseBlock    { ID, Name string; Input any }
 ToolResultBlock { ToolUseID string; Content any }
 ```
 
-### Event（事件）双层模型
+### 事件流与断线续传
 
-| 层 | 类型 | 用途 |
-|---|---|---|
-| 协议层 | `MessageStartEvent`, `ContentBlockDeltaEvent`, ... | 与 LLM SSE 一一对应，SDK 内部消费 |
-| 推送层 | `ClientEvent` (chunk / thinking / done / tool_execution) | 面向前端，WS/SSE 直接推送 |
+每条 Message 携带 `[Start, Offset)` 区间，标记它产出了哪些事件。客户端持有一个 `start` 值即可精确续读——`start < base` 表示事件已归档，从 history 恢复；`start >= base` 表示事件仍在活跃缓冲区，从 entries 增量读取。
 
-### 客户端读取位置（Position）
-
-每个 `ChatClient` 持有一个 `*Position`，记录它在事件流中的读取偏移。调用 `ReadEvent()` 时，`Store.ReadFrom(position)` 返回下一个未读事件并自动推进 `position.start`，无需调用方手动管理偏移或发送 Ack。
-
-`Reset()` 以所有已注册 Position 中最小的 `start` 为安全水位线，仅清理所有客户端均已读取的事件条目。
-
-### Message 事件流区间
-
-每条消息携带 `[Start, Start+Offset)` —— 该消息在事件流上的产出区间：
-
-```
-user msg:      Start=1, Offset=1   → 覆盖 [seq 1]     (MessageConsumed)
-assistant msg: Start=2, Offset=21  → 覆盖 [seq 2..22] (thinking + chunk + done)
-```
-
-客户端重连时传入 `start`：
-- `start < base` → 事件已 Reset，从 history 读完成消息
-- `start >= base` → 事件在活缓冲区，从 entries 精确续读
-
-### Store 生命周期
-
-```
-用户消息 → consumeMessage(): 入 history, 发 Consumed 事件
-         → streamResponse(): 流式事件累积
-         → appendAssistantMessage(): assistant msg 入 history, 回填 Offset
-         → [tool_use]: executeTools() → tool_result 入 history
-         → end_turn: SaveHistory(增量写 DB) → Reset(清空已读条目, 推进 base)
-```
-
-### run 循环锁模型
-
-`messageProcessor.run()` 持有 `runMutex` 运行主循环，仅在 I/O 操作期间释放：
-
-- **持有锁**：读取 inbox、构建请求、写入 history — 纯内存操作，保证状态一致性
-- **释放锁**：LLM 网络调用、工具执行 — 耗时外部 I/O，释放锁期间允许新消息入队
-- **重持锁**：I/O 完成后重新获取锁，检查取消状态，继续下一轮
-
-这样在不引入额外 goroutine 通信机制的情况下，既保证了内存状态的线程安全，又不会在 I/O 期间阻塞用户输入。
+多个 Client 同时订阅时，每个 Client 通过 Position 独立推进读取进度，互不阻塞。
 
 ## 工具系统
 
@@ -280,11 +240,11 @@ agent.NewChatManager(
 
 ## 关键设计决策
 
-- **协议层续传 → 零基础设施** — 不同于 Mastra/Durable Streams 等依赖 Redis 或 CDN 做事件回放，这里让 Message 携带 `[Start, Offset)` 区间，把续传变成纯协议问题。结果：零外部依赖、单二进制部署。
-- **Position 外挂 → Client 无状态** — 读取进度不记在 Client 上，而是注册到 Store 的 `positions` 列表。Client 断开即注销，不影响其他 Client 的 Reset 水位计算。重连时重新注册，无需 session affinity。
-- **Store 双区模型** — entries（易失事件缓冲区）+ history（持久消息）。`Reset()` 取所有 Position 中最小的 `start` 作为安全水位线，只清理所有客户端均已读取的条目。
-- **协议/推送事件分离** — LLM SSE 协议事件（`ContentBlockDelta` 等）→ SDK 内部消费；`ClientEvent`（chunk / thinking / done）→ 面向前端。换 LLM 提供商只改协议适配层。
-- **runMutex 三段式** — 主循环持锁运行（操作 inbox、history），LLM 调用和工具执行期间释放锁。同步可追踪的调用链，不依赖 channel 通信。
+- **协议层续传 → 零基础设施** — 让 Message 携带 `[Start, Offset)` 区间，把续传变成协议问题而非基础设施问题。结果：零外部依赖、单二进制部署。
+- **Position 外挂 → Client 无状态** — 读取进度不记在 Client 上，而是注册到 Store。Client 断开即注销，重连时重新注册，无需 session affinity。
+- **Store 双区模型** — entries（易失）+ history（持久）。Reset 取所有 Client 最小已读位置为水位线，清理历史条目。
+- **协议/推送事件分离** — LLM SSE 协议事件由 SDK 内部消费，`ClientEvent` 面向前端。换 LLM 提供商只改适配层。
+- **主循环持锁运行** — 操作状态时持锁，LLM 调用和工具执行时释放锁，兼顾线程安全与用户输入响应。
 
 ## License
 
