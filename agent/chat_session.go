@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -16,13 +17,13 @@ type chatSession struct {
 	clientMutex   sync.Mutex // 保护 chatClients
 	registry      *chat.ProviderRegistry
 	chatClients   *util.SliceArray[*ChatClient]
-	toolExecutors map[string]ToolExecutor
+	toolExecutors map[string]tools.ToolExecutor
 	system        string
 	opts          *Options
 	processor     *messageProcessor
 }
 
-func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore chat.HistoryStore) *chatSession {
+func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors map[string]tools.ToolExecutor, system string, opts *Options, historyStore chat.HistoryStore) *chatSession {
 	s := &chatSession{
 		id:            id,
 		registry:      registry,
@@ -107,7 +108,7 @@ func (s *chatSession) Options() *Options { return s.opts }
 func (s *chatSession) System() string { return s.system }
 
 // ToolExecutors 实现 sessionContext 接口。
-func (s *chatSession) ToolExecutors() map[string]ToolExecutor { return s.toolExecutors }
+func (s *chatSession) ToolExecutors() map[string]tools.ToolExecutor { return s.toolExecutors }
 
 func (s *chatSession) ReadEvent(position *chat.Position) *chat.ClientEvent {
 	return s.processor.ReadEvent(position)

@@ -8,6 +8,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/example/api/chat/anthropic"
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/service"
+	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/util"
@@ -31,7 +32,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 		return err
 	}
 	r.chatSessionService = core.GetService[*service.ChatSessionService](ctx)
-	r.chatManager.AddTool(agent.NewCommandTool())
+	r.chatManager.AddTool(tools.NewCommandTool())
 	r.chatManager.SetHistoryStore(r.chatSessionService)
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model

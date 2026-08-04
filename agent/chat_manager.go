@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/tools"
 )
 
 // ChatManager 聊天会话管理器
@@ -11,7 +12,7 @@ type ChatManager struct {
 	chats         map[string]*chatSession
 	lock          *sync.RWMutex
 	registry      *chat.ProviderRegistry
-	toolExecutors map[string]ToolExecutor
+	toolExecutors map[string]tools.ToolExecutor
 	system        string
 	opts          *Options
 	historyStore  chat.HistoryStore
@@ -26,12 +27,12 @@ func NewChatManager(opt ...Option) *ChatManager {
 		chats:         make(map[string]*chatSession),
 		lock:          new(sync.RWMutex),
 		registry:      chat.NewProviderRegistry(),
-		toolExecutors: make(map[string]ToolExecutor),
+		toolExecutors: make(map[string]tools.ToolExecutor),
 		opts:          opts,
 	}
 }
 
-func (m *ChatManager) AddTool(exec ToolExecutor) {
+func (m *ChatManager) AddTool(exec tools.ToolExecutor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.toolExecutors[exec.Definition().Name] = exec
@@ -64,7 +65,7 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 		return c
 	}
 	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
-	tools := make(map[string]ToolExecutor, len(m.toolExecutors))
+	tools := make(map[string]tools.ToolExecutor, len(m.toolExecutors))
 	for k, v := range m.toolExecutors {
 		tools[k] = v
 	}

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -27,7 +28,7 @@ type sessionContext interface {
 	// System 返回系统提示词。
 	System() string
 	// ToolExecutors 返回已注册的工具执行器集合。
-	ToolExecutors() map[string]ToolExecutor
+	ToolExecutors() map[string]tools.ToolExecutor
 }
 
 // queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
