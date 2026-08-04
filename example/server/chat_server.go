@@ -33,6 +33,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 	}
 	r.chatSessionService = core.GetService[*service.ChatSessionService](ctx)
 	r.chatManager.AddTool(tools.NewCommandTool())
+	r.chatManager.AddTool(tools.NewAskUserQuestionTool())
 	r.chatManager.SetHistoryStore(r.chatSessionService)
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model

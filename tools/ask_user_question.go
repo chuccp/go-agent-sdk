@@ -8,9 +8,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// Question 是 Claude 向用户提出的单个问题。
-// 对齐 Claude Code AskUserQuestion 工具的问题格式。
-// 参见: https://code.claude.com/docs/en/agent-sdk/permissions#handle-clarifying-questions
 type Question struct {
 	Question    string   `json:"question"`               // 完整问题文本
 	Header      string   `json:"header"`                 // 短标签（≤12 字符）
@@ -20,9 +17,9 @@ type Question struct {
 
 // Option 是问题的一个选项。
 type Option struct {
-	Label       string `json:"label"`                 // 选项标签
-	Description string `json:"description"`           // 选项说明
-	Preview     string `json:"preview,omitempty"`     // 可选预览内容（markdown/html），用于视觉对比
+	Label       string `json:"label"`             // 选项标签
+	Description string `json:"description"`       // 选项说明
+	Preview     string `json:"preview,omitempty"` // 可选预览内容（markdown/html），用于视觉对比
 }
 
 // AskUserQuestionResponse 是工具返回给 LLM 的答案结构。
@@ -34,21 +31,18 @@ type AskUserQuestionResponse struct {
 }
 
 // AnswerHandler 是处理用户问题的回调。
-// 接收 Claude 提出的问题列表，用户做出选择后返回答案及可选的自由回复。
-// 当 handler 为 nil 时，AskUserQuestionTool 返回错误提示不可交互。
 type AnswerHandler func(questions []Question) (answers map[string]string, response string, err error)
 
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
 // 实现 ToolExecutor 接口。需要注入 AnswerHandler 来处理实际用户交互。
 type AskUserQuestionTool struct {
-	handler AnswerHandler
 }
 
 // NewAskUserQuestionTool 创建用户提问工具。
 // handler 负责将问题呈现给用户并收集答案。
 // 传 nil 表示无交互环境，工具会返回错误。
-func NewAskUserQuestionTool(handler AnswerHandler) ToolExecutor {
-	return &AskUserQuestionTool{handler: handler}
+func NewAskUserQuestionTool() ToolExecutor {
+	return &AskUserQuestionTool{}
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -121,21 +115,22 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 }
 
 func (t *AskUserQuestionTool) Execute(args map[string]any) (string, error) {
-	if t.handler == nil {
-		return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（AnswerHandler 未设置）")
-	}
+	//if t.handler == nil {
+	//	return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（AnswerHandler 未设置）")
+	//}
 
-	questions, err := parseQuestions(args)
-	if err != nil {
-		return "", err
-	}
+	//questions, err := parseQuestions(args)
+	//if err != nil {
+	//	return "", err
+	//}
 
-	answers, response, err := t.handler(questions)
-	if err != nil {
-		return "", fmt.Errorf("获取用户答案失败: %w", err)
-	}
+	//answers, response, err := t.handler(questions)
+	//if err != nil {
+	//	return "", fmt.Errorf("获取用户答案失败: %w", err)
+	//}
 
-	return formatResponse(questions, answers, response)
+	//return formatResponse(questions, answers, response)
+	return "", nil
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

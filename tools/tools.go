@@ -9,3 +9,14 @@ type ToolExecutor interface {
 	Definition() *chat.ToolFunction
 	Execute(args map[string]any) (string, error)
 }
+
+type FilterChain interface {
+	Next() (any, error)
+}
+
+type Filter interface {
+	Handle(filterChain FilterChain) (any, error)
+}
+
+type filterChain struct {
+}
