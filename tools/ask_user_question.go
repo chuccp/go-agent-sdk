@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
@@ -41,7 +42,7 @@ type AskUserQuestionTool struct {
 // NewAskUserQuestionTool 创建用户提问工具。
 // handler 负责将问题呈现给用户并收集答案。
 // 传 nil 表示无交互环境，工具会返回错误。
-func NewAskUserQuestionTool() ToolExecutor {
+func NewAskUserQuestionTool() agent.ToolExecutor {
 	return &AskUserQuestionTool{}
 }
 

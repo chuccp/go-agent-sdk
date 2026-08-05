@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
@@ -16,7 +17,7 @@ import (
 type CommandTool struct{}
 
 // NewCommandTool 创建本地命令执行工具。
-func NewCommandTool() ToolExecutor {
+func NewCommandTool() agent.ToolExecutor {
 	return &CommandTool{}
 }
 

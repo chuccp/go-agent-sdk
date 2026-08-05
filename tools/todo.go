@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
@@ -44,7 +45,7 @@ func NewTodoStore() *TodoStore {
 
 // NewTodoTools 创建 4 个 Todo 工具（共享同一存储）。
 // 返回: TaskCreate, TaskUpdate, TaskList, TaskGet
-func NewTodoTools() (create, update, list, get ToolExecutor) {
+func NewTodoTools() (create, update, list, get agent.ToolExecutor) {
 	store := NewTodoStore()
 	return &TaskCreateTool{store}, &TaskUpdateTool{store}, &TaskListTool{store}, &TaskGetTool{store}
 }

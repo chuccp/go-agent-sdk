@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -28,11 +27,11 @@ type sessionContext interface {
 	// System 返回系统提示词。
 	System() string
 	// ToolExecutors 返回已注册的工具执行器集合。
-	ToolExecutors() map[string]tools.ToolExecutor
+	ToolExecutors() map[string]ToolExecutor
 }
 
-// queuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
-type queuedMessage struct {
+// QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
+type QueuedMessage struct {
 	id   uint64
 	msg  *chat.RevMessage
 	opts []Option // 本次消息附带的per-turn选项覆盖
@@ -42,34 +41,63 @@ type queuedMessage struct {
 // 构建 LLM 请求、解析流式响应、执行工具以及持久化历史。
 // 由 chatSession 持有并调用，运行期状态（inbox / running / cancel）由 runMutex 保护。
 type messageProcessor struct {
-	ctx       sessionContext
-	events    *chat.Store
-	runMutex  sync.Mutex                      // 保护 inbox / running / cancel
-	inbox     util.SliceQueue[*queuedMessage] // 用户输入消息队列（runMutex 保护）
-	running   bool
-	cancel    context.CancelFunc
-	runCtx    context.Context // run 循环使用的上下文
-	seq       uint64
-	sessionId string
+	ctx                 sessionContext
+	events              *chat.Store
+	runMutex            sync.Mutex                       // 保护 inbox / running / cancel
+	inbox               *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runMutex 保护）
+	running             bool
+	cancel              context.CancelFunc
+	runCtx              context.Context // run 循环使用的上下文
+	seq                 uint64
+	sessionId           string
+	messageFilterChain  *messageFilterChain // 动态过滤器在前、用户注册过滤器在后
+	responseFilterChain *responseFilterChain
 }
 
 func newMessageProcessor(ctx sessionContext, historyStore chat.HistoryStore) *messageProcessor {
-	return &messageProcessor{
-		ctx:       ctx,
-		sessionId: ctx.ID(),
-		events:    chat.NewStore(ctx.ID(), historyStore),
+	inbox := new(util.SliceQueue[*QueuedMessage])
+	events := chat.NewStore(ctx.ID(), historyStore)
+	messageFilterChain := newMessageFilterChain()
+	responseFilterChain := newResponseFilterChain()
+	messageProcessor := &messageProcessor{
+		ctx:                 ctx,
+		sessionId:           ctx.ID(),
+		events:              events,
+		inbox:               inbox,
+		messageFilterChain:  messageFilterChain,
+		responseFilterChain: responseFilterChain,
 	}
+
+	//messageContext :=&MessageContext{
+	//	sessionCtx: ctx,
+	//	inbox:      inbox,
+	//	events:     events,
+	//	sessionId:  ctx.ID(),
+	//},
+
+	coreMessageFilter := newCoreMessageFilter()
+
+	messageFilterChain.addMessageFilter(coreMessageFilter)
+	responseFilterChain.addResponseFilter(coreMessageFilter)
+
+	//messageProcessor.messageFilters = append(messageProcessor.messageFilters, coreMessageFilter)
+	//messageProcessor.responseFilters = append(messageProcessor.responseFilters, coreMessageFilter)
+
+	//newMessageFilterChain(messageProcessor.messageFilters...)
+
+	return messageProcessor
 }
 
 // handleMessage 接收一条用户消息：入队后若主循环未运行则启动，否则仅排队等待。
 func (p *messageProcessor) handleMessage(message *chat.RevMessage, opt ...Option) {
-	qm := &queuedMessage{
+	qm := &QueuedMessage{
 		id:   p.getSeq(),
 		msg:  message,
 		opts: opt,
 	}
 	p.runMutex.Lock()
 	defer p.runMutex.Unlock()
+
 	err := p.inbox.Write(qm)
 	if err != nil {
 		log.Printf("[chatSession] inbox write failed: %v", err)
@@ -293,7 +321,7 @@ func (p *messageProcessor) buildRequest() *chat.Request {
 }
 
 // consumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
-func (p *messageProcessor) consumeMessage(qm *queuedMessage) {
+func (p *messageProcessor) consumeMessage(qm *QueuedMessage) {
 	p.addEvent(chat.NewMessageConsumedEvent(qm.id, p.sessionId, qm.msg))
 	msg := qm.msg.ToMessage()
 	p.events.AppendHistory(&msg)
