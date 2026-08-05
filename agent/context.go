@@ -2,23 +2,28 @@ package agent
 
 import (
 	"log"
+	"sync"
+	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
 type SessionContext struct {
+	processorHandler
+	chatHandler
 	inbox         *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runMutex 保护）
 	running       bool
 	seq           uint64
 	sessionId     string
 	events        *chat.Store
-	doLoop        func()
 	registry      *chat.ProviderRegistry
 	chatClients   *util.SliceArray[*ChatClient]
 	toolExecutors map[string]ToolExecutor
 	system        string
 	opts          *Options
+	historyStore  chat.HistoryStore
+	clientMutex   *sync.Mutex // 保护 chatClients
 }
 
 func (c *SessionContext) AddEvent(event *chat.ClientEvent) {
@@ -28,6 +33,7 @@ func (c *SessionContext) AddEvent(event *chat.ClientEvent) {
 	c.events.Add(event)
 	c.Flush()
 }
+func (c *SessionContext) Flush() {}
 
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) {
@@ -36,24 +42,36 @@ func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) {
 	c.events.AppendHistory(&msg)
 }
 
-func (c *SessionContext) GetPosition(start uint) *chat.Position {
+func (c *SessionContext) GetChatClient(start uint) *ChatClient {
+	position := c.events.GetPosition(start)
+	chatClient := &ChatClient{
+		queue:    util.NewQueue[bool](),
+		handler:  c,
+		position: position,
+	}
+	c.clientMutex.Lock()
+	c.chatClients.Append(chatClient)
+	c.clientMutex.Unlock()
+	return chatClient
 
+}
+
+func (c *SessionContext) SendMessage(message *chat.RevMessage, opt ...Option) error {
 	return nil
 }
+func (c *SessionContext) History() []*chat.Message {
+	return nil
+}
+func (c *SessionContext) ReadEvent(position *chat.Position) *chat.ClientEvent {
+	return nil
+}
+func (c *SessionContext) DeleteClient(client *ChatClient) {
 
-func (c *SessionContext) Append(client *ChatClient) {
+}
+func (c *SessionContext) Stop() {
 
 }
 
-func newSessionContext(sessionId string, sessionContext sessionContext, historyStore chat.HistoryStore) *SessionContext {
-	events := chat.NewStore(sessionId, historyStore)
-	return &SessionContext{
-		sessionContext: sessionContext,
-		sessionId:      sessionId,
-		inbox:          new(util.SliceQueue[*QueuedMessage]),
-		running:        false,
-		seq:            0,
-		events:         events,
-		historyStore:   historyStore,
-	}
+func (c *SessionContext) getSeq() uint64 {
+	return atomic.AddUint64(&c.seq, 1)
 }

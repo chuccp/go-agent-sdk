@@ -39,7 +39,6 @@ func (ctx *messageFilterChain) Next(msg *QueuedMessage) error {
 }
 
 type Turn struct {
-	SessionId  string
 	Request    *chat.Request   // 输入
 	Blocks     chat.Blocks     // 输出
 	StopReason chat.StopReason // 输出

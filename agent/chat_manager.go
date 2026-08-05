@@ -69,7 +69,6 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 	for k, v := range m.toolExecutors {
 		tools[k] = v
 	}
-
 	sessionContext := &SessionContext{
 		sessionId:     id,
 		inbox:         new(util.SliceQueue[*QueuedMessage]),
@@ -80,9 +79,9 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 		toolExecutors: tools,
 		system:        m.system,
 		opts:          m.opts,
+		clientMutex:   new(sync.Mutex),
 	}
-
-	session := newChatSession(id, m.registry, tools, m.system, m.opts, m.historyStore)
+	session := newChatSession(sessionContext)
 	m.chats[id] = session
 	return session
 }
