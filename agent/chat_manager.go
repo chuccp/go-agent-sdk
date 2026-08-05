@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
 // ChatManager 聊天会话管理器
@@ -68,6 +69,19 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 	for k, v := range m.toolExecutors {
 		tools[k] = v
 	}
+
+	sessionContext := &SessionContext{
+		sessionId:     id,
+		inbox:         new(util.SliceQueue[*QueuedMessage]),
+		running:       false,
+		seq:           0,
+		events:        chat.NewStore(id, m.historyStore),
+		registry:      m.registry,
+		toolExecutors: tools,
+		system:        m.system,
+		opts:          m.opts,
+	}
+
 	session := newChatSession(id, m.registry, tools, m.system, m.opts, m.historyStore)
 	m.chats[id] = session
 	return session

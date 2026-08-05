@@ -12,60 +12,48 @@ import (
 // chatSession 完整会话实体，维护客户端订阅，
 // 消息接收、主循环、事件存储与运行期状态均委托给 processor（messageProcessor）。
 type chatSession struct {
-	id            string
-	clientMutex   sync.Mutex // 保护 chatClients
-	registry      *chat.ProviderRegistry
-	chatClients   *util.SliceArray[*ChatClient]
-	toolExecutors map[string]ToolExecutor
-	system        string
-	opts          *Options
-	processor     *messageProcessor
+	clientMutex    sync.Mutex // 保护 chatClients
+	sessionContext *SessionContext
+	processor      *messageProcessor
 }
 
-func newChatSession(id string, registry *chat.ProviderRegistry, toolExecutors map[string]ToolExecutor, system string, opts *Options, historyStore chat.HistoryStore) *chatSession {
+func newChatSession(sessionContext *SessionContext) *chatSession {
 	s := &chatSession{
-		id:            id,
-		registry:      registry,
-		chatClients:   new(util.SliceArray[*ChatClient]),
-		toolExecutors: toolExecutors,
-		system:        system,
-		opts:          opts,
+		sessionContext: sessionContext,
 	}
-	s.processor = newMessageProcessor(s, historyStore)
+	s.processor = newMessageProcessor(sessionContext)
 	return s
 }
 
-func (s *chatSession) GetPosition(start uint) *chat.Position {
-	return s.processor.GetPosition(start)
-}
-
-func (s *chatSession) ID() string { return s.id }
+//func (s *chatSession) GetPosition(start uint) *chat.Position {
+//	return s.sessionContext.GetPosition(start)
+//}
 
 func (s *chatSession) History() []*chat.Message {
 	return s.processor.History()
 }
 func (s *chatSession) newClient(start uint) *ChatClient {
-	position := s.processor.GetPosition(start)
+	position := s.sessionContext.GetPosition(start)
 	chatClient := &ChatClient{
 		queue:    util.NewQueue[bool](),
 		handler:  s,
 		position: position,
 	}
 	s.clientMutex.Lock()
-	s.chatClients.Append(chatClient)
+	s.sessionContext.Append(chatClient)
 	s.clientMutex.Unlock()
 	return chatClient
 }
 func (s *chatSession) LoadHistory() error {
-	return s.processor.LoadHistory()
+	return s.sessionContext.LoadHistory()
 }
 
 func (s *chatSession) DeleteClient(client *ChatClient) {
 	s.clientMutex.Lock()
-	s.chatClients.Remove(client)
+	s.sessionContext.Remove(client)
 	client.queue.Close()
 	s.clientMutex.Unlock()
-	s.processor.RemoveEventPosition(client.position)
+	s.sessionContext.RemoveEventPosition(client.position)
 }
 
 func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error {

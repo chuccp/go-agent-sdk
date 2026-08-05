@@ -1,33 +1,14 @@
 package agent
 
 import (
-	"context"
 	"log"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-type MessageContext struct {
-	sessionCtx sessionContext
-	events     *chat.Store
-	inbox      *util.SliceQueue[*QueuedMessage]
-	running    bool
-	doLoop     func()
-	cancel     context.CancelFunc
-	sessionId  string
-}
-
-func (ctx *MessageContext) addEvent(event *chat.ClientEvent) {
-	if event.EventType == chat.EventTypeDone {
-		log.Printf("[processor] addEvent DONE, sessionId=%s", ctx.sessionId)
-	}
-	ctx.events.Add(event)
-	ctx.sessionCtx.Flush()
-}
-
 type Filter interface {
-	Init(context *MessageContext)
+	Init(context *SessionContext)
 }
 
 // MessageFilter 消息过滤器；不调用 chain.Next 即消费该消息。
@@ -90,7 +71,7 @@ func (ctx *responseFilterChain) addResponseFilter(responseFilter ResponseFilter)
 type coreMessageFilter struct {
 	MessageFilter
 	ResponseFilter
-	messageContext *MessageContext
+	messageContext *SessionContext
 }
 
 func (core *coreMessageFilter) HandleRevMessage(chain MessageFilterChain, msg *QueuedMessage) error {
@@ -102,17 +83,17 @@ func (core *coreMessageFilter) HandleRevMessage(chain MessageFilterChain, msg *Q
 	if !core.messageContext.running {
 		//p.runCtx, p.cancel = context.WithCancel(context.Background())
 		core.messageContext.running = true
-		core.messageContext.addEvent(chat.NewMessageSentEvent(msg.id, core.messageContext.sessionId, msg.msg))
+		core.messageContext.AddEvent(chat.NewMessageSentEvent(msg.id, core.messageContext.sessionId, msg.msg))
 		util.GoWithRecover(func() {
 			core.messageContext.doLoop()
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
 			evt := chat.NewErrorEvent("internal error")
 			evt.Done = true
-			core.messageContext.addEvent(evt)
+			core.messageContext.AddEvent(evt)
 		})
 	} else {
-		core.messageContext.addEvent(chat.NewMessageQueuedEvent(msg.id, core.messageContext.sessionId, msg.msg))
+		core.messageContext.AddEvent(chat.NewMessageQueuedEvent(msg.id, core.messageContext.sessionId, msg.msg))
 	}
 	return nil
 }
