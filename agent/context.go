@@ -257,7 +257,7 @@ func (c *SessionContext) ExecuteMatchingTool(self ToolExecutor, turn *Turn) {
 		output, execErr := self.Execute(args)
 		c.runLock.Lock()
 
-		c.AddEvent(chat.NewToolExecutionEvent(name, output, c.sessionId))
+		c.AddEvent(chat.NewToolExecutionEvent(name, toolArgsDisplay(args), output, c.sessionId))
 
 		resultText := output
 		if execErr != nil {
@@ -268,6 +268,22 @@ func (c *SessionContext) ExecuteMatchingTool(self ToolExecutor, turn *Turn) {
 			chat.Blocks{chat.NewTextBlock(resultText)},
 		))
 	}
+}
+
+// toolArgsDisplay 生成工具入参的展示文本，与前端历史展示逻辑保持一致：
+// 优先使用 command 字段（如命令行工具），否则输出入参 JSON。
+func toolArgsDisplay(args map[string]any) string {
+	if cmd, ok := args["command"].(string); ok && cmd != "" {
+		return cmd
+	}
+	if len(args) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // WaitForUserMessage 阻塞等待用户的下一条消息。

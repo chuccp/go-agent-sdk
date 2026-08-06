@@ -124,6 +124,7 @@ type ClientEvent struct {
 	Content     string `json:"content,omitempty"`
 	Done        bool   `json:"done,omitempty"`
 	Message     string `json:"message,omitempty"`
+	Args        string `json:"args,omitempty"` // 工具入参的展示文本（tool_execution 事件携带）
 	MessageId   uint64 `json:"message_id,omitempty"`
 	SessionId   string `json:"session_id"`
 }
@@ -192,9 +193,9 @@ func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage
 	}
 }
 
-// NewToolExecutionEvent 创建一个工具执行事件，携带工具名称和执行输出。
-func NewToolExecutionEvent(toolName, output, sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, SessionId: sessionId}
+// NewToolExecutionEvent 创建一个工具执行事件，携带工具名称、入参展示文本和执行输出。
+func NewToolExecutionEvent(toolName, args, output, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, Args: args, SessionId: sessionId}
 }
 
 // NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。

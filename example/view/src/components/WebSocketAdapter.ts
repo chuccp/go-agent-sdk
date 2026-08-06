@@ -11,10 +11,11 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
  *     the backend has consumed the user message (message_consumed).
  *
  * Protocol (receive only):
- *   { type: "chunk",    content: "text" }
- *   { type: "thinking", content: "..." }
- *   { type: "done",     done: true }
- *   { type: "error",    message: "error text" }
+ *   { type: "chunk",           content: "text" }
+ *   { type: "thinking",        content: "..." }
+ *   { type: "tool_execution",  message: "toolName", args: "input", content: "output" }
+ *   { type: "done",            done: true }
+ *   { type: "error",           message: "error text" }
  */
 
 // ── Module-level streaming bridge ──
@@ -22,8 +23,27 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
 type StreamEvent =
   | { kind: 'chunk'; text: string }
   | { kind: 'thinking'; text: string }
+  | { kind: 'tool_execution'; name: string; input: string; output: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
+
+// 内容段：与历史展示的 ⟪think⟫/⟪tool⟫/⟪result⟫ 标记一一对应，
+// 保证实时渲染与历史渲染（Thread.tsx parseSegments）样式完全一致
+interface Segment {
+  kind: 'thinking' | 'text' | 'tool' | 'result'
+  text: string
+}
+
+function serializeSegments(segments: Segment[]): string {
+  return segments.map(s => {
+    switch (s.kind) {
+      case 'thinking': return `⟪think⟫${s.text}⟪/think⟫`
+      case 'tool': return `⟪tool⟫${s.text}⟪/tool⟫`
+      case 'result': return `⟪result⟫${s.text}⟪/result⟫`
+      default: return s.text
+    }
+  }).join('\n\n')
+}
 
 let pendingTrigger: Promise<void> | null = null
 let triggerResolve: (() => void) | null = null
@@ -91,6 +111,17 @@ function streamHandler(evt: MessageEvent): void {
       case 'thinking':
         if (msg.content) event = { kind: 'thinking', text: msg.content }
         break
+      case 'tool_execution':
+        // 工具执行事件：message 为工具名，args 为入参展示文本，content 为执行输出
+        if (msg.message || msg.content) {
+          event = {
+            kind: 'tool_execution',
+            name: msg.message || '',
+            input: msg.args || '',
+            output: msg.content || '',
+          }
+        }
+        break
       case 'done':
         event = { kind: 'done' }
         console.log('[bridge] done event received, directDispatch =', !!directDispatch, 'buffer len =', pendingBuffer.length)
@@ -135,16 +166,23 @@ export function createStreamingAdapter(): ChatModelAdapter {
         console.log(`[adapter] run #${myRun} trigger received`)
       }
 
-      let fullText = ''
-      let thinkingText = ''
       let done = false
 
-      const push = () => {
-        let combined = ''
-        if (thinkingText) {
-          combined += `⟪think⟫${thinkingText}⟪/think⟫\n\n`
+      // 按到达顺序维护内容段：不同轮次的 thinking 各自独立成段，
+      // 中间穿插文本与工具执行段，与历史展示的段落结构保持一致
+      const segments: Segment[] = []
+
+      const appendToLast = (kind: Segment['kind'], text: string) => {
+        const last = segments[segments.length - 1]
+        if (last && last.kind === kind) {
+          last.text += text
+        } else {
+          segments.push({ kind, text })
         }
-        combined += fullText
+      }
+
+      const push = () => {
+        const combined = serializeSegments(segments)
         if (combined) {
           queue.push({ content: [{ type: 'text' as const, text: combined }] })
         }
@@ -156,11 +194,17 @@ export function createStreamingAdapter(): ChatModelAdapter {
         console.log(`[adapter] run #${myRun} handleEvent:`, evt.kind)
         switch (evt.kind) {
           case 'thinking':
-            thinkingText += evt.text
+            appendToLast('thinking', evt.text)
             push()
             break
           case 'chunk':
-            fullText += evt.text
+            appendToLast('text', evt.text)
+            push()
+            break
+          case 'tool_execution':
+            // 与历史一致：工具调用段（入参优先，退化到工具名）+ 结果段独立展示
+            segments.push({ kind: 'tool', text: evt.input || evt.name })
+            if (evt.output) segments.push({ kind: 'result', text: evt.output })
             push()
             break
           case 'done':
@@ -168,7 +212,7 @@ export function createStreamingAdapter(): ChatModelAdapter {
             done = true
             break
           case 'error':
-            fullText += `\n\n❌ ${evt.message}`
+            appendToLast('text', `\n\n❌ ${evt.message}`)
             push()
             done = true
             break
