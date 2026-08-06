@@ -48,6 +48,14 @@ func (r *Agent) Init(ctx *core.Context) error {
 	log.Info("Agent initialized (go-agent-sdk)", zap.Int("providers", len(providers)))
 	return nil
 }
+
+// Run 实现 core.IRunner 后台任务接口。
+// Agent 是被动式服务（由 WebSocket 请求驱动），无后台循环，
+// 阻塞直到服务上下文取消，避免返回后框架视为任务退出。
+func (r *Agent) Run() error {
+	<-r.ctx.Done()
+	return nil
+}
 func (r *Agent) GetSession() *Session {
 	return newSession(r.chatManager)
 }
