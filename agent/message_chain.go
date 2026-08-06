@@ -1,12 +1,25 @@
 package agent
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
+
+// QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
+type QueuedMessage struct {
+	ctx  *SessionContext
+	id   uint64
+	msg  *chat.RevMessage
+	opts []Option // 本次消息附带的per-turn选项覆盖
+}
+
+// Msg 返回包装的原始用户消息。
+func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
+
+// Context 返回消息所属的会话上下文（消息链上的过滤器通过它访问会话能力）。
+func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
 
 // MessageFilter 消息过滤器；不调用 chain.Next 即消费该消息。
 type MessageFilter interface {
@@ -43,71 +56,6 @@ func (c *messageFilterChain) Next() error {
 		return c.messageFilters[c.index].HandleRevMessage(c, c.msg)
 	}
 	return c.defaultMessageFilter.HandleRevMessage(c, c.msg)
-}
-
-// ToolsChain 工具执行链，Next 推进执行下一个工具执行器。
-type ToolsChain interface {
-	Next() error
-}
-
-// toolsChain 工具执行链实现：按注册顺序遍历工具执行器，
-// 逐个将本轮 tool_use blocks 按名称匹配，命中则设置 turn.args 并执行，
-// 执行结果累积为 tool_result blocks。
-type toolsChain struct {
-	index         int
-	toolExecutors []ToolExecutor
-	turn          *Turn
-	blocks        chat.Blocks // 本轮 LLM 响应内容块（含 tool_use）
-	results       chat.Blocks // 执行累积的 tool_result blocks
-}
-
-func newToolsChain(turn *Turn, blocks chat.Blocks, toolExecutors ...ToolExecutor) *toolsChain {
-	return &toolsChain{
-		turn:          turn,
-		blocks:        blocks,
-		index:         -1,
-		toolExecutors: toolExecutors,
-	}
-}
-
-// Results 返回链上累积的 tool_result blocks。
-func (c *toolsChain) Results() chat.Blocks { return c.results }
-
-// Next 推进到下一个工具执行器：本轮 tool_use 命中它时逐个执行
-// （每次执行前设置 turn.args），结果累积到链上，随后自动推进后续执行器。
-// 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (c *toolsChain) Next() error {
-	if c.index >= len(c.toolExecutors)-1 {
-		return nil
-	}
-	c.index++
-	exec := c.toolExecutors[c.index]
-	ctx := c.turn.ctx
-	for _, block := range c.blocks {
-		tu, ok := block.(*chat.ToolUseBlock)
-		if !ok || tu.Name != exec.Name() {
-			continue
-		}
-		args, _ := tu.Input.(map[string]any)
-		c.turn.args = args
-
-		// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
-		ctx.runLock.Unlock()
-		output, execErr := exec.Execute(c, c.turn)
-		ctx.runLock.Lock()
-
-		ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), output, ctx.sessionId))
-
-		resultText := output
-		if execErr != nil {
-			resultText = fmt.Sprintf("错误: %v", execErr)
-		}
-		c.results = append(c.results, chat.NewToolResultBlock(
-			tu.ID,
-			chat.Blocks{chat.NewTextBlock(resultText)},
-		))
-	}
-	return c.Next()
 }
 
 // coreMessageFilter 核心主体过滤器：消息链的最内层。

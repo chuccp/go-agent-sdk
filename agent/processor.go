@@ -7,34 +7,8 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
-type QueuedMessage struct {
-	ctx  *SessionContext
-	id   uint64
-	msg  *chat.RevMessage
-	opts []Option // 本次消息附带的per-turn选项覆盖
-}
-
-// Msg 返回包装的原始用户消息。
-func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
-
-// Context 返回消息所属的会话上下文（消息链上的过滤器通过它访问会话能力）。
-func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
-
-// Turn 一轮 LLM 交互的载体，在工具链中传递。
-type Turn struct {
-	ctx  *SessionContext
-	args map[string]any // 当前执行的 tool_use 入参（由工具链逐个设置）
-}
-
-// Context 返回本轮所属的会话上下文。
-func (t *Turn) Context() *SessionContext { return t.ctx }
-
-// Args 返回当前执行的 tool_use 入参。
-func (t *Turn) Args() map[string]any { return t.args }
-
-// messageProcessor 会话编排器：接收用户消息后交给消息过滤器链，
-// 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行（executeTools）。
+// messageProcessor 会话编排器：接收用户消息后交给消息过滤器链（message_chain），
+// 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行链（tools_chain）。
 // 消息链主体位于 coreMessageFilter（链的最内层），会话状态集中于 SessionContext。
 type messageProcessor struct {
 	ctx            *SessionContext
