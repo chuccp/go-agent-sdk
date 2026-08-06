@@ -31,19 +31,37 @@ type AskUserQuestionResponse struct {
 	Response  string            `json:"response,omitempty"` // 用户自由格式回复（非问题特定的）
 }
 
-// AnswerHandler 是处理用户问题的回调。
-type AnswerHandler func(questions []Question) (answers map[string]string, response string, err error)
-
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
-// 实现 ToolExecutor 接口。需要注入 AnswerHandler 来处理实际用户交互。
+// 实现 agent.ToolExecutor 接口：执行时通过 Init 注入的 SessionContext
+// 向前端推送问题事件，并阻塞等待用户的下一条消息作为回答。
 type AskUserQuestionTool struct {
+	ctx *agent.SessionContext
 }
 
 // NewAskUserQuestionTool 创建用户提问工具。
-// handler 负责将问题呈现给用户并收集答案。
-// 传 nil 表示无交互环境，工具会返回错误。
 func NewAskUserQuestionTool() agent.ToolExecutor {
 	return &AskUserQuestionTool{}
+}
+
+// Init 实现 agent.Filter 接口，注入会话上下文（会话创建与每次执行前注入）。
+func (t *AskUserQuestionTool) Init(ctx *agent.SessionContext) {
+	t.ctx = ctx
+}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *AskUserQuestionTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
+
+// HandleRevMessage 实现 agent.MessageFilter 接口：
+// 若工具正在阻塞等待用户回答（WaitForUserMessage），拦截并消费该消息；
+// 否则透传给链上后续过滤器。会话上下文从链获取（链为会话私有，
+// 避免共享工具实例的 ctx 被其他会话覆盖）。
+func (t *AskUserQuestionTool) HandleRevMessage(chain agent.MessageFilterChain, msg *agent.QueuedMessage) error {
+	if ctx := chain.Context(); ctx != nil && ctx.DeliverAnswer(msg.Msg()) {
+		return nil // 消费，不调用 chain.Next（不入 inbox）
+	}
+	return chain.Next(msg)
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -116,22 +134,35 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 }
 
 func (t *AskUserQuestionTool) Execute(args map[string]any) (string, error) {
-	//if t.handler == nil {
-	//	return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（AnswerHandler 未设置）")
-	//}
+	if t.ctx == nil {
+		return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")
+	}
 
-	//questions, err := parseQuestions(args)
-	//if err != nil {
-	//	return "", err
-	//}
+	questions, err := parseQuestions(args)
+	if err != nil {
+		return "", err
+	}
 
-	//answers, response, err := t.handler(questions)
-	//if err != nil {
-	//	return "", fmt.Errorf("获取用户答案失败: %w", err)
-	//}
+	// 1. 向前端推送问题事件（content 为问题列表 JSON）
+	questionsJSON, err := json.Marshal(questions)
+	if err != nil {
+		return "", fmt.Errorf("序列化问题失败: %w", err)
+	}
+	t.ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), t.ctx.ID()))
 
-	//return formatResponse(questions, answers, response)
-	return "", nil
+	// 2. 阻塞等待用户回答：下一条用户消息会被一次性消息过滤器拦截投递，
+	// 不进入 inbox（不触发新的 LLM 调用）
+	msg, err := t.ctx.WaitForUserMessage()
+	if err != nil {
+		return "", fmt.Errorf("等待用户回答被中断: %w", err)
+	}
+
+	// 3. 组装答案返回给 LLM
+	answers := make(map[string]string, len(questions))
+	for _, q := range questions {
+		answers[q.Question] = msg.Text
+	}
+	return formatResponse(questions, answers, msg.Text)
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

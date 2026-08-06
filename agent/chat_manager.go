@@ -76,9 +76,11 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 		seq:           0,
 		events:        chat.NewStore(id, m.historyStore),
 		registry:      m.registry,
+		chatClients:   new(util.SliceArray[*ChatClient]),
 		toolExecutors: tools,
 		system:        m.system,
 		opts:          m.opts,
+		historyStore:  m.historyStore,
 		clientMutex:   new(sync.Mutex),
 	}
 	session := newChatSession(sessionContext)

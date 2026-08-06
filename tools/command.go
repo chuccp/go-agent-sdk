@@ -21,6 +21,14 @@ func NewCommandTool() agent.ToolExecutor {
 	return &CommandTool{}
 }
 
+// Init 实现 agent.Filter 接口；本工具无需会话上下文。
+func (t *CommandTool) Init(ctx *agent.SessionContext) {}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *CommandTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
+
 func (t *CommandTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name:        "execute_command",

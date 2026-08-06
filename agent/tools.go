@@ -6,7 +6,7 @@ import (
 
 // ToolExecutor 工具执行器接口：定义工具的元数据（发给 LLM）和执行逻辑。
 type ToolExecutor interface {
-	Filter
+	ResponseFilter
 	Definition() *chat.ToolFunction
 	Execute(args map[string]any) (string, error)
 }

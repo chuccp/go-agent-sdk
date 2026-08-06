@@ -35,6 +35,7 @@ const (
 	EventTypeThinking        = "thinking" // AI 思考链增量
 	EventTypeDone            = "done"
 	EventTypeToolExecution   = "tool_execution"   // 工具正在执行，携带工具名称和输出
+	EventTypeAskUser         = "ask_user"         // LLM 向用户提问，需要用户交互后继续
 	EventTypeMessageSent     = "message_sent"     // 消息已被立即处理，发送者可直接显示在对话列表
 	EventTypeMessageQueued   = "message_queued"   // 消息进入等待队列，发送者应标记为待处理
 	EventTypeMessageConsumed = "message_consumed" // 队列中的消息已被消费，发送者应将其显示在对话框
@@ -194,4 +195,9 @@ func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage
 // NewToolExecutionEvent 创建一个工具执行事件，携带工具名称和执行输出。
 func NewToolExecutionEvent(toolName, output, sessionId string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, SessionId: sessionId}
+}
+
+// NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
+func NewAskUserEvent(content, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeAskUser, Content: content, SessionId: sessionId}
 }

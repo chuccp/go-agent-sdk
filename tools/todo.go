@@ -54,6 +54,14 @@ func NewTodoTools() (create, update, list, get agent.ToolExecutor) {
 
 type TaskCreateTool struct{ store *TodoStore }
 
+// Init 实现 agent.Filter 接口；本工具无需会话上下文。
+func (t *TaskCreateTool) Init(ctx *agent.SessionContext) {}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *TaskCreateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
+
 func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "task_create",
@@ -119,6 +127,14 @@ func (t *TaskCreateTool) Execute(args map[string]any) (string, error) {
 // ==================== TaskUpdateTool ====================
 
 type TaskUpdateTool struct{ store *TodoStore }
+
+// Init 实现 agent.Filter 接口；本工具无需会话上下文。
+func (t *TaskUpdateTool) Init(ctx *agent.SessionContext) {}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *TaskUpdateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
 
 func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -321,6 +337,14 @@ func (s *TodoStore) checkDeps(task *TodoTask) error {
 
 type TaskListTool struct{ store *TodoStore }
 
+// Init 实现 agent.Filter 接口；本工具无需会话上下文。
+func (t *TaskListTool) Init(ctx *agent.SessionContext) {}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *TaskListTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
+
 func (t *TaskListTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "task_list",
@@ -373,6 +397,14 @@ func (t *TaskListTool) Execute(_ map[string]any) (string, error) {
 // ==================== TaskGetTool ====================
 
 type TaskGetTool struct{ store *TodoStore }
+
+// Init 实现 agent.Filter 接口；本工具无需会话上下文。
+func (t *TaskGetTool) Init(ctx *agent.SessionContext) {}
+
+// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+func (t *TaskGetTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	return chain.Next(turn)
+}
 
 func (t *TaskGetTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{

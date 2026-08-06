@@ -30,6 +30,7 @@ let triggerResolve: (() => void) | null = null
 let pendingBuffer: StreamEvent[] = []
 let directDispatch: ((evt: StreamEvent) => void) | null = null
 let stopCallback: (() => void) | null = null
+let askUserHandler: ((questionsJson: string) => void) | null = null
 
 let runCounter = 0  // 调试：追踪第几轮 run
 
@@ -38,6 +39,14 @@ let runCounter = 0  // 调试：追踪第几轮 run
  */
 export function setStopCallback(cb: () => void): void {
   stopCallback = cb
+}
+
+/**
+ * setAskUserHandler 设置 ask_user 事件处理器（用于渲染问题卡片）。
+ * ask_user 不属于流事件，不进入适配器，单独路由给 UI。
+ */
+export function setAskUserHandler(cb: (questionsJson: string) => void): void {
+  askUserHandler = cb
 }
 
 /**
@@ -89,6 +98,11 @@ function streamHandler(evt: MessageEvent): void {
       case 'error':
         event = { kind: 'error', message: msg.message || 'Unknown error' }
         break
+      case 'ask_user':
+        // ask_user 事件：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
+        console.log('[bridge] ask_user event received')
+        if (askUserHandler && msg.content) askUserHandler(msg.content)
+        return
     }
     if (!event) return
 
