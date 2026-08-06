@@ -57,8 +57,12 @@ type TaskCreateTool struct{ store *TodoStore }
 // Init 实现 agent.Filter 接口；本工具无需会话上下文。
 func (t *TaskCreateTool) Init(ctx *agent.SessionContext) {}
 
-// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
+// 结果累积到 turn.ToolResults，然后推进链。
 func (t *TaskCreateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	if ctx := chain.Context(); ctx != nil {
+		ctx.ExecuteMatchingTool(t, turn)
+	}
 	return chain.Next(turn)
 }
 
@@ -131,8 +135,12 @@ type TaskUpdateTool struct{ store *TodoStore }
 // Init 实现 agent.Filter 接口；本工具无需会话上下文。
 func (t *TaskUpdateTool) Init(ctx *agent.SessionContext) {}
 
-// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
+// 结果累积到 turn.ToolResults，然后推进链。
 func (t *TaskUpdateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	if ctx := chain.Context(); ctx != nil {
+		ctx.ExecuteMatchingTool(t, turn)
+	}
 	return chain.Next(turn)
 }
 
@@ -340,8 +348,12 @@ type TaskListTool struct{ store *TodoStore }
 // Init 实现 agent.Filter 接口；本工具无需会话上下文。
 func (t *TaskListTool) Init(ctx *agent.SessionContext) {}
 
-// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
+// 结果累积到 turn.ToolResults，然后推进链。
 func (t *TaskListTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	if ctx := chain.Context(); ctx != nil {
+		ctx.ExecuteMatchingTool(t, turn)
+	}
 	return chain.Next(turn)
 }
 
@@ -401,8 +413,12 @@ type TaskGetTool struct{ store *TodoStore }
 // Init 实现 agent.Filter 接口；本工具无需会话上下文。
 func (t *TaskGetTool) Init(ctx *agent.SessionContext) {}
 
-// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
+// 结果累积到 turn.ToolResults，然后推进链。
 func (t *TaskGetTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	if ctx := chain.Context(); ctx != nil {
+		ctx.ExecuteMatchingTool(t, turn)
+	}
 	return chain.Next(turn)
 }
 

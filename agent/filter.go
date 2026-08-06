@@ -80,10 +80,11 @@ func (e *messageChainExecution) Context() *SessionContext { return e.chain.Conte
 
 // Turn 一轮 LLM 交互的输入输出，在响应链中传递。
 type Turn struct {
-	Request    *chat.Request   // 输入
-	Blocks     chat.Blocks     // 输出
-	StopReason chat.StopReason // 输出
-	Err        error           // 输出
+	Request     *chat.Request   // 输入
+	Blocks      chat.Blocks     // 输出：LLM 响应内容块
+	StopReason  chat.StopReason // 输出：停止原因
+	Err         error           // 输出：错误
+	ToolResults chat.Blocks     // 输出：链上工具过滤器累积的执行结果（tool_result blocks）
 }
 
 // ResponseFilter 响应过滤器；可在 Next 前后读写 Turn。
@@ -96,19 +97,26 @@ type ResponseFilter interface {
 // ResponseFilterChain 响应过滤器链，Next 推进到下一个过滤器。
 type ResponseFilterChain interface {
 	Next(turn *Turn) error
+	// Context 返回链所属的会话上下文（链为会话私有，可安全定位当前会话）。
+	Context() *SessionContext
 }
 
 // responseFilterChain 响应过滤器链实现。
 type responseFilterChain struct {
 	mu              sync.Mutex
+	ctx             *SessionContext
 	responseFilters []ResponseFilter
 }
 
-func newResponseFilterChain() *responseFilterChain {
+func newResponseFilterChain(ctx *SessionContext) *responseFilterChain {
 	return &responseFilterChain{
+		ctx:             ctx,
 		responseFilters: make([]ResponseFilter, 0),
 	}
 }
+
+// Context 实现 ResponseFilterChain 接口，返回链所属会话上下文。
+func (c *responseFilterChain) Context() *SessionContext { return c.ctx }
 
 func (c *responseFilterChain) addResponseFilter(filter ResponseFilter) {
 	c.mu.Lock()
@@ -122,12 +130,13 @@ func (c *responseFilterChain) Next(turn *Turn) error {
 	filters := make([]ResponseFilter, len(c.responseFilters))
 	copy(filters, c.responseFilters)
 	c.mu.Unlock()
-	exec := &responseChainExecution{filters: filters, index: -1}
+	exec := &responseChainExecution{chain: c, filters: filters, index: -1}
 	return exec.Next(turn)
 }
 
 // responseChainExecution 携带执行下标的链执行器。
 type responseChainExecution struct {
+	chain   *responseFilterChain
 	filters []ResponseFilter
 	index   int
 }
@@ -139,6 +148,9 @@ func (e *responseChainExecution) Next(turn *Turn) error {
 	}
 	return e.filters[e.index].HandleTurn(e, turn)
 }
+
+// Context 实现 ResponseFilterChain 接口，委托给所属链。
+func (e *responseChainExecution) Context() *SessionContext { return e.chain.Context() }
 
 // coreMessageFilter 核心主体过滤器：同时作为消息链与响应链的最内层。
 // 消息链终端：用户消息入队并按需启动会话主循环；
@@ -184,8 +196,9 @@ func (core *coreMessageFilter) HandleRevMessage(chain MessageFilterChain, msg *Q
 	return nil
 }
 
-// HandleTurn 响应链终端：执行一轮完整的 LLM 交互（原 run() 循环体单次迭代）。
-// 锁协议：进入时持有 runLock，LLM 网络调用与工具执行期间释放，返回前恢复持锁。
+// HandleTurn 响应链主体：构建请求并执行一轮 LLM 调用，填充 turn 后
+// 调用 chain.Next 推进到链上后续过滤器（工具过滤器命中本轮 tool_use 时执行自身）。
+// 锁协议：进入时持有 runLock，LLM 网络调用期间释放，返回前恢复持锁。
 func (core *coreMessageFilter) HandleTurn(chain ResponseFilterChain, turn *Turn) error {
 	ctx := core.ctx
 
@@ -226,25 +239,7 @@ func (core *coreMessageFilter) HandleTurn(chain ResponseFilterChain, turn *Turn)
 		return turn.Err
 	}
 
-	switch turn.StopReason {
-	case chat.StopReasonToolUse:
-		// assistant 消息入历史
-		ctx.appendAssistantMessage(turn.Blocks)
-		// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
-		ctx.runLock.Unlock()
-		ctx.executeTools(turn.Blocks)
-		ctx.runLock.Lock()
-
-	default: // end_turn
-		// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
-		// 前端根据历史计算的 start 会落在 done 之后，重连时不会重放残留的 done
-		ctx.AddEvent(chat.NewDoneEvent(ctx.sessionId))
-		ctx.appendAssistantMessage(turn.Blocks)
-		ctx.saveAndReset()
-		// inbox 还有消息则继续循环，否则退出
-		if ctx.inbox.IsEmpty() {
-			ctx.running = false
-		}
-	}
-	return nil
+	// 推进链：工具过滤器根据 turn.Blocks 中的 tool_use 命中并执行自身，
+	// 结果累积到 turn.ToolResults；轮次收尾由编排器（doLoop）完成。
+	return chain.Next(turn)
 }

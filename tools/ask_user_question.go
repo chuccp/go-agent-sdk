@@ -48,8 +48,12 @@ func (t *AskUserQuestionTool) Init(ctx *agent.SessionContext) {
 	t.ctx = ctx
 }
 
-// HandleTurn 实现 agent.ResponseFilter 接口；本工具不干预轮次，直接透传。
+// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身
+//（推送问题并阻塞等待回答），结果累积到 turn.ToolResults，然后推进链。
 func (t *AskUserQuestionTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
+	if ctx := chain.Context(); ctx != nil {
+		ctx.ExecuteMatchingTool(t, turn)
+	}
 	return chain.Next(turn)
 }
 

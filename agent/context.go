@@ -237,55 +237,36 @@ func (c *SessionContext) saveAndReset() {
 	c.events.Reset()
 }
 
-// executeTools 执行 tool_use blocks 中的工具，将 tool_result 作为 user 消息追加到历史。
-// 若本轮有工具（如 ask_user_question）消费了用户回答，回答在 tool_result 之后
-// 作为 user 消息入历史并补发 message_consumed 事件。
-func (c *SessionContext) executeTools(blocks chat.Blocks) {
-	c.consumedAnswer = nil
-	toolResults := make(chat.Blocks, 0, len(blocks))
-	for _, block := range blocks {
+// ExecuteMatchingTool 若本轮为 tool_use 且命中指定工具，则执行该工具并将
+// 结果累积到 turn.ToolResults。由工具过滤器的 HandleTurn 在响应链中调用。
+// 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
+func (c *SessionContext) ExecuteMatchingTool(self ToolExecutor, turn *Turn) {
+	if turn.StopReason != chat.StopReasonToolUse {
+		return
+	}
+	name := self.Definition().Name
+	for _, block := range turn.Blocks {
 		tu, ok := block.(*chat.ToolUseBlock)
-		if !ok {
+		if !ok || tu.Name != name {
 			continue
 		}
-		exec, exists := c.toolExecutors[tu.Name]
-		if !exists {
-			toolResults = append(toolResults, chat.NewToolResultBlock(
-				tu.ID,
-				chat.Blocks{chat.NewTextBlock(fmt.Sprintf("未知工具: %s", tu.Name))},
-			))
-			continue
-		}
-
 		args, _ := tu.Input.(map[string]any)
-		// 执行前即时注入会话上下文：工具实例跨会话共享，执行时刻注入可保证
-		// ctx 始终指向当前会话（同一会话内工具串行执行，无竞争）
-		exec.Init(c)
-		output, execErr := exec.Execute(args)
 
-		c.AddEvent(chat.NewToolExecutionEvent(tu.Name, output, c.sessionId))
+		// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
+		c.runLock.Unlock()
+		output, execErr := self.Execute(args)
+		c.runLock.Lock()
+
+		c.AddEvent(chat.NewToolExecutionEvent(name, output, c.sessionId))
 
 		resultText := output
 		if execErr != nil {
 			resultText = fmt.Sprintf("错误: %v", execErr)
 		}
-		toolResults = append(toolResults, chat.NewToolResultBlock(
+		turn.ToolResults = append(turn.ToolResults, chat.NewToolResultBlock(
 			tu.ID,
 			chat.Blocks{chat.NewTextBlock(resultText)},
 		))
-	}
-	// tool_result 作为 user 消息入历史
-	msg := &chat.Message{Role: chat.RoleUser, Content: toolResults}
-	c.events.AppendHistory(msg)
-
-	// 工具消费的用户回答：在 tool_result 之后入历史（避免 assistant(tool_use)
-	// 与 user(tool_result) 之间插入 user 消息触发 Anthropic 校验错误）
-	if c.consumedAnswer != nil {
-		answer := c.consumedAnswer
-		c.consumedAnswer = nil
-		c.AddEvent(chat.NewMessageConsumedEvent(c.getSeq(), c.sessionId, answer))
-		answerMsg := answer.ToMessage()
-		c.events.AppendHistory(&answerMsg)
 	}
 }
 

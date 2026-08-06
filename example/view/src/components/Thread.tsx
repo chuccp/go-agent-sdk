@@ -64,6 +64,9 @@ export function Thread() {
       {/* ── Message Queue Indicator ── */}
       <MessageQueueBar />
 
+      {/* ── Ask User Question Card ── */}
+      <AskUserCard />
+
       {/* ── Composer ── */}
       <div style={{ padding: '0 24px 24px', flexShrink: 0 }}>
         <div style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -123,6 +126,52 @@ function MessageQueueBar() {
             </span>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Ask User Question Card（ask_user 工具的问题卡片）──
+
+function AskUserCard() {
+  const { pendingQuestion, submitAnswer } = useMessageQueue()
+  if (!pendingQuestion || pendingQuestion.length === 0) return null
+
+  return (
+    <div style={{
+      padding: '14px 24px', flexShrink: 0,
+      background: '#e8f0fe', borderTop: '1px solid #aecbfa',
+    }}>
+      <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {pendingQuestion.map((q, qi) => (
+          <div key={qi}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              {q.header && (
+                <span style={{
+                  padding: '2px 8px', borderRadius: 4, background: '#1a73e8',
+                  color: '#fff', fontSize: 11, fontWeight: 600,
+                }}>{q.header}</span>
+              )}
+              <span style={{ fontSize: 14, fontWeight: 500, color: '#202124' }}>{q.question}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {q.options.map((opt, oi) => (
+                <button
+                  key={oi}
+                  onClick={() => submitAnswer(q.header ? `${q.header}: ${opt.label}` : opt.label)}
+                  title={opt.description}
+                  style={{
+                    padding: '8px 14px', borderRadius: 8,
+                    border: '1px solid #1a73e8', background: '#fff', color: '#1a73e8',
+                    fontSize: 13, cursor: 'pointer',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
