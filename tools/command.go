@@ -21,17 +21,8 @@ func NewCommandTool() agent.ToolExecutor {
 	return &CommandTool{}
 }
 
-// Init 实现 agent.Filter 接口；本工具无需会话上下文。
-func (t *CommandTool) Init(ctx *agent.SessionContext) {}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
-// 结果累积到 turn.ToolResults，然后推进链。
-func (t *CommandTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
+// Name 返回工具名称。
+func (t *CommandTool) Name() string { return t.Definition().Name }
 
 func (t *CommandTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -104,7 +95,9 @@ func needsStartPrefix(cmd string) bool {
 	return guiApps[prog]
 }
 
-func (t *CommandTool) Execute(args map[string]any) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令并返回输出。
+func (t *CommandTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+	args := turn.Args()
 	cmd, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(cmd) == "" {
 		return "", fmt.Errorf("缺少 command 参数")

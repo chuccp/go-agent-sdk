@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -21,7 +20,7 @@ type processorHandler interface {
 }
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
-// 客户端订阅、工具与配置全部集中于此。过滤器与工具通过 Filter.Init 获得本上下文。
+// 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
 	processorHandler
 	inbox          *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
@@ -34,13 +33,13 @@ type SessionContext struct {
 	events         *chat.Store
 	registry       *chat.ProviderRegistry
 	chatClients    *util.SliceArray[*ChatClient]
-	toolExecutors  map[string]ToolExecutor
+	toolExecutors  []ToolExecutor
 	system         string
 	opts           *Options
 	historyStore   chat.HistoryStore
-	clientMutex    *sync.Mutex      // 保护 chatClients
-	consumedAnswer *chat.RevMessage // 本轮工具消费的用户回答（executeTools 结束后入历史）
-	answerMu       sync.Mutex       // 保护 answerCh
+	clientMutex    *sync.Mutex           // 保护 chatClients
+	consumedAnswer *chat.RevMessage      // 本轮工具消费的用户回答（executeTools 结束后入历史）
+	answerMu       sync.Mutex            // 保护 answerCh
 	answerCh       chan *chat.RevMessage // 正在等待的用户回答投递通道（如 ask_user_question）
 }
 
@@ -235,39 +234,6 @@ func (c *SessionContext) saveAndReset() {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
 	c.events.Reset()
-}
-
-// ExecuteMatchingTool 若本轮为 tool_use 且命中指定工具，则执行该工具并将
-// 结果累积到 turn.ToolResults。由工具过滤器的 HandleTurn 在响应链中调用。
-// 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (c *SessionContext) ExecuteMatchingTool(self ToolExecutor, turn *Turn) {
-	if turn.StopReason != chat.StopReasonToolUse {
-		return
-	}
-	name := self.Definition().Name
-	for _, block := range turn.Blocks {
-		tu, ok := block.(*chat.ToolUseBlock)
-		if !ok || tu.Name != name {
-			continue
-		}
-		args, _ := tu.Input.(map[string]any)
-
-		// 工具执行属于外部 I/O，释放锁（与 LLM 调用同理）
-		c.runLock.Unlock()
-		output, execErr := self.Execute(args)
-		c.runLock.Lock()
-
-		c.AddEvent(chat.NewToolExecutionEvent(name, toolArgsDisplay(args), output, c.sessionId))
-
-		resultText := output
-		if execErr != nil {
-			resultText = fmt.Sprintf("错误: %v", execErr)
-		}
-		turn.ToolResults = append(turn.ToolResults, chat.NewToolResultBlock(
-			tu.ID,
-			chat.Blocks{chat.NewTextBlock(resultText)},
-		))
-	}
 }
 
 // toolArgsDisplay 生成工具入参的展示文本，与前端历史展示逻辑保持一致：

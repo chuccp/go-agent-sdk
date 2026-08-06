@@ -5,8 +5,10 @@ import (
 )
 
 // ToolExecutor 工具执行器接口：定义工具的元数据（发给 LLM）和执行逻辑。
+// 执行时入参从 turn.Args() 获取（由工具链按命中的 tool_use 设置），
+// 会话上下文从 turn.Context() 获取。
 type ToolExecutor interface {
-	ResponseFilter
 	Definition() *chat.ToolFunction
-	Execute(args map[string]any) (string, error)
+	Name() string
+	Execute(chain ToolsChain, turn *Turn) (string, error)
 }

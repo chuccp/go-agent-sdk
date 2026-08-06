@@ -32,40 +32,27 @@ type AskUserQuestionResponse struct {
 }
 
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
-// 实现 agent.ToolExecutor 接口：执行时通过 Init 注入的 SessionContext
+// 实现 agent.ToolExecutor 接口：执行时通过 Turn 获得 SessionContext，
 // 向前端推送问题事件，并阻塞等待用户的下一条消息作为回答。
-type AskUserQuestionTool struct {
-	ctx *agent.SessionContext
-}
+type AskUserQuestionTool struct{}
+
+// Name 返回工具名称。
+func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
 
 // NewAskUserQuestionTool 创建用户提问工具。
 func NewAskUserQuestionTool() agent.ToolExecutor {
 	return &AskUserQuestionTool{}
 }
 
-// Init 实现 agent.Filter 接口，注入会话上下文（会话创建与每次执行前注入）。
-func (t *AskUserQuestionTool) Init(ctx *agent.SessionContext) {
-	t.ctx = ctx
-}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身
-//（推送问题并阻塞等待回答），结果累积到 turn.ToolResults，然后推进链。
-func (t *AskUserQuestionTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
-
 // HandleRevMessage 实现 agent.MessageFilter 接口：
 // 若工具正在阻塞等待用户回答（WaitForUserMessage），拦截并消费该消息；
-// 否则透传给链上后续过滤器。会话上下文从链获取（链为会话私有，
-// 避免共享工具实例的 ctx 被其他会话覆盖）。
+// 否则透传给链上后续过滤器。会话上下文从消息获取（消息为会话私有，
+// 避免共享工具实例被其他会话串用）。
 func (t *AskUserQuestionTool) HandleRevMessage(chain agent.MessageFilterChain, msg *agent.QueuedMessage) error {
-	if ctx := chain.Context(); ctx != nil && ctx.DeliverAnswer(msg.Msg()) {
+	if ctx := msg.Context(); ctx != nil && ctx.DeliverAnswer(msg.Msg()) {
 		return nil // 消费，不调用 chain.Next（不入 inbox）
 	}
-	return chain.Next(msg)
+	return chain.Next()
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -137,12 +124,15 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *AskUserQuestionTool) Execute(args map[string]any) (string, error) {
-	if t.ctx == nil {
+// Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON），
+// 阻塞等待用户的下一条消息作为回答，组装后返回给 LLM。
+func (t *AskUserQuestionTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+	ctx := turn.Context()
+	if ctx == nil {
 		return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")
 	}
 
-	questions, err := parseQuestions(args)
+	questions, err := parseQuestions(turn.Args())
 	if err != nil {
 		return "", err
 	}
@@ -152,11 +142,11 @@ func (t *AskUserQuestionTool) Execute(args map[string]any) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("序列化问题失败: %w", err)
 	}
-	t.ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), t.ctx.ID()))
+	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), ctx.ID()))
 
-	// 2. 阻塞等待用户回答：下一条用户消息会被一次性消息过滤器拦截投递，
+	// 2. 阻塞等待用户回答：下一条用户消息会被消息链上的本工具拦截投递，
 	// 不进入 inbox（不触发新的 LLM 调用）
-	msg, err := t.ctx.WaitForUserMessage()
+	msg, err := ctx.WaitForUserMessage()
 	if err != nil {
 		return "", fmt.Errorf("等待用户回答被中断: %w", err)
 	}

@@ -54,17 +54,8 @@ func NewTodoTools() (create, update, list, get agent.ToolExecutor) {
 
 type TaskCreateTool struct{ store *TodoStore }
 
-// Init 实现 agent.Filter 接口；本工具无需会话上下文。
-func (t *TaskCreateTool) Init(ctx *agent.SessionContext) {}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
-// 结果累积到 turn.ToolResults，然后推进链。
-func (t *TaskCreateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
+// Name 返回工具名称。
+func (t *TaskCreateTool) Name() string { return t.Definition().Name }
 
 func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -96,7 +87,9 @@ func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *TaskCreateTool) Execute(args map[string]any) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：创建一个新任务。
+func (t *TaskCreateTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+	args := turn.Args()
 	subject, _ := args["subject"].(string)
 	if strings.TrimSpace(subject) == "" {
 		return "", fmt.Errorf("缺少 subject 参数")
@@ -132,17 +125,8 @@ func (t *TaskCreateTool) Execute(args map[string]any) (string, error) {
 
 type TaskUpdateTool struct{ store *TodoStore }
 
-// Init 实现 agent.Filter 接口；本工具无需会话上下文。
-func (t *TaskUpdateTool) Init(ctx *agent.SessionContext) {}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
-// 结果累积到 turn.ToolResults，然后推进链。
-func (t *TaskUpdateTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
+// Name 返回工具名称。
+func (t *TaskUpdateTool) Name() string { return t.Definition().Name }
 
 func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -211,7 +195,9 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *TaskUpdateTool) Execute(args map[string]any) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：更新一个已有任务。
+func (t *TaskUpdateTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+	args := turn.Args()
 	taskID, _ := args["task_id"].(string)
 	if strings.TrimSpace(taskID) == "" {
 		return "", fmt.Errorf("缺少 task_id 参数")
@@ -345,17 +331,8 @@ func (s *TodoStore) checkDeps(task *TodoTask) error {
 
 type TaskListTool struct{ store *TodoStore }
 
-// Init 实现 agent.Filter 接口；本工具无需会话上下文。
-func (t *TaskListTool) Init(ctx *agent.SessionContext) {}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
-// 结果累积到 turn.ToolResults，然后推进链。
-func (t *TaskListTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
+// Name 返回工具名称。
+func (t *TaskListTool) Name() string { return t.Definition().Name }
 
 func (t *TaskListTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -371,7 +348,8 @@ func (t *TaskListTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *TaskListTool) Execute(_ map[string]any) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：列出所有活跃任务。
+func (t *TaskListTool) Execute(_ agent.ToolsChain, _ *agent.Turn) (string, error) {
 	t.store.mu.RLock()
 	defer t.store.mu.RUnlock()
 
@@ -410,17 +388,8 @@ func (t *TaskListTool) Execute(_ map[string]any) (string, error) {
 
 type TaskGetTool struct{ store *TodoStore }
 
-// Init 实现 agent.Filter 接口；本工具无需会话上下文。
-func (t *TaskGetTool) Init(ctx *agent.SessionContext) {}
-
-// HandleTurn 实现 agent.ResponseFilter 接口：本轮 tool_use 命中本工具时执行自身，
-// 结果累积到 turn.ToolResults，然后推进链。
-func (t *TaskGetTool) HandleTurn(chain agent.ResponseFilterChain, turn *agent.Turn) error {
-	if ctx := chain.Context(); ctx != nil {
-		ctx.ExecuteMatchingTool(t, turn)
-	}
-	return chain.Next(turn)
-}
+// Name 返回工具名称。
+func (t *TaskGetTool) Name() string { return t.Definition().Name }
 
 func (t *TaskGetTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -439,7 +408,9 @@ func (t *TaskGetTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *TaskGetTool) Execute(args map[string]any) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：获取一个任务的完整详情。
+func (t *TaskGetTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+	args := turn.Args()
 	taskID, _ := args["task_id"].(string)
 	if strings.TrimSpace(taskID) == "" {
 		return "", fmt.Errorf("缺少 task_id 参数")

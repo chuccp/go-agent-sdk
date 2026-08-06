@@ -12,7 +12,7 @@ type ChatManager struct {
 	chats         map[string]*chatSession
 	lock          *sync.RWMutex
 	registry      *chat.ProviderRegistry
-	toolExecutors map[string]ToolExecutor
+	toolExecutors []ToolExecutor
 	system        string
 	opts          *Options
 	historyStore  chat.HistoryStore
@@ -27,7 +27,7 @@ func NewChatManager(opt ...Option) *ChatManager {
 		chats:         make(map[string]*chatSession),
 		lock:          new(sync.RWMutex),
 		registry:      chat.NewProviderRegistry(),
-		toolExecutors: make(map[string]ToolExecutor),
+		toolExecutors: make([]ToolExecutor, 0),
 		opts:          opts,
 	}
 }
@@ -35,7 +35,7 @@ func NewChatManager(opt ...Option) *ChatManager {
 func (m *ChatManager) AddTool(exec ToolExecutor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.toolExecutors[exec.Definition().Name] = exec
+	m.toolExecutors = append(m.toolExecutors, exec)
 }
 
 // SetSystem 设置全局系统提示词，对之后新建的会话生效。
@@ -65,10 +65,8 @@ func (m *ChatManager) getOrCreateSession(id string) *chatSession {
 		return c
 	}
 	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
-	tools := make(map[string]ToolExecutor, len(m.toolExecutors))
-	for k, v := range m.toolExecutors {
-		tools[k] = v
-	}
+	tools := make([]ToolExecutor, len(m.toolExecutors))
+	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
 		sessionId:     id,
 		inbox:         new(util.SliceQueue[*QueuedMessage]),
