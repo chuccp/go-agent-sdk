@@ -33,12 +33,9 @@ type SessionContext struct {
 	chatClients    *util.SliceArray[*ChatClient]
 	toolExecutors  []ToolExecutor
 	system         string
-	opts           *Options
-	historyStore   chat.HistoryStore
-	clientMutex    *sync.Mutex           // 保护 chatClients
-	consumedAnswer *chat.RevMessage      // 本轮工具消费的用户回答（executeTools 结束后入历史）
-	answerMu       sync.Mutex            // 保护 answerCh
-	answerCh       chan *chat.RevMessage // 正在等待的用户回答投递通道（如 ask_user_question）
+	opts         *Options
+	historyStore chat.HistoryStore
+	clientMutex  *sync.Mutex // 保护 chatClients
 }
 
 // newRunContext 创建主循环上下文。调用方必须持有 runLock。
@@ -123,6 +120,17 @@ func (c *SessionContext) GetChatClient(start uint) *ChatClient {
 func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, response *chat.Response) error {
 	provider := c.registry.DefaultProvider()
 	return c.registry.ChatWithStream(ctx, provider, messages, response)
+}
+
+// Done 返回主循环上下文的取消通道，供阻塞中的工具（如等待用户回答）响应会话停止。
+// 主循环未启动时返回 nil。
+func (c *SessionContext) Done() <-chan struct{} {
+	c.runLock.Lock()
+	defer c.runLock.Unlock()
+	if c.runCtx == nil {
+		return nil
+	}
+	return c.runCtx.Done()
 }
 
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
@@ -234,45 +242,4 @@ func (c *SessionContext) saveAndReset() {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
 	c.events.Reset()
-}
-
-// WaitForUserMessage 阻塞等待用户的下一条消息。
-// 拦截依赖实现了 MessageFilter 的工具（如 ask_user_question）在消息链中
-// 调用 DeliverAnswer 投递；拦截的消息不进入 inbox（不触发 LLM 调用）。
-// 若主循环上下文被取消（如用户点 Stop），返回 error。
-func (c *SessionContext) WaitForUserMessage() (*chat.RevMessage, error) {
-	ch := make(chan *chat.RevMessage, 1)
-	c.answerMu.Lock()
-	c.answerCh = ch
-	c.answerMu.Unlock()
-	defer func() {
-		c.answerMu.Lock()
-		c.answerCh = nil
-		c.answerMu.Unlock()
-	}()
-	var done <-chan struct{}
-	if c.runCtx != nil {
-		done = c.runCtx.Done()
-	}
-	select {
-	case msg := <-ch:
-		c.consumedAnswer = msg
-		return msg, nil
-	case <-done:
-		return nil, c.runCtx.Err()
-	}
-}
-
-// DeliverAnswer 若当前正在等待用户回答（如 ask_user_question 工具阻塞中），
-// 投递并消费该消息，返回 true；否则返回 false。
-// 由实现了 MessageFilter 的工具在消息链中调用。
-func (c *SessionContext) DeliverAnswer(msg *chat.RevMessage) bool {
-	c.answerMu.Lock()
-	ch := c.answerCh
-	c.answerMu.Unlock()
-	if ch == nil {
-		return false
-	}
-	ch <- msg
-	return true
 }

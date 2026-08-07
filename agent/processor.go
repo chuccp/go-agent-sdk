@@ -84,18 +84,22 @@ func (p *messageProcessor) doLoop() {
 		case chat.StopReasonToolUse:
 			// assistant 消息入历史
 			ctx.appendAssistantMessage(blocks)
-			// tool_result 作为 user 消息入历史；为无工具命中的 tool_use 补错误结果
+			// tool_result 作为 user 消息入历史；未命中工具的 tool_use 已在 executeTools 补错误结果
 			results := p.executeTools(ctx, blocks)
 			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
-			// 工具消费的用户回答（如 ask_user）：在 tool_result 之后入历史，
-			// 避免 assistant(tool_use) 与 user(tool_result) 之间插入 user 消息
-			// 触发 Anthropic 校验错误
-			if ctx.consumedAnswer != nil {
-				answer := ctx.consumedAnswer
-				ctx.consumedAnswer = nil
-				ctx.AddEvent(chat.NewMessageConsumedEvent(ctx.getSeq(), ctx.sessionId, answer))
-				answerMsg := answer.ToMessage()
-				ctx.events.AppendHistory(&answerMsg)
+			// 工具消费的用户回答（如 ask_user，问答机制由工具按 sessionId 自管）：
+			// 在 tool_result 之后入历史，避免 assistant(tool_use) 与 user(tool_result)
+			// 之间插入 user 消息触发 Anthropic 校验错误
+			for _, exec := range p.toolExecutors {
+				ac, ok := exec.(AnswerConsumer)
+				if !ok {
+					continue
+				}
+				if answer := ac.TakeConsumedAnswer(ctx.sessionId); answer != nil {
+					ctx.AddEvent(chat.NewMessageConsumedEvent(ctx.getSeq(), ctx.sessionId, answer))
+					answerMsg := answer.ToMessage()
+					ctx.events.AppendHistory(&answerMsg)
+				}
 			}
 			// 继续循环：携带 tool_result 再次调用 LLM
 

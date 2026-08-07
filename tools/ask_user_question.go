@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -32,27 +33,56 @@ type AskUserQuestionResponse struct {
 }
 
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
-// 实现 agent.ToolExecutor 接口：执行时通过 Turn 获得 SessionContext，
-// 向前端推送问题事件，并阻塞等待用户的下一条消息作为回答。
-type AskUserQuestionTool struct{}
+// 实现 agent.ToolExecutor 接口：执行时向前端推送问题事件，并阻塞等待用户回答。
+// 问答机制由工具按 sessionId 自管（工具实例跨会话共享）：等待通道注册在
+// waiting 中，用户消息经消息链拦截（HandleRevMessage）投递；被消费的回答
+// 记入 consumed，由 doLoop 通过 AnswerConsumer 在 tool_result 之后入历史。
+type AskUserQuestionTool struct {
+	mu       sync.Mutex
+	waiting  map[string]chan *chat.RevMessage // sessionId → 正在等待的回答投递通道
+	consumed map[string]*chat.RevMessage      // sessionId → 本轮已消费、待入历史的回答
+}
 
 // Name 返回工具名称。
 func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
 
 // NewAskUserQuestionTool 创建用户提问工具。
 func NewAskUserQuestionTool() agent.ToolExecutor {
-	return &AskUserQuestionTool{}
+	return &AskUserQuestionTool{
+		waiting:  make(map[string]chan *chat.RevMessage),
+		consumed: make(map[string]*chat.RevMessage),
+	}
 }
 
 // HandleRevMessage 实现 agent.MessageFilter 接口：
-// 若工具正在阻塞等待用户回答（WaitForUserMessage），拦截并消费该消息；
-// 否则透传给链上后续过滤器。会话上下文从消息获取（消息为会话私有，
-// 避免共享工具实例被其他会话串用）。
+// 若本会话正在阻塞等待用户回答，拦截并投递该消息；否则透传给链上后续过滤器。
+// 会话 ID 从消息上下文获取（消息为会话私有，避免共享工具实例被其他会话串用）。
 func (t *AskUserQuestionTool) HandleRevMessage(chain agent.MessageFilterChain, msg *agent.QueuedMessage) error {
-	if ctx := msg.Context(); ctx != nil && ctx.DeliverAnswer(msg.Msg()) {
+	if ctx := msg.Context(); ctx != nil && t.deliverAnswer(ctx.ID(), msg.Msg()) {
 		return nil // 消费，不调用 chain.Next（不入 inbox）
 	}
 	return chain.Next()
+}
+
+// deliverAnswer 若指定会话正在等待用户回答，投递并消费该消息，返回 true。
+func (t *AskUserQuestionTool) deliverAnswer(sessionId string, msg *chat.RevMessage) bool {
+	t.mu.Lock()
+	ch := t.waiting[sessionId]
+	t.mu.Unlock()
+	if ch == nil {
+		return false
+	}
+	ch <- msg
+	return true
+}
+
+// TakeConsumedAnswer 实现 agent.AnswerConsumer：取出并清除本会话已消费的用户回答。
+func (t *AskUserQuestionTool) TakeConsumedAnswer(sessionId string) *chat.RevMessage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	msg := t.consumed[sessionId]
+	delete(t.consumed, sessionId)
+	return msg
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -144,12 +174,30 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), ctx.ID()))
 
-	// 2. 阻塞等待用户回答：下一条用户消息会被消息链上的本工具拦截投递，
-	// 不进入 inbox（不触发新的 LLM 调用）
-	msg, err := ctx.WaitForUserMessage()
-	if err != nil {
-		return fmt.Errorf("等待用户回答被中断: %w", err)
+	// 2. 阻塞等待用户回答：按 sessionId 注册等待通道，下一条用户消息会被
+	// 消息链上的本工具拦截投递，不进入 inbox（不触发新的 LLM 调用）
+	sessionId := ctx.ID()
+	ch := make(chan *chat.RevMessage, 1)
+	t.mu.Lock()
+	t.waiting[sessionId] = ch
+	t.mu.Unlock()
+	defer func() {
+		t.mu.Lock()
+		delete(t.waiting, sessionId)
+		t.mu.Unlock()
+	}()
+
+	var msg *chat.RevMessage
+	select {
+	case msg = <-ch:
+	case <-ctx.Done():
+		return fmt.Errorf("等待用户回答被中断（会话已停止）")
 	}
+
+	// 记录已消费的回答：doLoop 在 tool_result 入历史后通过 AnswerConsumer 取出
+	t.mu.Lock()
+	t.consumed[sessionId] = msg
+	t.mu.Unlock()
 
 	// 3. 组装答案返回给 LLM
 	answers := make(map[string]string, len(questions))
