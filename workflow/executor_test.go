@@ -1,9 +1,14 @@
 package workflow
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/chuccp/go-agent-sdk/workflow/node"
+)
 
 func TestNode(t *testing.T) {
 
-	Of()
+	chat := node.NewChatNodeBuilder("chat").Build()
+	workflow := Of(chat)
 
 }

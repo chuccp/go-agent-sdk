@@ -1,8 +1,8 @@
 package node
 
+import "github.com/chuccp/go-agent-sdk/workflow/exec"
+
 type Node interface {
 	GetName() string
-}
-type BaseNode struct {
-	Name string
+	Exec(context *exec.Context) error
 }
