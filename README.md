@@ -16,30 +16,36 @@
 ## 架构概览
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  ChatManager                                                │
-│  ├── ProviderRegistry (多 LLM 后端)                          │
-│  ├── ToolExecutors (工具注册)                                │
-│  └── map[id] → ChatSession                                  │
-│                  ├── inbox (消息队列, runMutex 保护)          │
-│                  ├── messageProcessor                       │
-│                  │    ├── run loop (持锁 → 释放I/O → 重持锁)  │
-│                  │    └── stream → tool → persist            │
-│                  ├── Store                                   │
-│                  │    ├── entries (活跃事件缓冲区, 仅当前轮)    │
-│                  │    ├── history (全量消息, 持久化)            │
-│                  │    ├── positions (客户端读取位置列表)        │
-│                  │    └── base (Reset 推进, seq 单调递增)       │
-│                  └── ChatClient[] (轻量订阅句柄, 持有 Position) │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│  ChatManager                                                  │
+│  ├── ProviderRegistry (多 LLM 后端)                            │
+│  ├── ToolExecutors (工具注册)                                  │
+│  └── map[id] → ChatSession                                    │
+│                  └── SessionContext (状态中心)                  │
+│                       ├── inbox (消息队列, runMutex 保护)       │
+│                       ├── messageProcessor (会话编排器)         │
+│                       │    ├── MessageFilter 链 (拦截/过滤消息)  │
+│                       │    ├── coreMessageFilter (链最内层)     │
+│                       │    │    ├── 入队 + 启动主循环            │
+│                       │    │    └── executeRound → doLoop      │
+│                       │    └── 工具级过滤器 (ask_user 等)       │
+│                       ├── Store                               │
+│                       │    ├── entries (活跃事件缓冲区)          │
+│                       │    ├── history (全量消息, 持久化)        │
+│                       │    ├── positions (客户端读取位置列表)    │
+│                       │    └── base (Reset 推进, seq 单调递增)   │
+│                       └── ChatClient[] (轻量订阅句柄)           │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## 包结构
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：ChatManager, ChatSession, ChatClient, messageProcessor, Tool, Options
+├── agent/          # Agent 层：ChatManager, ChatSession, ChatClient, SessionContext,
+│                   #   messageProcessor, MessageFilter 链, Tool, Turn, Options
 ├── chat/           # 协议层：Block, Event, Message, Request/Response, Store, Position, Provider
+├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
 └── example/        # 完整示例应用（Go 后端 + React 前端）
     ├── api/chat/   # LLM 提供商适配（anthropic 协议）
@@ -59,6 +65,7 @@ package main
 import (
     "github.com/chuccp/go-agent-sdk/agent"
     "github.com/chuccp/go-agent-sdk/chat"
+    "github.com/chuccp/go-agent-sdk/tools"
 )
 
 func main() {
@@ -73,7 +80,7 @@ func main() {
     manager.RegisterChat("my-provider", myChatService, true)
 
     // 3. 注册工具（可选）
-    manager.AddTool(agent.NewCommandTool())
+    manager.AddTool(tools.NewCommandTool())
 
     // 4. 设置持久化（可选）
     manager.SetHistoryStore(myHistoryStore)
@@ -133,12 +140,35 @@ ToolResultBlock { ToolUseID string; Content any }
 
 ```go
 type ToolExecutor interface {
-    Definition() *chat.ToolFunction          // 工具元数据（发给 LLM）
-    Execute(args map[string]any) (string, error) // 执行逻辑
+    Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
+    Name() string                                       // 工具唯一名称
+    Execute(turn *Turn, writer chat.StreamWriter) error // 执行逻辑
 }
 ```
 
-内置 `CommandTool`：本地终端命令执行，带危险命令拦截 + GUI 程序自动 `start` + 30s 超时。
+`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`SessionContext`）。
+执行结果通过 `writer` 流式写出，支持逐块输出内容。
+
+### 内置工具
+
+| 工具 | 文件 | 说明 |
+|------|------|------|
+| `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + GUI 程序自动 `start` + 30s 超时。`command_unix.go` / `command_windows.go` 提供平台适配 |
+| `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持 pending/in_progress/completed 状态，通过 `TodoStore` 跨会话共享 |
+| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题，通过 `AskUserQuestionResponse` 收集答案，实现 `MessageFilter` 拦截用户回答 |
+
+### 消息过滤器链
+
+工具可以实现 `MessageFilter` 接口注册到消息过滤器链，拦截和消费用户消息：
+
+```go
+type MessageFilter interface {
+    HandleRevMessage(chain MessageFilterChain, msg *QueuedMessage) error
+}
+```
+
+过滤器按注册顺序执行，链的最内层是 `coreMessageFilter`（负责入队并驱动主循环）。
+`AskUserQuestionTool` 即通过过滤器链在等待用户回答时拦截消息并消费。
 
 ## HistoryStore 接口
 
@@ -177,24 +207,28 @@ type HistoryStore interface {
 ```
 # 消息生命周期（send/display 分离）
 {"seq": 1, "source": "client", "type": "message_sent",     "message_id": 1, "content": "你好", "session_id": "1"}
-{"seq": 2, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好", "session_id": "1"}
+{"seq": 2, "source": "client", "type": "message_queued",   "message_id": 1, "content": "你好", "session_id": "1"}
+{"seq": 3, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好", "session_id": "1"}
 
 # AI 流式输出
-{"seq": 3, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录...",           "session_id": "1"}
-{"seq": 4, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是：",            "session_id": "1"}
-{"seq": 5, "source": "ai",     "type": "chunk",           "content": "\n\nproject/",                  "session_id": "1"}
+{"seq": 4, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录...",           "session_id": "1"}
+{"seq": 5, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是：",            "session_id": "1"}
+{"seq": 6, "source": "ai",     "type": "chunk",           "content": "\n\nproject/",                  "session_id": "1"}
 
 # 工具执行（如果有 tool_use）
-{"seq": 6, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "...", "session_id": "1"}
+{"seq": 7, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "...", "session_id": "1"}
+
+# LLM 向用户提问（AskUserQuestion 工具）
+{"seq": 8, "source": "ai",     "type": "ask_user",        "questions": [...],                        "session_id": "1"}
 
 # 本轮结束
-{"seq": 7, "source": "ai",     "type": "done",            "done": true,                              "session_id": "1"}
+{"seq": 9, "source": "ai",     "type": "done",            "done": true,                              "session_id": "1"}
 
 # 错误
-{"seq": 8, "source": "system", "type": "error",           "message": "network timeout",              "session_id": "1"}
+{"seq": 10, "source": "system", "type": "error",          "message": "network timeout",              "session_id": "1"}
 ```
 
-前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `message_consumed` 后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致。
+前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `message_consumed` 后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致。当消息进入等待队列时返回 `message_queued`，前端可显示"待处理"状态。
 
 ## 运行示例
 
@@ -217,6 +251,7 @@ pnpm dev
 agent.NewChatManager(
     agent.WithModel("claude-opus-4-8"),     // 模型名称
     agent.WithMaxTokens(8192),              // 最大生成 token
+    agent.WithMaxContext(50),               // 最大上下文消息条数，超出时截断（0=不限制）
     agent.WithTemperature(0.7),             // 采样温度
     agent.WithTopP(0.9),                    // nucleus 采样
     agent.WithTopK(40),                     // top-k 采样
