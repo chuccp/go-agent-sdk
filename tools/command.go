@@ -3,14 +3,15 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // CommandTool 在本地终端执行 shell 命令的工具。
@@ -116,14 +117,10 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var c *exec.Cmd
-	if isWindows() {
-		c = exec.CommandContext(ctx, "cmd", "/c", cmd)
-	} else {
-		c = exec.CommandContext(ctx, "sh", "-c", cmd)
-	}
+	c := newShellCommand(ctx, cmd)
 
 	output, err := c.CombinedOutput()
+	output = decodeOutput(output)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("命令执行超时（30s）: %s", cmd)
@@ -144,4 +141,17 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error 
 
 func isWindows() bool {
 	return runtime.GOOS == "windows"
+}
+
+// decodeOutput 兜底处理非 UTF-8 输出：部分程序直接按系统 ANSI 代码页
+// （简体中文 Windows 为 GBK）输出，chcp 无法影响其已编码的字节流，
+// 此时按 GBK 解码为 UTF-8；合法 UTF-8 输出原样返回。
+func decodeOutput(output []byte) []byte {
+	if len(output) == 0 || utf8.Valid(output) {
+		return output
+	}
+	if decoded, err := simplifiedchinese.GBK.NewDecoder().Bytes(output); err == nil {
+		return decoded
+	}
+	return output
 }
