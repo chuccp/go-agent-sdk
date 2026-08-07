@@ -114,12 +114,12 @@ func (c *SessionContext) GetChatClient(start uint) *ChatClient {
 
 // ── 会话主体能力（消息链终端与主循环调用）──
 
-// ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 response。
-// response 创建时传入本上下文作为事件接收方（AddEvent），
-// 流式增量产生的客户端事件（chunk/thinking）由 Response 直接推送。
-func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, response *chat.Response) error {
+// ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 BlockStream。
+// stream 创建时传入本上下文作为事件接收方（AddEvent），
+// 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
+func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, stream *chat.BlockStream) error {
 	provider := c.registry.DefaultProvider()
-	return c.registry.ChatWithStream(ctx, provider, messages, response)
+	return c.registry.ChatWithStream(ctx, provider, messages, stream)
 }
 
 // Done 返回主循环上下文的取消通道，供阻塞中的工具（如等待用户回答）响应会话停止。

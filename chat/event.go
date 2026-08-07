@@ -1,5 +1,23 @@
 package chat
 
+// ==================== 协议元数据 ====================
+
+// StopReason 是模型停止生成的原因
+type StopReason string
+
+const (
+	StopReasonEndTurn   StopReason = "end_turn"      // 自然结束
+	StopReasonMaxTokens StopReason = "max_tokens"    // 达到 max_tokens 上限
+	StopReasonToolUse   StopReason = "tool_use"      // 需要调用工具
+	StopReasonStopSeq   StopReason = "stop_sequence" // 命中停止序列
+)
+
+// Usage 记录本次请求的 token 消耗。
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 // ==================== 统一事件接口 ====================
 
 // 事件来源

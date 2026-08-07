@@ -4,14 +4,14 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// streamResponse 消费流式响应，返回 Response 已组装完成的所有 content block 和 stop_reason。
-// Block 的拼接与组合由 Response 内部完成；文本/思考链增量已在写入时
+// streamResponse 消费流式响应，返回 BlockStream 已组装完成的所有 content block 和 stop_reason。
+// Block 的拼接与组合由 BlockStream 内部完成；文本/思考链增量已在写入时
 // 通过 EventSink（AddEvent）向外广播，此处只负责收集结果。
-func (c *SessionContext) streamResponse(resp *chat.Response) (blocks chat.Blocks, stopReason chat.StopReason, err error) {
-	for b := resp.ReadBlock(); b != nil; b = resp.ReadBlock() {
+func (c *SessionContext) streamResponse(stream *chat.BlockStream) (blocks chat.Blocks, stopReason chat.StopReason, err error) {
+	for b := stream.ReadBlock(); b != nil; b = stream.ReadBlock() {
 		blocks = append(blocks, b)
 	}
-	return blocks, resp.StopReason(), resp.Err()
+	return blocks, stream.StopReason(), stream.Err()
 }
 
 // withoutThinking 从 blocks 中剥离 thinking block。

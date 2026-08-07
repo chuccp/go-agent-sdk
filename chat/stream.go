@@ -8,23 +8,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// StopReason 是模型停止生成的原因
-type StopReason string
-
-const (
-	StopReasonEndTurn   StopReason = "end_turn"      // 自然结束
-	StopReasonMaxTokens StopReason = "max_tokens"    // 达到 max_tokens 上限
-	StopReasonToolUse   StopReason = "tool_use"      // 需要调用工具
-	StopReasonStopSeq   StopReason = "stop_sequence" // 命中停止序列
-)
-
-// Usage 记录本次请求的 token 消耗。
-type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
-// -------- StreamWriter --------
+// -------- StreamWriter / EventReceiver --------
 
 // EventReceiver 事件接收方：流式过程中产生的客户端推送事件（文本/思考链增量等）
 // 通过它向外发送，典型实现是 SessionContext（传入其 AddEvent 接收）。
@@ -34,7 +18,7 @@ type EventReceiver interface {
 
 // StreamWriter 是流式内容的生产方接口（类似 http.ResponseWriter）。
 // 生产方（LLM provider / 工具）通过它写入协议事件或内容块，
-// Block 的拼接与组合由 Response 内部完成，写入方无需关心。
+// Block 的拼接与组合由 BlockStream 内部完成，写入方无需关心。
 type StreamWriter interface {
 	Write(event Event) error
 	WriteBlock(block Block) error
@@ -42,13 +26,14 @@ type StreamWriter interface {
 	Close()
 }
 
-// -------- Response --------
+// -------- BlockStream --------
 
-// Response 是流式响应体：内部维护一条 Block 队列。
+// BlockStream 是一条 Block 流管道：内部维护一条 Block 队列。
 // 生产方写入协议事件（Write）或内容块（WriteBlock），
-// Response 负责将增量拼接、组合为完整的 Block；
+// BlockStream 负责将增量拼接、组合为完整的 Block；
 // 消费方循环调用 ReadBlock() 读取，nil 表示流结束。
-type Response struct {
+// 既用于 LLM 流式响应，也用于工具执行输出的收集。
+type BlockStream struct {
 	blocks     *util.Queue[Block]
 	receiver   EventReceiver
 	assembler  blockAssembler  // 协议事件（start/delta/stop）→ 完整 Block
@@ -60,9 +45,9 @@ type Response struct {
 	sessionId  string
 }
 
-// NewResponse 创建一个流式 Response。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
-func NewResponse(sessionId string, receiver EventReceiver) *Response {
-	return &Response{
+// NewBlockStream 创建一条 Block 流。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
+func NewBlockStream(sessionId string, receiver EventReceiver) *BlockStream {
+	return &BlockStream{
 		blocks:    util.NewQueue[Block](),
 		receiver:  receiver,
 		sessionId: sessionId,
@@ -71,7 +56,7 @@ func NewResponse(sessionId string, receiver EventReceiver) *Response {
 
 // Write 写入一个协议层事件：增量事件在内部组装为 Block 入队，
 // 文本/思考链增量同时通过 receiver 向外推送。
-func (r *Response) Write(event Event) error {
+func (r *BlockStream) Write(event Event) error {
 	switch e := event.(type) {
 	case *ContentBlockStartEvent:
 		var id, name string
@@ -109,7 +94,7 @@ func (r *Response) Write(event Event) error {
 
 // WriteBlock 写入一个内容块：连续的 TextBlock 会被拼接为一个，
 // 遇到其他类型（或 Close）时输出拼接结果，其余类型直接入队。
-func (r *Response) WriteBlock(block Block) error {
+func (r *BlockStream) WriteBlock(block Block) error {
 	if tb, ok := block.(*TextBlock); ok {
 		r.pending.WriteString(tb.Text)
 		r.hasPending = true
@@ -122,13 +107,13 @@ func (r *Response) WriteBlock(block Block) error {
 }
 
 // WriteError 记录错误并结束流，ReadBlock 消费完剩余内容后返回 nil。
-func (r *Response) WriteError(err error) {
+func (r *BlockStream) WriteError(err error) {
 	r.err = err
 	r.Close()
 }
 
 // Close 关闭流：输出未完成的拼接内容后关闭队列。幂等，多次调用安全。
-func (r *Response) Close() {
+func (r *BlockStream) Close() {
 	if r.closed {
 		return
 	}
@@ -138,7 +123,7 @@ func (r *Response) Close() {
 }
 
 // ReadBlock 读取下一个已组合完成的 Block，nil 表示流结束。
-func (r *Response) ReadBlock() Block {
+func (r *BlockStream) ReadBlock() Block {
 	evt, ok := r.blocks.Dequeue()
 	if !ok {
 		return nil
@@ -147,13 +132,13 @@ func (r *Response) ReadBlock() Block {
 }
 
 // StopReason 返回模型停止生成的原因（流结束后有效）。
-func (r *Response) StopReason() StopReason { return r.stopReason }
+func (r *BlockStream) StopReason() StopReason { return r.stopReason }
 
 // Err 返回流处理过程中发生的错误（流结束后检查）。
-func (r *Response) Err() error { return r.err }
+func (r *BlockStream) Err() error { return r.err }
 
 // flushPending 将累积的文本拼接结果作为一个 TextBlock 入队。
-func (r *Response) flushPending() error {
+func (r *BlockStream) flushPending() error {
 	if !r.hasPending {
 		return nil
 	}
@@ -163,8 +148,8 @@ func (r *Response) flushPending() error {
 	return r.blocks.Offer(b)
 }
 
-// emit 通过 receiver 向外推送客户端事件（SessionId 由 Response 补齐）。
-func (r *Response) emit(evt *ClientEvent) {
+// emit 通过 receiver 向外推送客户端事件（SessionId 由 BlockStream 补齐）。
+func (r *BlockStream) emit(evt *ClientEvent) {
 	if r.receiver != nil {
 		evt.SessionId = r.sessionId
 		r.receiver.AddEvent(evt)
@@ -173,7 +158,7 @@ func (r *Response) emit(evt *ClientEvent) {
 
 // Collect 消费所有 Block 并聚合成文本和工具调用结果。
 // 这是一个便捷方法，适用于不需要逐块处理的简单场景。
-func (r *Response) Collect() (text string, toolCalls Blocks) {
+func (r *BlockStream) Collect() (text string, toolCalls Blocks) {
 	for b := r.ReadBlock(); b != nil; b = r.ReadBlock() {
 		switch v := b.(type) {
 		case *TextBlock:

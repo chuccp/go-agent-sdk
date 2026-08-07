@@ -132,15 +132,15 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	response := chat.NewResponse(ctx.sessionId, ctx)
+	stream := chat.NewBlockStream(ctx.sessionId, ctx)
 
-	callErr := ctx.ChatWithStream(ctx.runCtx, request, response)
+	callErr := ctx.ChatWithStream(ctx.runCtx, request, stream)
 
 	var blocks chat.Blocks
 	var stopReason chat.StopReason
 	var streamErr error
 	if callErr == nil {
-		blocks, stopReason, streamErr = ctx.streamResponse(response)
+		blocks, stopReason, streamErr = ctx.streamResponse(stream)
 	}
 
 	// ===== 重新持锁 =====
@@ -185,13 +185,13 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		response := chat.NewResponse(ctx.sessionId, ctx)
+		stream := chat.NewBlockStream(ctx.sessionId, ctx)
 		util.Go(func() {
-			p.runTool(ctx, tu, exec, response)
-			response.Close()
+			p.runTool(ctx, tu, exec, stream)
+			stream.Close()
 		})
 
-		results = append(results, p.collectToolResult(ctx, tu, response))
+		results = append(results, p.collectToolResult(ctx, tu, stream))
 	}
 	return results
 }
@@ -214,10 +214,10 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 
 // collectToolResult 消费单个工具的输出直到流结束：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
-func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, response *chat.Response) *chat.ToolResultBlock {
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *chat.BlockStream) *chat.ToolResultBlock {
 	var text strings.Builder
 	var content chat.Blocks
-	for b := response.ReadBlock(); b != nil; b = response.ReadBlock() {
+	for b := stream.ReadBlock(); b != nil; b = stream.ReadBlock() {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text.WriteString(tb.Text)
 			continue
@@ -226,7 +226,7 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	}
 
 	resultText := text.String()
-	if err := response.Err(); err != nil {
+	if err := stream.Err(); err != nil {
 		if resultText != "" {
 			resultText += "\n"
 		}
