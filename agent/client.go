@@ -7,7 +7,7 @@ import (
 
 // chatHandler 会话处理接口，由 chatSession 实现
 type chatHandler interface {
-	SendMessage(message *chat.RevMessage, opt ...Option) error
+	SendMessage(message *chat.RevMessage, opt ...chat.Option) error
 	History() []*chat.Message
 	ReadEvent(position *chat.Position) *chat.ClientEvent
 	DeleteClient(client *ChatClient)
@@ -21,11 +21,11 @@ type ChatClient struct {
 	position *chat.Position
 }
 
-func (c *ChatClient) SendText(message string, opt ...Option) error {
+func (c *ChatClient) SendText(message string, opt ...chat.Option) error {
 	return c.handler.SendMessage(&chat.RevMessage{Text: message}, opt...)
 }
 
-func (c *ChatClient) SendMessage(message *chat.RevMessage, opt ...Option) error {
+func (c *ChatClient) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	return c.handler.SendMessage(message, opt...)
 }
 

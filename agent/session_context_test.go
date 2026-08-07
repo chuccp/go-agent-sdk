@@ -17,8 +17,8 @@ type fakeProvider struct {
 func (f *fakeProvider) ChatWithStream(_ any, _ *chat.Request, _ any) error { return nil }
 
 // newTestSessionContext 创建一个构造好基础组件的 SessionContext，可以直接测 buildRequest。
-func newTestSessionContext(opts ...Option) *SessionContext {
-	o := defaultOptions()
+func newTestSessionContext(opts ...chat.Option) *SessionContext {
+	o := chat.DefaultOptions()
 	o.Model = "test-model"
 	o.MaxTokens = 100
 	for _, opt := range opts {
@@ -141,7 +141,7 @@ func TestBuildRequest_PerTurnOptionMerge(t *testing.T) {
 	)
 	// 入队两条消息，第二条携带 per-turn 覆盖
 	enqueue(ctx, "first")
-	enqueueOpts(ctx, "second", WithModel("per-turn-model"), WithMaxTokens(200))
+	enqueueOpts(ctx, "second", chat.WithModel("per-turn-model"), chat.WithMaxTokens(200))
 
 	req := ctx.buildRequest()
 	if req == nil {
@@ -160,7 +160,7 @@ func TestBuildRequest_PerTurnOptionMerge(t *testing.T) {
 }
 
 func TestBuildRequest_NoPerTurnOpts(t *testing.T) {
-	ctx := newTestSessionContext(WithModel("global-model"))
+	ctx := newTestSessionContext(chat.WithModel("global-model"))
 	seedHistory(ctx,
 		chat.Blocks{chat.NewTextBlock("hello")},
 		chat.Blocks{chat.NewTextBlock("hi")},
@@ -218,18 +218,18 @@ func TestBuildRequest_SystemPrompt(t *testing.T) {
 
 func TestBuildRequest_ThinkingConfig(t *testing.T) {
 	tests := []struct {
-		level    ThinkingLevel
+		level    chat.ThinkingLevel
 		expectOn bool
 	}{
-		{ThinkingOff, false},   // disabled
-		{ThinkingLow, true},
-		{ThinkingHigh, true},
+		{chat.ThinkingOff, false},   // disabled
+		{chat.ThinkingLow, true},
+		{chat.ThinkingHigh, true},
 		{"", false}, // unset → nil
 	}
 
 	for _, tt := range tests {
 		t.Run(string(tt.level), func(t *testing.T) {
-			ctx := newTestSessionContext(WithThinking(tt.level))
+			ctx := newTestSessionContext(chat.WithThinking(tt.level))
 			seedHistory(ctx,
 				chat.Blocks{chat.NewTextBlock("hello")},
 				chat.Blocks{chat.NewTextBlock("hi")},
@@ -245,7 +245,7 @@ func TestBuildRequest_ThinkingConfig(t *testing.T) {
 					t.Errorf("expected enabled thinking, got %+v", req.Thinking)
 				}
 			} else {
-				if tt.level == ThinkingOff {
+				if tt.level == chat.ThinkingOff {
 					if req.Thinking == nil || req.Thinking.Type != "disabled" {
 						t.Errorf("expected disabled thinking, got %+v", req.Thinking)
 					}
@@ -260,7 +260,7 @@ func TestBuildRequest_ThinkingConfig(t *testing.T) {
 }
 
 // enqueueOpts 向 inbox 写入一条带 per-turn 选项的用户消息。
-func enqueueOpts(ctx *SessionContext, text string, opt ...Option) {
+func enqueueOpts(ctx *SessionContext, text string, opt ...chat.Option) {
 	ctx.inbox.Write(&QueuedMessage{
 		ctx:  ctx,
 		id:   ctx.getSeq(),

@@ -21,9 +21,9 @@ func (s *Session) HandleChat(message *entity.WsChatMessage) error {
 	if s.chatClient == nil {
 		return errors.New("no chat client")
 	}
-	var opts []agent.Option
+	var opts []chat.Option
 	if message.Thinking != "" {
-		opts = append(opts, agent.WithThinking(agent.ThinkingLevel(message.Thinking)))
+		opts = append(opts, chat.WithThinking(chat.ThinkingLevel(message.Thinking)))
 	}
 	return s.chatClient.SendText(message.Message, opts...)
 }

@@ -12,7 +12,7 @@ import (
 
 // processorHandler 定义 SessionContext 反向调用 messageProcessor 的能力。
 type processorHandler interface {
-	handleMessage(message *chat.RevMessage, opt ...Option) error
+	handleMessage(message *chat.RevMessage, opt ...chat.Option) error
 	doLoop()
 	Stop()
 }
@@ -33,7 +33,7 @@ type SessionContext struct {
 	chatClients    *util.SliceArray[*ChatClient]
 	toolExecutors  []ToolExecutor
 	system         string
-	opts         *Options
+	opts         *chat.Options
 	historyStore chat.HistoryStore
 	clientMutex  *sync.Mutex // 保护 chatClients
 }
@@ -74,7 +74,7 @@ func (c *SessionContext) Flush() {
 
 // ── chatHandler 接口实现（ChatClient 的 handler 指向 SessionContext）──
 
-func (c *SessionContext) SendMessage(message *chat.RevMessage, opt ...Option) error {
+func (c *SessionContext) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	return c.processorHandler.handleMessage(message, opt...)
 }
 
@@ -135,7 +135,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 // 返回该消息附带的 per-turn 选项。
-func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []Option {
+func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
 	c.AddEvent(chat.NewMessageConsumedEvent(qm.id, c.sessionId, qm.msg))
 	msg := qm.msg.ToMessage()
 	c.events.AppendHistory(&msg)
@@ -145,7 +145,7 @@ func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []Option {
 // buildRequest 从 inbox 中取出所有待处理消息，追加到历史记录，构建 LLM 请求。
 // 调用方必须持有 runLock。
 func (c *SessionContext) buildRequest() *chat.Request {
-	var turnOpts []Option
+	var turnOpts []chat.Option
 	for {
 		qm, err := c.inbox.Read()
 		if err != nil {
@@ -172,7 +172,7 @@ func (c *SessionContext) buildRequest() *chat.Request {
 		effective = &merged
 	} else if len(turnOpts) > 0 {
 		// effective 为 nil 但存在 per-turn 选项时，从默认零值合并
-		merged := Options{}
+		merged := chat.Options{}
 		for _, o := range turnOpts {
 			o(&merged)
 		}
@@ -201,7 +201,7 @@ func (c *SessionContext) buildRequest() *chat.Request {
 		messages.TopK = effective.TopK
 		messages.StopSequences = effective.StopSequences
 		messages.Stream = effective.Stream
-		messages.Thinking = effective.Thinking.toThinkingConfig()
+		messages.Thinking = effective.Thinking.ToThinkingConfig()
 	} else {
 		messages.Stream = true
 	}

@@ -12,7 +12,7 @@ type QueuedMessage struct {
 	ctx  *SessionContext
 	id   uint64
 	msg  *chat.RevMessage
-	opts []Option // 本次消息附带的per-turn选项覆盖
+	opts []chat.Option // 本次消息附带的per-turn选项覆盖
 }
 
 // Msg 返回包装的原始用户消息。

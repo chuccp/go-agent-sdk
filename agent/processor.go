@@ -38,7 +38,7 @@ func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
 // handleMessage 接收一条用户消息：包装为 QueuedMessage 后交给消息过滤器链。
 // 链的最内层（coreMessageFilter）负责入队并按需启动主循环；
 // 实现了 MessageFilter 的工具（如 ask_user_question）可在链上拦截消费。
-func (p *messageProcessor) handleMessage(message *chat.RevMessage, opt ...Option) error {
+func (p *messageProcessor) handleMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	qm := &QueuedMessage{
 		id:   p.ctx.getSeq(),
 		ctx:  p.ctx,

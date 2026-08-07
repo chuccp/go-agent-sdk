@@ -35,7 +35,7 @@ func (s *chatSession) newClient(start uint) *ChatClient {
 }
 
 // SendMessage 接收一条用户消息，交给消息过滤器链处理。
-func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...Option) error {
+func (s *chatSession) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	return s.processor.handleMessage(message, opt...)
 }
 

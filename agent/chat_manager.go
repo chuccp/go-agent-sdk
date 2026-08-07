@@ -14,12 +14,12 @@ type ChatManager struct {
 	registry      *chat.ProviderRegistry
 	toolExecutors []ToolExecutor
 	system        string
-	opts          *Options
+	opts          *chat.Options
 	historyStore  chat.HistoryStore
 }
 
-func NewChatManager(opt ...Option) *ChatManager {
-	opts := defaultOptions()
+func NewChatManager(opt ...chat.Option) *ChatManager {
+	opts := chat.DefaultOptions()
 	for _, o := range opt {
 		o(opts)
 	}

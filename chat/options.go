@@ -1,6 +1,4 @@
-package agent
-
-import "github.com/chuccp/go-agent-sdk/chat"
+package chat
 
 // ThinkingLevel 控制模型扩展思考（extended thinking）的强度级别。
 type ThinkingLevel string
@@ -19,12 +17,12 @@ var thinkingBudget = map[ThinkingLevel]int{
 	ThinkingHigh:   32768,
 }
 
-// toThinkingConfig 将 ThinkingLevel 转换为协议层的 ThinkingConfig。
+// ToThinkingConfig 将 ThinkingLevel 转换为协议层的 ThinkingConfig。
 // 返回 nil 表示未配置（不发送 thinking 字段）。
-func (l ThinkingLevel) toThinkingConfig() *chat.ThinkingConfig {
+func (l ThinkingLevel) ToThinkingConfig() *ThinkingConfig {
 	if l == "" || l == ThinkingOff {
 		if l == ThinkingOff {
-			return &chat.ThinkingConfig{Type: "disabled"}
+			return &ThinkingConfig{Type: "disabled"}
 		}
 		return nil
 	}
@@ -32,10 +30,10 @@ func (l ThinkingLevel) toThinkingConfig() *chat.ThinkingConfig {
 	if !ok {
 		return nil
 	}
-	return &chat.ThinkingConfig{Type: "enabled", BudgetTokens: budget}
+	return &ThinkingConfig{Type: "enabled", BudgetTokens: budget}
 }
 
-// Options 保存 LLM 请求参数，应用于该 ChatManager 创建的所有会话。
+// Options 保存 LLM 请求参数，应用于 ChatManager 创建的所有会话。
 type Options struct {
 	Model         string
 	MaxTokens     int
@@ -48,8 +46,8 @@ type Options struct {
 	Thinking      ThinkingLevel // 扩展思考级别：off / low / medium / high
 }
 
-// defaultOptions 返回默认配置。
-func defaultOptions() *Options {
+// DefaultOptions 返回默认配置。
+func DefaultOptions() *Options {
 	return &Options{
 		Stream: true,
 	}
