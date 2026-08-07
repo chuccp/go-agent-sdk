@@ -95,17 +95,17 @@ func needsStartPrefix(cmd string) bool {
 	return guiApps[prog]
 }
 
-// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令并返回输出。
-func (t *CommandTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出写入 writer。
+func (t *CommandTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
 	args := turn.Args()
 	cmd, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(cmd) == "" {
-		return "", fmt.Errorf("缺少 command 参数")
+		return fmt.Errorf("缺少 command 参数")
 	}
 	cmd = strings.TrimSpace(cmd)
 
 	if err := validateCommand(cmd); err != nil {
-		return err.Error(), nil
+		return writer.WriteBlock(chat.NewTextBlock(err.Error()))
 	}
 
 	// Windows 下对 GUI 程序自动加 start "" 前缀，防止 CombinedOutput 阻塞
@@ -126,19 +126,20 @@ func (t *CommandTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, err
 	output, err := c.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("命令执行超时（30s）: %s", cmd)
+			return fmt.Errorf("命令执行超时（30s）: %s", cmd)
 		}
 		// 命令执行失败时也返回输出（如 stderr 信息）
 		if len(output) > 0 {
-			return fmt.Sprintf("命令退出码非零，输出:\n%s\n错误: %v", string(output), err), nil
+			return writer.WriteBlock(chat.NewTextBlock(
+				fmt.Sprintf("命令退出码非零，输出:\n%s\n错误: %v", string(output), err)))
 		}
-		return "", fmt.Errorf("命令执行失败: %w", err)
+		return fmt.Errorf("命令执行失败: %w", err)
 	}
 
 	if len(output) == 0 {
-		return "(无输出)", nil
+		return writer.WriteBlock(chat.NewTextBlock("(无输出)"))
 	}
-	return string(output), nil
+	return writer.WriteBlock(chat.NewTextBlock(string(output)))
 }
 
 func isWindows() bool {

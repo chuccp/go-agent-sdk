@@ -129,6 +129,7 @@ func UnmarshalBlock(data []byte) (Block, error) {
 // Blocks 是 []Block 的别名，支持 JSON 序列化/反序列化。
 type Blocks []Block
 
+func (bs Blocks) Len() int { return len(bs) }
 func (bs Blocks) MarshalJSON() ([]byte, error) {
 	if bs == nil {
 		return []byte("null"), nil

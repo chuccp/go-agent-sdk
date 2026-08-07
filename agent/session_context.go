@@ -117,10 +117,12 @@ func (c *SessionContext) GetChatClient(start uint) *ChatClient {
 
 // ── 会话主体能力（消息链终端与主循环调用）──
 
-// ChatWithStream 使用默认 provider 发起流式对话请求。
-func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request) (*chat.Response, error) {
+// ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 response。
+// response 创建时传入本上下文作为事件接收方（AddEvent），
+// 流式增量产生的客户端事件（chunk/thinking）由 Response 直接推送。
+func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, response *chat.Response) error {
 	provider := c.registry.DefaultProvider()
-	return c.registry.ChatWithStream(ctx, provider, messages)
+	return c.registry.ChatWithStream(ctx, provider, messages, response)
 }
 
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。

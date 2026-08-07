@@ -125,22 +125,22 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON），
-// 阻塞等待用户的下一条消息作为回答，组装后返回给 LLM。
-func (t *AskUserQuestionTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (string, error) {
+// 阻塞等待用户的下一条消息作为回答，组装后写入 writer 返回给 LLM。
+func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
 	ctx := turn.Context()
 	if ctx == nil {
-		return "", fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")
+		return fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")
 	}
 
 	questions, err := parseQuestions(turn.Args())
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
-		return "", fmt.Errorf("序列化问题失败: %w", err)
+		return fmt.Errorf("序列化问题失败: %w", err)
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), ctx.ID()))
 
@@ -148,7 +148,7 @@ func (t *AskUserQuestionTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (str
 	// 不进入 inbox（不触发新的 LLM 调用）
 	msg, err := ctx.WaitForUserMessage()
 	if err != nil {
-		return "", fmt.Errorf("等待用户回答被中断: %w", err)
+		return fmt.Errorf("等待用户回答被中断: %w", err)
 	}
 
 	// 3. 组装答案返回给 LLM
@@ -156,7 +156,11 @@ func (t *AskUserQuestionTool) Execute(_ agent.ToolsChain, turn *agent.Turn) (str
 	for _, q := range questions {
 		answers[q.Question] = msg.Text
 	}
-	return formatResponse(questions, answers, msg.Text)
+	answer, err := formatResponse(questions, answers, msg.Text)
+	if err != nil {
+		return err
+	}
+	return writer.WriteBlock(chat.NewTextBlock(answer))
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

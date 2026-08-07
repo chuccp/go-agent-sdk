@@ -37,19 +37,19 @@ func (r *ProviderRegistry) getProvider(provider string) ChatService {
 	return r.providerMap[provider]
 }
 
-func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request) (*Response, error) {
+func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, response *Response) error {
 	chatService := r.getProvider(provider)
 	if chatService == nil {
-		return nil, errors.New("no such provider: " + provider)
+		return errors.New("no such provider: " + provider)
 	}
-	response := NewResponse()
+
 	util.Go(func() {
-		err := chatService.ChatWithStream(ctx, chatMessages, response)
-		if err != nil {
+		defer response.Close()
+		if err := chatService.ChatWithStream(ctx, chatMessages, response); err != nil {
 			response.WriteError(err)
 		}
 	})
-	return response, nil
+	return nil
 }
 
 func (r *ProviderRegistry) Register(provider string, chatService ChatService, isDefault bool) {

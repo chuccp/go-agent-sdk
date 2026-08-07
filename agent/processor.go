@@ -3,12 +3,14 @@ package agent
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
 // messageProcessor 会话编排器：接收用户消息后交给消息过滤器链（message_chain），
-// 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行链（tools_chain）。
+// 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行（executeTools）。
 // 消息链主体位于 coreMessageFilter（链的最内层），会话状态集中于 SessionContext。
 type messageProcessor struct {
 	ctx            *SessionContext
@@ -125,12 +127,16 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
-	resp, callErr := ctx.ChatWithStream(ctx.runCtx, request)
+
+	response := chat.NewResponse(ctx.sessionId, ctx)
+
+	callErr := ctx.ChatWithStream(ctx.runCtx, request, response)
+
 	var blocks chat.Blocks
 	var stopReason chat.StopReason
 	var streamErr error
 	if callErr == nil {
-		blocks, stopReason, streamErr = ctx.streamResponse(resp)
+		blocks, stopReason, streamErr = ctx.streamResponse(response)
 	}
 
 	// ===== 重新持锁 =====
@@ -154,35 +160,93 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	return blocks, stopReason, nil
 }
 
-// executeTools 驱动工具链执行本轮 tool_use 命中的工具，返回 tool_result blocks。
-// 为未命中任何工具的 tool_use 补充错误结果（避免下一轮请求缺 tool_result 报错）。
+// executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks。
+// 每个工具在独立协程中执行（runTool），输出内容块写入各自的 Response（由其拼接组合）；
+// 本方法消费每个工具的输出并组装为 tool_result，未命中任何工具的 tool_use 补错误结果
+// （避免下一轮请求缺 tool_result 报错）。
+// 锁协议：进入时持有 runLock；工具执行期间由 runTool 自行释放/重取，返回时保持持锁。
 func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks) chat.Blocks {
-	turn := &Turn{ctx: ctx}
-	chain := newToolsChain(turn, blocks, p.toolExecutors...)
-	if err := chain.Next(); err != nil {
-		log.Printf("[chatSession] tools chain ended with error: %v", err)
-	}
-	results := chain.Results()
+	var results chat.Blocks
 	for _, block := range blocks {
 		tu, ok := block.(*chat.ToolUseBlock)
 		if !ok {
 			continue
 		}
-		matched := false
-		for _, r := range results {
-			if tr, ok := r.(*chat.ToolResultBlock); ok && tr.ToolUseID == tu.ID {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		exec := p.findExecutor(tu.Name)
+		if exec == nil {
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
 				chat.Blocks{chat.NewTextBlock(fmt.Sprintf("未知工具: %s", tu.Name))},
 			))
+			continue
 		}
+
+		response := chat.NewResponse(ctx.sessionId, ctx)
+		util.Go(func() {
+			p.runTool(ctx, tu, exec, response)
+			response.Close()
+		})
+
+		results = append(results, p.collectToolResult(ctx, tu, response))
 	}
 	return results
+}
+
+// runTool 执行单个工具：输出内容块流式写入 writer。
+// 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
+func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer chat.StreamWriter) {
+	args, _ := tu.Input.(map[string]any)
+	turn := &Turn{ctx: ctx, args: args}
+
+	ctx.runLock.Unlock()
+	execErr := exec.Execute(turn, writer)
+	ctx.runLock.Lock()
+
+	if execErr != nil {
+		// 错误通过 Response.Err() 传递给消费方组装进 tool_result
+		writer.WriteError(execErr)
+	}
+}
+
+// collectToolResult 消费单个工具的输出直到流结束：文本拼接为结果正文，
+// 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, response *chat.Response) *chat.ToolResultBlock {
+	var text strings.Builder
+	var content chat.Blocks
+	for b := response.ReadBlock(); b != nil; b = response.ReadBlock() {
+		if tb, ok := b.(*chat.TextBlock); ok {
+			text.WriteString(tb.Text)
+			continue
+		}
+		content = append(content, b)
+	}
+
+	resultText := text.String()
+	if err := response.Err(); err != nil {
+		if resultText != "" {
+			resultText += "\n"
+		}
+		resultText += fmt.Sprintf("错误: %v", err)
+	}
+	if resultText == "" {
+		resultText = "(无输出)"
+	}
+
+	args, _ := tu.Input.(map[string]any)
+	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), resultText, ctx.sessionId))
+
+	content = append(chat.Blocks{chat.NewTextBlock(resultText)}, content...)
+	return chat.NewToolResultBlock(tu.ID, content)
+}
+
+// findExecutor 按名称查找已注册的工具执行器。
+func (p *messageProcessor) findExecutor(name string) ToolExecutor {
+	for _, exec := range p.toolExecutors {
+		if exec.Name() == name {
+			return exec
+		}
+	}
+	return nil
 }
 
 // Stop 取消当前正在运行的会话主循环。
