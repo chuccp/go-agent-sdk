@@ -2,13 +2,13 @@ package node
 
 import (
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
 type ChatNode struct {
 	Node
 	model          string
 	Name           string
+	Id             string
 	description    string
 	systemTemplate string
 	userTemplate   string
@@ -18,7 +18,10 @@ type ChatNode struct {
 func (c *ChatNode) GetName() string {
 	return c.Name
 }
-func (c *ChatNode) Exec(context *exec.Context) error {
+func (c *ChatNode) GetId() string {
+	return c.Id
+}
+func (c *ChatNode) Exec(context WorkflowContext) error {
 	return nil
 }
 
@@ -26,10 +29,10 @@ type ChatNodeBuilder struct {
 	chatNode *ChatNode
 }
 
-func NewChatNodeBuilder(name string) *ChatNodeBuilder {
+func NewChatNodeBuilder(id string) *ChatNodeBuilder {
 	return &ChatNodeBuilder{
 		chatNode: &ChatNode{
-			Name:    name,
+			Id:      id,
 			options: make([]chat.Option, 0),
 		},
 	}
@@ -44,6 +47,10 @@ func (c *ChatNodeBuilder) SystemTemplate(systemTemplate string) *ChatNodeBuilder
 }
 func (c *ChatNodeBuilder) UserTemplate(userTemplate string) *ChatNodeBuilder {
 	c.chatNode.systemTemplate = userTemplate
+	return c
+}
+func (c *ChatNodeBuilder) Name(name string) *ChatNodeBuilder {
+	c.chatNode.Name = name
 	return c
 }
 func (c *ChatNodeBuilder) Model(model string) *ChatNodeBuilder {

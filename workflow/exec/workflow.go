@@ -1,4 +1,4 @@
-package workflow
+package exec
 
 import "github.com/chuccp/go-agent-sdk/workflow/node"
 
