@@ -25,15 +25,13 @@ type BlockStream struct {
 	stopReason chat.StopReason
 	err        error
 	closed     bool
-	sessionId  string
 }
 
 // NewBlockStream 创建一条 Block 流。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
-func NewBlockStream(sessionId string, receiver chat.EventReceiver) *BlockStream {
+func NewBlockStream(receiver chat.EventReceiver) *BlockStream {
 	return &BlockStream{
-		blocks:    util.NewQueue[chat.Block](),
-		receiver:  receiver,
-		sessionId: sessionId,
+		blocks:   util.NewQueue[chat.Block](),
+		receiver: receiver,
 	}
 }
 

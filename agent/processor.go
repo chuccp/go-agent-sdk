@@ -132,7 +132,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	stream := NewBlockStream(ctx.sessionId, ctx)
+	stream := NewBlockStream(ctx)
 
 	callErr := ctx.ChatWithStream(ctx.runCtx, request, stream)
 
@@ -185,7 +185,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		stream := NewBlockStream(ctx.sessionId, ctx)
+		stream := NewBlockStream(ctx)
 		util.Go(func() {
 			p.runTool(ctx, tu, exec, stream)
 			stream.Close()

@@ -144,7 +144,7 @@ type ClientEvent struct {
 	Message     string `json:"message,omitempty"`
 	Args        string `json:"args,omitempty"` // 工具入参的展示文本（tool_execution 事件携带）
 	MessageId   uint64 `json:"message_id,omitempty"`
-	SessionId   string `json:"session_id"`
+	//SessionId   string `json:"session_id"`
 }
 
 // Type 实现 Event 接口。
@@ -165,17 +165,17 @@ func NewErrorEvent(message string) *ClientEvent {
 
 // NewChunkEvent 创建一个流式文本片段事件
 func NewChunkEvent(content, sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content, SessionId: sessionId}
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content}
 }
 
 // NewThinkingEvent 创建一个 AI 思考链增量事件
 func NewThinkingEvent(content, sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content, SessionId: sessionId}
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content}
 }
 
 // NewDoneEvent 创建一个流结束事件
 func NewDoneEvent(sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeDone, Done: true, SessionId: sessionId}
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeDone, Done: true}
 }
 
 // NewMessageSentEvent 创建一个消息已被立即处理事件
@@ -184,8 +184,8 @@ func NewMessageSentEvent(messageID uint64, sessionId string, msg *RevMessage) *C
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageSent,
 		MessageId:   messageID,
-		SessionId:   sessionId,
-		Content:     msg.Text,
+		//SessionId:   sessionId,
+		Content: msg.Text,
 	}
 }
 
@@ -195,8 +195,8 @@ func NewMessageQueuedEvent(messageID uint64, sessionId string, msg *RevMessage) 
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageQueued,
 		MessageId:   messageID,
-		SessionId:   sessionId,
-		Content:     msg.Text,
+		//SessionId:   sessionId,
+		Content: msg.Text,
 	}
 }
 
@@ -206,17 +206,17 @@ func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageConsumed,
 		MessageId:   messageID,
-		SessionId:   sessionId,
-		Content:     msg.Text,
+		//SessionId:   sessionId,
+		Content: msg.Text,
 	}
 }
 
 // NewToolExecutionEvent 创建一个工具执行事件，携带工具名称、入参展示文本和执行输出。
 func NewToolExecutionEvent(toolName, args, output, sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, Args: args, SessionId: sessionId}
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, Args: args}
 }
 
 // NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
 func NewAskUserEvent(content, sessionId string) *ClientEvent {
-	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeAskUser, Content: content, SessionId: sessionId}
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeAskUser, Content: content}
 }
