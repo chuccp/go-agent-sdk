@@ -25,14 +25,14 @@ func newTestSessionContext(opts ...chat.Option) *SessionContext {
 		opt(o)
 	}
 	return &SessionContext{
-		sessionId:    "test-session",
-		inbox:        new(util.SliceQueue[*QueuedMessage]),
-		events:       chat.NewStore("test-session", nil),
-		registry:     chat.NewProviderRegistry(),
-		chatClients:  new(util.SliceArray[*ChatClient]),
-		opts:         o,
-		clientMutex:  new(sync.Mutex),
-		runLock:      sync.Mutex{},
+		sessionId:   "test-session",
+		inbox:       new(util.SliceQueue[*QueuedMessage]),
+		events:      NewStore("test-session", nil),
+		registry:    chat.NewProviderRegistry(),
+		chatClients: new(util.SliceArray[*ChatClient]),
+		opts:        o,
+		clientMutex: new(sync.Mutex),
+		runLock:     sync.Mutex{},
 	}
 }
 
@@ -221,7 +221,7 @@ func TestBuildRequest_ThinkingConfig(t *testing.T) {
 		level    chat.ThinkingLevel
 		expectOn bool
 	}{
-		{chat.ThinkingOff, false},   // disabled
+		{chat.ThinkingOff, false}, // disabled
 		{chat.ThinkingLow, true},
 		{chat.ThinkingHigh, true},
 		{"", false}, // unset → nil

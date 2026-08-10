@@ -9,7 +9,7 @@ import (
 type chatHandler interface {
 	SendMessage(message *chat.RevMessage, opt ...chat.Option) error
 	History() []*chat.Message
-	ReadEvent(position *chat.Position) *chat.ClientEvent
+	ReadEvent(position *Position) *chat.ClientEvent
 	DeleteClient(client *ChatClient)
 	Stop()
 }
@@ -18,7 +18,7 @@ type chatHandler interface {
 type ChatClient struct {
 	handler  chatHandler
 	queue    *util.Queue[bool]
-	position *chat.Position
+	position *Position
 }
 
 func (c *ChatClient) SendText(message string, opt ...chat.Option) error {

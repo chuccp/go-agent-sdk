@@ -1,7 +1,9 @@
-package chat
+package agent
 
 import (
 	"testing"
+
+	"github.com/chuccp/go-agent-sdk/chat"
 )
 
 // ── Store: Add / ReadFrom ──
@@ -10,9 +12,9 @@ func TestStore_AddAndReadFrom_SinglePosition(t *testing.T) {
 	s := NewStore("s1", nil)
 
 	// 添加事件
-	s.Add(NewChunkEvent("hello", "s1"))
-	s.Add(NewChunkEvent("world", "s1"))
-	s.Add(NewDoneEvent("s1"))
+	s.Add(chat.NewChunkEvent("hello", "s1"))
+	s.Add(chat.NewChunkEvent("world", "s1"))
+	s.Add(chat.NewDoneEvent("s1"))
 
 	pos := s.GetPosition(0)
 
@@ -34,7 +36,7 @@ func TestStore_AddAndReadFrom_SinglePosition(t *testing.T) {
 	}
 
 	evt = s.ReadFrom(pos)
-	if evt == nil || evt.EventType != EventTypeDone {
+	if evt == nil || evt.EventType != chat.EventTypeDone {
 		t.Fatalf("expected done, got %v", evt)
 	}
 	if evt.Seq != 2 {
@@ -50,9 +52,9 @@ func TestStore_AddAndReadFrom_SinglePosition(t *testing.T) {
 
 func TestStore_ReadFrom_StartOffset(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
-	s.Add(NewChunkEvent("c", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("c", "s1"))
 
 	// 从 seq=1 开始读，跳过 seq=0
 	pos := s.GetPosition(1)
@@ -64,7 +66,7 @@ func TestStore_ReadFrom_StartOffset(t *testing.T) {
 
 func TestStore_StartClamped(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1")) // seq=0
+	s.Add(chat.NewChunkEvent("a", "s1")) // seq=0
 
 	// start 超出当前 seq(1)，钳制到 seq=1，
 	// 表示"已读完当前所有事件"，ReadFrom 应返回 nil
@@ -74,7 +76,7 @@ func TestStore_StartClamped(t *testing.T) {
 		t.Fatalf("expected nil after clamp to seq=1 (nothing left to read), got %+v", evt)
 	}
 	// 新事件从 seq=1 开始分配，可以被读到
-	s.Add(NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
 	evt = s.ReadFrom(pos)
 	if evt == nil || evt.Content != "b" {
 		t.Fatalf("expected 'b' at seq=1, got %v", evt)
@@ -83,9 +85,9 @@ func TestStore_StartClamped(t *testing.T) {
 
 func TestStore_MultiplePositions(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
-	s.Add(NewChunkEvent("c", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("c", "s1"))
 
 	pos1 := s.GetPosition(0)
 	pos2 := s.GetPosition(0)
@@ -105,9 +107,9 @@ func TestStore_MultiplePositions(t *testing.T) {
 
 func TestStore_Reset_CleansReadEvents(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
-	s.Add(NewChunkEvent("c", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("c", "s1"))
 
 	pos := s.GetPosition(0)
 	s.ReadFrom(pos) // 读 a, pos→1
@@ -124,8 +126,8 @@ func TestStore_Reset_CleansReadEvents(t *testing.T) {
 
 func TestStore_Reset_NoPositions(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
 
 	s.Reset() // minPosition=0, firstSeq=0, 不清理
 
@@ -139,7 +141,7 @@ func TestStore_Reset_NoPositions(t *testing.T) {
 func TestStore_Reset_PreservesLastEvent(t *testing.T) {
 	s := NewStore("s1", nil)
 	for i := 0; i < 5; i++ {
-		s.Add(NewChunkEvent("x", "s1"))
+		s.Add(chat.NewChunkEvent("x", "s1"))
 	}
 
 	pos := s.GetPosition(0)
@@ -151,7 +153,7 @@ func TestStore_Reset_PreservesLastEvent(t *testing.T) {
 	s.Reset() // minPosition=5, 所有事件应被清理
 
 	// 新事件从 seq=5 开始分配
-	s.Add(NewChunkEvent("new", "s1"))
+	s.Add(chat.NewChunkEvent("new", "s1"))
 	evt := s.ReadFrom(pos)
 	if evt == nil || evt.Seq != 5 {
 		t.Errorf("expected seq=5 after full reset, got %v", evt)
@@ -162,12 +164,12 @@ func TestStore_Reset_PreservesLastEvent(t *testing.T) {
 
 func TestStore_AppendHistory_SetsStartAndOffset(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
-	s.Add(NewChunkEvent("c", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("c", "s1"))
 
 	// 三个 pending 事件，append 后 Start=seq-pending=3-3=0, Offset=3
-	msg := &Message{Role: RoleAssistant}
+	msg := &chat.Message{Role: chat.RoleAssistant}
 	s.AppendHistory(msg)
 
 	if msg.Start != 0 {
@@ -178,10 +180,10 @@ func TestStore_AppendHistory_SetsStartAndOffset(t *testing.T) {
 	}
 
 	// 再添加两个事件
-	s.Add(NewChunkEvent("d", "s1"))
-	s.Add(NewChunkEvent("e", "s1"))
+	s.Add(chat.NewChunkEvent("d", "s1"))
+	s.Add(chat.NewChunkEvent("e", "s1"))
 
-	msg2 := &Message{Role: RoleUser}
+	msg2 := &chat.Message{Role: chat.RoleUser}
 	s.AppendHistory(msg2)
 
 	// Start=seq-pending=5-2=3, Offset=2
@@ -196,7 +198,7 @@ func TestStore_AppendHistory_SetsStartAndOffset(t *testing.T) {
 func TestStore_AppendHistory_NoPendingEvents(t *testing.T) {
 	s := NewStore("s1", nil)
 	// 无事件直接 append
-	msg := &Message{Role: RoleAssistant}
+	msg := &chat.Message{Role: chat.RoleAssistant}
 	s.AppendHistory(msg)
 
 	if msg.Start != 0 || msg.Offset != 0 {
@@ -207,24 +209,24 @@ func TestStore_AppendHistory_NoPendingEvents(t *testing.T) {
 // ── Store: LoadHistory ──
 
 type fakeHistoryStore struct {
-	messages []Message
+	messages []chat.Message
 	err      error
 }
 
-func (f *fakeHistoryStore) LoadHistory(_ string) ([]Message, error) {
+func (f *fakeHistoryStore) LoadHistory(_ string) ([]chat.Message, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.messages, nil
 }
 
-func (f *fakeHistoryStore) AppendMessages(_ string, _ []Message) error { return nil }
+func (f *fakeHistoryStore) AppendMessages(_ string, _ []chat.Message) error { return nil }
 
 func TestStore_LoadHistory_RestoresSeq(t *testing.T) {
 	store := &fakeHistoryStore{
-		messages: []Message{
-			{Role: RoleUser, Start: 0, Offset: 3, Content: Blocks{NewTextBlock("hello")}},
-			{Role: RoleAssistant, Start: 3, Offset: 5, Content: Blocks{NewTextBlock("hi")}},
+		messages: []chat.Message{
+			{Role: chat.RoleUser, Start: 0, Offset: 3, Content: chat.Blocks{chat.NewTextBlock("hello")}},
+			{Role: chat.RoleAssistant, Start: 3, Offset: 5, Content: chat.Blocks{chat.NewTextBlock("hi")}},
 		},
 	}
 	s := NewStore("s1", store)
@@ -235,7 +237,7 @@ func TestStore_LoadHistory_RestoresSeq(t *testing.T) {
 
 	// head = 3+5 = 8, seq 恢复到 8
 	// 新事件的 seq 从 8 开始
-	s.Add(NewChunkEvent("new", "s1"))
+	s.Add(chat.NewChunkEvent("new", "s1"))
 	// 事件从 store 内部 seq 分配，验证 history 正确加载
 	if s.HistoryLen() != 2 {
 		t.Errorf("expected 2 history messages, got %d", s.HistoryLen())
@@ -244,8 +246,8 @@ func TestStore_LoadHistory_RestoresSeq(t *testing.T) {
 
 func TestStore_LoadHistory_Idempotent(t *testing.T) {
 	store := &fakeHistoryStore{
-		messages: []Message{
-			{Role: RoleUser, Start: 0, Offset: 1, Content: Blocks{NewTextBlock("hi")}},
+		messages: []chat.Message{
+			{Role: chat.RoleUser, Start: 0, Offset: 1, Content: chat.Blocks{chat.NewTextBlock("hi")}},
 		},
 	}
 	s := NewStore("s1", store)
@@ -276,11 +278,11 @@ func TestStore_NoHistoryStore(t *testing.T) {
 // ── Store: SaveHistory ──
 
 type recordingHistoryStore struct {
-	appended [][]Message // 记录每次 AppendMessages 的调用
+	appended [][]chat.Message // 记录每次 AppendMessages 的调用
 }
 
-func (r *recordingHistoryStore) LoadHistory(_ string) ([]Message, error) { return nil, nil }
-func (r *recordingHistoryStore) AppendMessages(_ string, msgs []Message) error {
+func (r *recordingHistoryStore) LoadHistory(_ string) ([]chat.Message, error) { return nil, nil }
+func (r *recordingHistoryStore) AppendMessages(_ string, msgs []chat.Message) error {
 	r.appended = append(r.appended, msgs)
 	return nil
 }
@@ -298,7 +300,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	}
 
 	// 添加一条消息
-	msg := Message{Role: RoleUser, Content: Blocks{NewTextBlock("hello")}}
+	msg := chat.Message{Role: chat.RoleUser, Content: chat.Blocks{chat.NewTextBlock("hello")}}
 	s.AppendHistory(&msg)
 
 	if err := s.SaveHistory(); err != nil {
@@ -310,7 +312,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	if len(rec.appended[0]) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(rec.appended[0]))
 	}
-	if rec.appended[0][0].Content[0].(*TextBlock).Text != "hello" {
+	if rec.appended[0][0].Content[0].(*chat.TextBlock).Text != "hello" {
 		t.Errorf("expected 'hello', got %v", rec.appended[0][0].Content[0])
 	}
 
@@ -327,7 +329,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 
 func TestStore_RemovePosition(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
 
 	pos1 := s.GetPosition(0)
 	pos2 := s.GetPosition(0)
@@ -343,8 +345,8 @@ func TestStore_RemovePosition(t *testing.T) {
 
 func TestStore_Reset_AfterRemovePosition(t *testing.T) {
 	s := NewStore("s1", nil)
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
 
 	pos1 := s.GetPosition(0)
 	pos2 := s.GetPosition(0)
@@ -370,8 +372,8 @@ func TestStore_SeqNeverResets(t *testing.T) {
 	s := NewStore("s1", nil)
 
 	// 第一组
-	s.Add(NewChunkEvent("a", "s1"))
-	s.Add(NewChunkEvent("b", "s1"))
+	s.Add(chat.NewChunkEvent("a", "s1"))
+	s.Add(chat.NewChunkEvent("b", "s1"))
 
 	pos := s.GetPosition(0)
 	s.ReadFrom(pos) // a
@@ -379,7 +381,7 @@ func TestStore_SeqNeverResets(t *testing.T) {
 	s.Reset()       // 清理所有
 
 	// 第二组：seq 继续递增
-	s.Add(NewChunkEvent("c", "s1"))
+	s.Add(chat.NewChunkEvent("c", "s1"))
 	evt := s.ReadFrom(pos)
 	if evt == nil || evt.Seq != 2 {
 		t.Errorf("expected seq=2 after reset, got seq=%d", evt.Seq)

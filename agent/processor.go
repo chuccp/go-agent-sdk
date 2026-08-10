@@ -132,7 +132,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	stream := chat.NewBlockStream(ctx.sessionId, ctx)
+	stream := NewBlockStream(ctx.sessionId, ctx)
 
 	callErr := ctx.ChatWithStream(ctx.runCtx, request, stream)
 
@@ -185,7 +185,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		stream := chat.NewBlockStream(ctx.sessionId, ctx)
+		stream := NewBlockStream(ctx.sessionId, ctx)
 		util.Go(func() {
 			p.runTool(ctx, tu, exec, stream)
 			stream.Close()
@@ -214,7 +214,7 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 
 // collectToolResult 消费单个工具的输出直到流结束：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
-func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *chat.BlockStream) *chat.ToolResultBlock {
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
 	var text strings.Builder
 	var content chat.Blocks
 	for b := stream.ReadBlock(); b != nil; b = stream.ReadBlock() {

@@ -1,8 +1,9 @@
-package chat
+package agent
 
 import (
 	"sync"
 
+	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -11,10 +12,10 @@ import (
 type HistoryStore interface {
 	// LoadHistory 加载指定会话的历史消息。
 	// 返回空切片表示新会话，无历史记录。
-	LoadHistory(sessionID string) ([]Message, error)
+	LoadHistory(sessionID string) ([]chat.Message, error)
 
 	// AppendMessages 追加本批次新产生的消息到持久化存储。
-	AppendMessages(sessionID string, messages []Message) error
+	AppendMessages(sessionID string, messages []chat.Message) error
 }
 
 type Position struct {
@@ -23,10 +24,10 @@ type Position struct {
 
 type Store struct {
 	sessionId    string
-	history      *util.SliceArray[*Message]
+	history      *util.SliceArray[*chat.Message]
 	historyStore HistoryStore
 	mu           sync.RWMutex
-	entries      *util.SliceArray[*ClientEvent]
+	entries      *util.SliceArray[*chat.ClientEvent]
 	seq          uint // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
 	savedLen     int  // 上次 SaveHistory 时的 history 长度
 	pending      int  // 自上次 AppendHistory 以来新增的事件数
@@ -35,15 +36,15 @@ type Store struct {
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
 	return &Store{
-		entries:      new(util.SliceArray[*ClientEvent]),
+		entries:      new(util.SliceArray[*chat.ClientEvent]),
 		historyStore: historyStore,
 		sessionId:    sessionId,
-		history:      new(util.SliceArray[*Message]),
+		history:      new(util.SliceArray[*chat.Message]),
 		positions:    new(util.SliceArray[*Position]),
 	}
 }
 
-func (l *Store) Add(event *ClientEvent) uint {
+func (l *Store) Add(event *chat.ClientEvent) uint {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	event.Seq = l.seq
@@ -55,7 +56,7 @@ func (l *Store) Add(event *ClientEvent) uint {
 
 // ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
 // 每个事件的 Offset 恒为 1，读后 position 前进 1。
-func (l *Store) ReadFrom(position *Position) *ClientEvent {
+func (l *Store) ReadFrom(position *Position) *chat.ClientEvent {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.entries.IsEmpty() {
@@ -170,17 +171,17 @@ func (l *Store) LoadHistory() error {
 }
 
 // History 返回当前全量历史消息快照。
-func (l *Store) History() []*Message {
+func (l *Store) History() []*chat.Message {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	result := make([]*Message, l.history.Len())
+	result := make([]*chat.Message, l.history.Len())
 	copy(result, l.history.Slice())
 	return result
 }
 
 // AppendHistory 将一条消息追加到内存历史。
 // 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
-func (l *Store) AppendHistory(msg *Message) {
+func (l *Store) AppendHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg.Offset = uint(l.pending)
@@ -211,7 +212,7 @@ func (l *Store) SaveHistory() error {
 		return nil
 	}
 	batch := all[l.savedLen:]
-	msgs := make([]Message, len(batch))
+	msgs := make([]chat.Message, len(batch))
 	for i, m := range batch {
 		msgs[i] = *m
 	}

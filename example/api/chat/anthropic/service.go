@@ -99,12 +99,12 @@ func (s *serviceImpl) applyDefaults(m *chat.Request) {
 
 // sseEvent 表示 Anthropic 流式响应中的一条原始 SSE 事件。
 type sseEvent struct {
-	Type         string             `json:"type"`
-	Index        int                `json:"index"`
-	Delta        *sseDelta          `json:"delta"`
+	Type         string          `json:"type"`
+	Index        int             `json:"index"`
+	Delta        *sseDelta       `json:"delta"`
 	ContentBlock json.RawMessage `json:"content_block"`
-	Message      *sseMessage        `json:"message"`
-	Usage        *chat.Usage        `json:"usage"`
+	Message      *sseMessage     `json:"message"`
+	Usage        *chat.Usage     `json:"usage"`
 }
 
 type sseDelta struct {

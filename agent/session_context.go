@@ -21,21 +21,21 @@ type processorHandler interface {
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
 	processorHandler
-	inbox          *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
-	running        bool                             // 主循环是否运行中（runLock 保护）
-	runCtx         context.Context                  // 主循环上下文（runLock 保护）
-	cancel         context.CancelFunc               // runCtx 的取消函数（runLock 保护）
-	runLock        sync.Mutex                       // 保护 inbox / running / runCtx / cancel
-	seq            uint64
-	sessionId      string
-	events         *chat.Store
-	registry       *chat.ProviderRegistry
-	chatClients    *util.SliceArray[*ChatClient]
-	toolExecutors  []ToolExecutor
-	system         string
-	opts         *chat.Options
-	historyStore chat.HistoryStore
-	clientMutex  *sync.Mutex // 保护 chatClients
+	inbox         *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
+	running       bool                             // 主循环是否运行中（runLock 保护）
+	runCtx        context.Context                  // 主循环上下文（runLock 保护）
+	cancel        context.CancelFunc               // runCtx 的取消函数（runLock 保护）
+	runLock       sync.Mutex                       // 保护 inbox / running / runCtx / cancel
+	seq           uint64
+	sessionId     string
+	events        *Store
+	registry      *chat.ProviderRegistry
+	chatClients   *util.SliceArray[*ChatClient]
+	toolExecutors []ToolExecutor
+	system        string
+	opts          *chat.Options
+	historyStore  HistoryStore
+	clientMutex   *sync.Mutex // 保护 chatClients
 }
 
 // newRunContext 创建主循环上下文。调用方必须持有 runLock。
@@ -82,7 +82,7 @@ func (c *SessionContext) History() []*chat.Message {
 	return c.events.History()
 }
 
-func (c *SessionContext) ReadEvent(position *chat.Position) *chat.ClientEvent {
+func (c *SessionContext) ReadEvent(position *Position) *chat.ClientEvent {
 	return c.events.ReadFrom(position)
 }
 
@@ -117,7 +117,7 @@ func (c *SessionContext) GetChatClient(start uint) *ChatClient {
 // ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 BlockStream。
 // stream 创建时传入本上下文作为事件接收方（AddEvent），
 // 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
-func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, stream *chat.BlockStream) error {
+func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, stream *BlockStream) error {
 	provider := c.registry.DefaultProvider()
 	return c.registry.ChatWithStream(ctx, provider, messages, stream)
 }

@@ -37,7 +37,7 @@ func (r *ProviderRegistry) getProvider(provider string) ChatService {
 	return r.providerMap[provider]
 }
 
-func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream *BlockStream) error {
+func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream StreamWriter) error {
 	chatService := r.getProvider(provider)
 	if chatService == nil {
 		return errors.New("no such provider: " + provider)
