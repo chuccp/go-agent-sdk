@@ -2,12 +2,16 @@ import { useState, useEffect, useCallback } from 'react'
 import { ChatRuntimeProvider } from './components/ChatRuntimeProvider'
 import { Thread } from './components/Thread'
 import { Sidebar } from './components/Sidebar'
+import { Settings } from './components/Settings'
 import type { ChatSession } from './api/chat'
 import { listSessions, createSession, deleteSession } from './api/chat'
+
+type View = 'chat' | 'settings'
 
 export default function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
+  const [view, setView] = useState<View>('chat')
 
   // Load sessions on mount
   const refresh = useCallback(async () => {
@@ -35,6 +39,7 @@ export default function App() {
       const session = await createSession()
       setSessions((prev) => [session, ...prev])
       setActiveId(session.id)
+      setView('chat')
     } catch (err) {
       console.error('Failed to create session:', err)
     }
@@ -42,6 +47,7 @@ export default function App() {
 
   const handleSelect = useCallback((session: ChatSession) => {
     setActiveId(session.id)
+    setView('chat')
   }, [])
 
   const handleDelete = useCallback(async (id: number) => {
@@ -56,6 +62,15 @@ export default function App() {
     }
   }, [activeId])
 
+  // 设置页为整页切换，隐藏聊天界面（含侧边栏）
+  if (view === 'settings') {
+    return (
+      <div className="app-layout">
+        <Settings onBack={() => setView('chat')} />
+      </div>
+    )
+  }
+
   return (
     <div className="app-layout">
       <Sidebar
@@ -64,6 +79,7 @@ export default function App() {
         onSelect={handleSelect}
         onNew={handleNew}
         onDelete={handleDelete}
+        onSettings={() => setView('settings')}
       />
       <main className="main-area">
         {activeId !== null ? (

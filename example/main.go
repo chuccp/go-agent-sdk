@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/chuccp/go-agent-sdk/example/flow"
 	"github.com/chuccp/go-agent-sdk/example/model"
 	"github.com/chuccp/go-agent-sdk/example/rest"
 	"github.com/chuccp/go-agent-sdk/example/server"
@@ -18,9 +19,8 @@ func main() {
 		return
 	}
 	builder := wf.NewBuilder(loadConfig)
-	builder.Service(&service.ChatSessionService{})
-	builder.Service(&server.Agent{})
-	builder.Rest(&rest.Chat{})
+	builder.Service(&service.ChatSessionService{}, &server.Agent{}, &flow.StoreFlow{})
+	builder.Rest(&rest.Chat{}, &rest.Flow{})
 	builder.Model(&model.ChatMessageModel{}, &model.ChatSessionModel{})
 	frame := builder.Build()
 	err = frame.Start()

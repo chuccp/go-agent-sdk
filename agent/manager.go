@@ -36,9 +36,15 @@ func NewManager(opt ...chat.Option) *Manager {
 	}
 }
 func (m *Manager) AddWorkflows(workflows ...*exec.Workflow) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	m.workflowManager.AddWorkflow(workflows...)
+}
+func (m *Manager) Workflows() []*exec.Workflow {
+	return m.workflowManager.Workflows()
+}
+
+// WorkflowManager 返回 workflow 注册表（供 flow 工具组共享）。
+func (m *Manager) WorkflowManager() *workflow.Manager {
+	return m.workflowManager
 }
 func (m *Manager) AddTools(exec ...ToolExecutor) {
 	m.lock.Lock()
@@ -112,6 +118,13 @@ func (m *Manager) GetClient(id string, start uint) (*Client, error) {
 		return nil, err
 	}
 	return session.newClient(start), nil
+}
+
+// SessionContext 返回指定会话的上下文（不存在则创建）。测试/集成用。
+func (m *Manager) SessionContext(id string) *SessionContext {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.getOrCreateSession(id).sessionContext
 }
 
 // RemoveChat 关闭并移除指定会话。若会话不存在则无操作。

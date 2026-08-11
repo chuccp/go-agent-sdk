@@ -19,7 +19,7 @@ export interface ChatMessage {
 
 const API_BASE = ''
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,

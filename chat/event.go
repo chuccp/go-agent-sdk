@@ -57,6 +57,7 @@ const (
 	EventTypeMessageSent     = "message_sent"     // 消息已被立即处理，发送者可直接显示在对话列表
 	EventTypeMessageQueued   = "message_queued"   // 消息进入等待队列，发送者应标记为待处理
 	EventTypeMessageConsumed = "message_consumed" // 队列中的消息已被消费，发送者应将其显示在对话框
+	EventTypeFlowProgress    = "flow_progress"    // flow 步骤进度，content 为 JSON（flowId/stepId/phase/output）
 )
 
 // ==================== LLM 协议层事件 ====================
@@ -219,4 +220,10 @@ func NewToolExecutionEvent(toolName, args, output, sessionId string) *ClientEven
 // NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
 func NewAskUserEvent(content, sessionId string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeAskUser, Content: content}
+}
+
+// NewFlowProgressEvent 创建一个 flow 步骤进度事件，content 为 JSON：
+// {"flowId", "stepId", "phase": "start"|"item"|"done"|"error", "output"}。
+func NewFlowProgressEvent(content, sessionId string) *ClientEvent {
+	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeFlowProgress, Content: content}
 }

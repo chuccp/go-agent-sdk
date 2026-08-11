@@ -21,6 +21,14 @@ type Turn struct {
 	args map[string]any // 当前执行的 tool_use 入参
 }
 
+// PromptProvider 工具引导提示词接口（可选实现）：
+// 实现该接口的工具，其 UsagePrompt 会被拼接进每轮请求的 System，
+// 用于引导 LLM 何时/如何使用该工具——引导词随工具走，
+// 宿主应用无需硬编码全局提示词。
+type PromptProvider interface {
+	UsagePrompt() string
+}
+
 // Context 返回本次执行所属的会话上下文。
 func (t *Turn) Context() *SessionContext { return t.ctx }
 
@@ -30,6 +38,11 @@ func (t *Turn) Args() map[string]any { return t.args }
 // NewTurn 构造一个独立的 Turn（不绑定会话上下文），用于工具单元测试等场景。
 func NewTurn(args map[string]any) *Turn {
 	return &Turn{args: args}
+}
+
+// NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
+func NewTurnWithContext(ctx *SessionContext, args map[string]any) *Turn {
+	return &Turn{ctx: ctx, args: args}
 }
 
 // AnswerConsumer 由执行期间会消费用户消息的工具实现（如 ask_user_question）。

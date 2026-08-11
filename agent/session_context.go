@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -117,6 +118,20 @@ func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Requ
 	return c.registry.ChatWithStream(ctx, provider, messages, stream)
 }
 
+// ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
+// 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
+func (c *SessionContext) ChatComplete(ctx context.Context, request *chat.Request) (string, error) {
+	stream := NewBlockStream(nil)
+	if err := c.ChatWithStream(ctx, request, stream); err != nil {
+		return "", err
+	}
+	text, _ := stream.Collect()
+	if err := stream.Err(); err != nil {
+		return "", err
+	}
+	return text, nil
+}
+
 // Done 返回主循环上下文的取消通道，供阻塞中的工具（如等待用户回答）响应会话停止。
 // 主循环未启动时返回 nil。
 func (c *SessionContext) Done() <-chan struct{} {
@@ -175,7 +190,7 @@ func (c *SessionContext) buildRequest() *chat.Request {
 	}
 
 	messages := &chat.Request{
-		System:   c.system,
+		System:   c.composeSystem(),
 		Messages: make([]chat.Message, 0, len(history)),
 	}
 	for _, m := range history {
@@ -210,6 +225,29 @@ func (c *SessionContext) buildRequest() *chat.Request {
 	}
 
 	return messages
+}
+
+// composeSystem 组装本轮请求的 System：基础系统提示词 + 各工具的引导提示词。
+// 实现了 PromptProvider 的工具，其 UsagePrompt 按需拼接——用了哪个工具，
+// 就带上哪个工具的引导词，宿主应用无需硬编码。
+// 调用方必须持有 runLock。
+func (c *SessionContext) composeSystem() string {
+	system := c.system
+	var prompts []string
+	for _, exec := range c.toolExecutors {
+		if pp, ok := exec.(PromptProvider); ok {
+			if p := pp.UsagePrompt(); p != "" {
+				prompts = append(prompts, p)
+			}
+		}
+	}
+	if len(prompts) > 0 {
+		if system != "" {
+			system += "\n\n"
+		}
+		system += strings.Join(prompts, "\n\n")
+	}
+	return system
 }
 
 // drainInbox 排干 inbox 中所有剩余消息，将它们写入历史（不丢失）。
