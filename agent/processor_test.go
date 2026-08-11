@@ -198,7 +198,7 @@ func TestSingleRoundText(t *testing.T) {
 
 func TestToolUseWithRegisteredTool(t *testing.T) {
 	manager := agent.NewManager()
-	manager.AddTool(&echoTool{})
+	manager.AddTools(&echoTool{})
 
 	// 第一次返回 tool_use，第二次返回 end_turn
 	manager.RegisterChat("fake", &orderedProvider{
@@ -222,7 +222,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 
 func TestToolUse_UnknownTool(t *testing.T) {
 	manager := agent.NewManager()
-	manager.AddTool(&echoTool{}) // 只注册 echo，不注册 other_tool
+	manager.AddTools(&echoTool{}) // 只注册 echo，不注册 other_tool
 
 	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
 	// → 第二轮 LLM → done

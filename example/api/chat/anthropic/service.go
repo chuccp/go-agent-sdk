@@ -19,9 +19,9 @@ const (
 	DefaultThinkingBudget = 10000
 )
 
-// Service 定义 Anthropic 聊天服务接口，嵌入通用的 chat.ChatService。
+// Service 定义 Anthropic 聊天服务接口，嵌入通用的 chat.Service。
 type Service interface {
-	chat.ChatService
+	chat.Service
 }
 
 // serviceImpl 是 Service 的具体实现，封装 HTTP 客户端与配置。

@@ -19,26 +19,25 @@ import (
 type Agent struct {
 	core.IRunner
 	ctx                *core.Context
-	chatManager        *agent.Manager
+	agentManager       *agent.Manager
 	lock               sync.RWMutex
 	chatSessionService *service.ChatSessionService
 }
 
 func (r *Agent) Init(ctx *core.Context) error {
 	r.ctx = ctx
-	r.chatManager = agent.NewManager()
+	r.agentManager = agent.NewManager()
 	providers, err := core.UnmarshalKeyConfig[[]*Provider](configKey, ctx)
 	if err != nil {
 		return err
 	}
 	r.chatSessionService = core.GetService[*service.ChatSessionService](ctx)
-	r.chatManager.AddTool(tools.NewCommandTool())
-	r.chatManager.AddTool(tools.NewAskUserQuestionTool())
-	r.chatManager.SetHistoryStore(r.chatSessionService)
+	r.agentManager.AddTools(tools.NewCommandTool(), tools.NewAskUserQuestionTool())
+	r.agentManager.SetHistoryStore(r.chatSessionService)
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model
 		if util.EqualsAnyIgnoreCase(provider.Type, anthropic.TYPE...) {
-			r.chatManager.RegisterChat(key, anthropic.NewService(&anthropic.Config{
+			r.agentManager.RegisterChat(key, anthropic.NewService(&anthropic.Config{
 				BaseURL: provider.BaseUrl,
 				APIKey:  provider.ApiKey,
 				Model:   provider.Model,
@@ -57,10 +56,10 @@ func (r *Agent) Run() error {
 	return nil
 }
 func (r *Agent) GetSession() *Session {
-	return newSession(r.chatManager)
+	return newSession(r.agentManager)
 }
 func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
-	messages, err := r.chatManager.History(cast.ToString(id))
+	messages, err := r.agentManager.History(cast.ToString(id))
 	if err != nil {
 		return nil, err
 	}

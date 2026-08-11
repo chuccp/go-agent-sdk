@@ -38,11 +38,6 @@ type SessionContext struct {
 	clientMutex   *sync.Mutex // 保护 chatClients
 }
 
-// newRunContext 创建主循环上下文。调用方必须持有 runLock。
-func newRunContext() (context.Context, context.CancelFunc) {
-	return context.WithCancel(context.Background())
-}
-
 // ID 返回会话 ID。
 func (c *SessionContext) ID() string { return c.sessionId }
 

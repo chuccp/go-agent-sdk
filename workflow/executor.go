@@ -16,9 +16,9 @@ func (e *Executor) Execute(rootValue *value.Object, config *exec.Config) error {
 	return executor.Exec()
 }
 
-func NewExecutor(id string, workflow *exec.Workflow) *Executor {
+func NewExecutor(executorId string, workflow *exec.Workflow) *Executor {
 	return &Executor{
-		Id:       id,
+		Id:       executorId,
 		workflow: workflow,
 	}
 }

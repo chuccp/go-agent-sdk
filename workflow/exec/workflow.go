@@ -4,26 +4,36 @@ import "github.com/chuccp/go-agent-sdk/workflow/node"
 
 type Workflow struct {
 	nodes []node.Node
+	Id    string
+	Name  string
 }
 
-func Of(nodes ...node.Node) *Workflow {
-	return &Workflow{nodes: nodes}
+func (w *Workflow) Exec(context *Context) error {
+	for _, node := range w.nodes {
+		err := node.Exec(context)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Builder struct {
-	nodes []node.Node
+	workflow *Workflow
 }
 
-func (b *Builder) AddNode(nodes ...node.Node) {
-	b.nodes = append(b.nodes, nodes...)
+func (b *Builder) Nodes(node ...node.Node) {
+	b.workflow.nodes = append(b.workflow.nodes, node...)
 }
 func (b *Builder) Build() *Workflow {
-	return &Workflow{
-		nodes: b.nodes,
-	}
+	return b.workflow
 }
-func NewBuilder() *Builder {
+func NewBuilder(Id string, Name string) *Builder {
 	return &Builder{
-		nodes: make([]node.Node, 0),
+		workflow: &Workflow{
+			Id:    Id,
+			Name:  Name,
+			nodes: make([]node.Node, 0),
+		},
 	}
 }

@@ -5,17 +5,20 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
+	"github.com/chuccp/go-agent-sdk/workflow"
+	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
 // Manager agent管理器
 type Manager struct {
-	chats         map[string]*session
-	lock          *sync.RWMutex
-	registry      *chat.ProviderRegistry
-	toolExecutors []ToolExecutor
-	system        string
-	opts          *chat.Options
-	historyStore  HistoryStore
+	sessions        map[string]*session
+	lock            *sync.RWMutex
+	registry        *chat.ProviderRegistry
+	toolExecutors   []ToolExecutor
+	system          string
+	opts            *chat.Options
+	historyStore    HistoryStore
+	workflowManager *workflow.Manager
 }
 
 func NewManager(opt ...chat.Option) *Manager {
@@ -24,18 +27,23 @@ func NewManager(opt ...chat.Option) *Manager {
 		o(opts)
 	}
 	return &Manager{
-		chats:         make(map[string]*session),
-		lock:          new(sync.RWMutex),
-		registry:      chat.NewProviderRegistry(),
-		toolExecutors: make([]ToolExecutor, 0),
-		opts:          opts,
+		sessions:        make(map[string]*session),
+		lock:            new(sync.RWMutex),
+		registry:        chat.NewProviderRegistry(),
+		toolExecutors:   make([]ToolExecutor, 0),
+		opts:            opts,
+		workflowManager: workflow.NewManager(),
 	}
 }
-
-func (m *Manager) AddTool(exec ToolExecutor) {
+func (m *Manager) AddWorkflows(workflows ...*exec.Workflow) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.toolExecutors = append(m.toolExecutors, exec)
+	m.workflowManager.AddWorkflow(workflows...)
+}
+func (m *Manager) AddTools(exec ...ToolExecutor) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.toolExecutors = append(m.toolExecutors, exec...)
 }
 
 // SetSystem 设置全局系统提示词，对之后新建的会话生效。
@@ -53,7 +61,7 @@ func (m *Manager) SetHistoryStore(store HistoryStore) {
 	m.historyStore = store
 }
 
-func (m *Manager) RegisterChat(provider string, chatService chat.ChatService, isDefault bool) {
+func (m *Manager) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.registry.Register(provider, chatService, isDefault)
@@ -61,7 +69,7 @@ func (m *Manager) RegisterChat(provider string, chatService chat.ChatService, is
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
 func (m *Manager) getOrCreateSession(id string) *session {
-	if c, ok := m.chats[id]; ok {
+	if c, ok := m.sessions[id]; ok {
 		return c
 	}
 	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
@@ -82,7 +90,7 @@ func (m *Manager) getOrCreateSession(id string) *session {
 		clientMutex:   new(sync.Mutex),
 	}
 	session := newSession(sessionContext)
-	m.chats[id] = session
+	m.sessions[id] = session
 	return session
 }
 
@@ -110,8 +118,8 @@ func (m *Manager) GetClient(id string, start uint) (*Client, error) {
 func (m *Manager) RemoveChat(id string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	if session, ok := m.chats[id]; ok {
+	if session, ok := m.sessions[id]; ok {
 		session.Stop()
-		delete(m.chats, id)
+		delete(m.sessions, id)
 	}
 }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"log"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -78,7 +79,7 @@ func (core *coreMessageFilter) HandleRevMessage(chain MessageFilterChain, msg *Q
 		return err
 	}
 	if !ctx.running {
-		ctx.runCtx, ctx.cancel = newRunContext()
+		ctx.runCtx, ctx.cancel = context.WithCancel(context.Background())
 		ctx.running = true
 		ctx.AddEvent(chat.NewMessageSentEvent(msg.id, ctx.sessionId, msg.msg))
 		util.GoWithRecover(func() {
