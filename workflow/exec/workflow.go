@@ -22,8 +22,9 @@ type Builder struct {
 	workflow *Workflow
 }
 
-func (b *Builder) Nodes(node ...node.Node) {
+func (b *Builder) Nodes(node ...node.Node) *Builder {
 	b.workflow.nodes = append(b.workflow.nodes, node...)
+	return b
 }
 func (b *Builder) Build() *Workflow {
 	return b.workflow
