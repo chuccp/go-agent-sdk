@@ -5,31 +5,31 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// chatHandler 会话处理接口，由 chatSession 实现
-type chatHandler interface {
+// handler 会话处理接口，由 session 实现
+type handler interface {
 	SendMessage(message *chat.RevMessage, opt ...chat.Option) error
 	History() []*chat.Message
 	ReadEvent(position *Position) *chat.ClientEvent
-	DeleteClient(client *ChatClient)
+	DeleteClient(client *Client)
 	Stop()
 }
 
-// ChatClient 面向调用方的客户端句柄
-type ChatClient struct {
-	handler  chatHandler
+// Client 面向调用方的客户端句柄
+type Client struct {
+	handler  handler
 	queue    *util.Queue[bool]
 	position *Position
 }
 
-func (c *ChatClient) SendText(message string, opt ...chat.Option) error {
+func (c *Client) SendText(message string, opt ...chat.Option) error {
 	return c.handler.SendMessage(&chat.RevMessage{Text: message}, opt...)
 }
 
-func (c *ChatClient) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
+func (c *Client) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	return c.handler.SendMessage(message, opt...)
 }
 
-func (c *ChatClient) ReadEvent() *chat.ClientEvent {
+func (c *Client) ReadEvent() *chat.ClientEvent {
 	for {
 		_, hasValue := c.queue.Dequeue()
 		if !hasValue {
@@ -41,10 +41,10 @@ func (c *ChatClient) ReadEvent() *chat.ClientEvent {
 	}
 }
 
-func (c *ChatClient) Stop() {
+func (c *Client) Stop() {
 	c.handler.Stop()
 }
 
-func (c *ChatClient) Close() {
+func (c *Client) Close() {
 	c.handler.DeleteClient(c)
 }

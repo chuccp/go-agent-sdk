@@ -116,7 +116,7 @@ func (t *echoTool) Execute(turn *agent.Turn, w chat.StreamWriter) error {
 // ── Helpers ──
 
 // readUntilDone 读完所有事件，返回遇到的 done 事件（超时则 fail）。
-func readUntilDone(t *testing.T, client *agent.ChatClient, timeout time.Duration) *chat.ClientEvent {
+func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *chat.ClientEvent {
 	t.Helper()
 	deadline := time.After(timeout)
 	done := make(chan *chat.ClientEvent, 1)
@@ -142,7 +142,7 @@ func readUntilDone(t *testing.T, client *agent.ChatClient, timeout time.Duration
 }
 
 // collectEvents 收集所有事件直到队列为空。
-func collectEvents(t *testing.T, client *agent.ChatClient) []*chat.ClientEvent {
+func collectEvents(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 	t.Helper()
 	var events []*chat.ClientEvent
 	deadline := time.After(3 * time.Second)
@@ -179,13 +179,13 @@ func assertEventType(t *testing.T, events []*chat.ClientEvent, wantType string) 
 // ── Tests ──
 
 func TestSingleRoundText(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "Hello, world!",
 	}, true)
 
-	client, err := manager.GetChat("s1", 0)
+	client, err := manager.GetClient("s1", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestSingleRoundText(t *testing.T) {
 }
 
 func TestToolUseWithRegisteredTool(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.AddTool(&echoTool{})
 
 	// 第一次返回 tool_use，第二次返回 end_turn
@@ -208,7 +208,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 		},
 	}, true)
 
-	client, err := manager.GetChat("s2", 0)
+	client, err := manager.GetClient("s2", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 }
 
 func TestToolUse_UnknownTool(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.AddTool(&echoTool{}) // 只注册 echo，不注册 other_tool
 
 	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
@@ -233,7 +233,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 		},
 	}, true)
 
-	client, err := manager.GetChat("s3", 0)
+	client, err := manager.GetClient("s3", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,13 +245,13 @@ func TestToolUse_UnknownTool(t *testing.T) {
 }
 
 func TestMultipleRounds(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response",
 	}, true)
 
-	client, err := manager.GetChat("s4", 0)
+	client, err := manager.GetClient("s4", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,13 +269,13 @@ func TestMultipleRounds(t *testing.T) {
 }
 
 func TestStopGeneration(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response after stop",
 	}, true)
 
-	client, err := manager.GetChat("s5", 0)
+	client, err := manager.GetClient("s5", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,17 +294,17 @@ func TestStopGeneration(t *testing.T) {
 }
 
 func TestTwoClientsSameSession(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "shared response",
 	}, true)
 
-	client1, err := manager.GetChat("s6", 0)
+	client1, err := manager.GetClient("s6", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client2, err := manager.GetChat("s6", 0)
+	client2, err := manager.GetClient("s6", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,13 +328,13 @@ func TestTwoClientsSameSession(t *testing.T) {
 }
 
 func TestMaxTokensStopReason(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonMaxTokens,
 		text:       "partial response...",
 	}, true)
 
-	client, err := manager.GetChat("s7", 0)
+	client, err := manager.GetClient("s7", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

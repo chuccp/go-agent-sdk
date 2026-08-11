@@ -82,7 +82,7 @@ func TestWithoutThinking_PreservesOrder(t *testing.T) {
 // ── BlockStream: WriteBlock 文本拼接 ──
 
 func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("hello "))
 	stream.WriteBlock(chat.NewTextBlock("world"))
 	stream.Close()
@@ -98,7 +98,7 @@ func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
 }
 
 func TestBlockStream_WriteBlock_NonTextBreaksCoalescing(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("hello "))
 	stream.WriteBlock(chat.NewThinkingBlock("think"))
 	stream.WriteBlock(chat.NewTextBlock("world"))
@@ -123,7 +123,7 @@ func TestBlockStream_WriteBlock_NonTextBreaksCoalescing(t *testing.T) {
 }
 
 func TestBlockStream_Close_Idempotent(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("x"))
 	stream.Close()
 	stream.Close() // 幂等
@@ -136,7 +136,7 @@ func TestBlockStream_Close_Idempotent(t *testing.T) {
 }
 
 func TestBlockStream_Close_FlushesPending(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("pending text"))
 	// 未显式写非 text block 前，文本在 pending 缓冲里
 	stream.Close() // Close 应 flush
@@ -150,7 +150,7 @@ func TestBlockStream_Close_FlushesPending(t *testing.T) {
 // ── BlockStream: Write (protocol events) ──
 
 func TestBlockStream_Write_TextStream(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.Write(&chat.MessageStartEvent{ID: "m1", Model: "test", Role: "assistant"})
 	stream.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: "Hello "}})
@@ -170,7 +170,7 @@ func TestBlockStream_Write_TextStream(t *testing.T) {
 }
 
 func TestBlockStream_Write_ThinkingStream(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.Write(&chat.MessageStartEvent{ID: "m1", Model: "test", Role: "assistant"})
 	stream.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewThinkingBlock("")})
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeThinking, Thinking: "let me think..."}})
@@ -189,7 +189,7 @@ func TestBlockStream_Write_ThinkingStream(t *testing.T) {
 }
 
 func TestBlockStream_Write_ToolUseStream(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.Write(&chat.MessageStartEvent{ID: "m1", Model: "test", Role: "assistant"})
 	stream.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewToolUseBlock("tu_1", "my_tool", nil)})
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeInputJSON, PartialJSON: `{"cmd":"ls"}`}})
@@ -211,7 +211,7 @@ func TestBlockStream_Write_ToolUseStream(t *testing.T) {
 }
 
 func TestBlockStream_Write_StopReason(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.Write(&chat.MessageStartEvent{ID: "m1", Model: "test", Role: "assistant"})
 	stream.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: "ok"}})
@@ -228,7 +228,7 @@ func TestBlockStream_Write_StopReason(t *testing.T) {
 // ── BlockStream: WriteError ──
 
 func TestBlockStream_WriteError(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("before error"))
 	stream.WriteError(errors.New("test error"))
 	// WriteError 调用 Close，之后不再写入
@@ -245,7 +245,7 @@ func TestBlockStream_WriteError(t *testing.T) {
 // ── BlockStream: ReadBlock on empty ──
 
 func TestBlockStream_ReadBlock_Empty(t *testing.T) {
-	stream := NewBlockStream("s1", nil)
+	stream := NewBlockStream(nil)
 	stream.Close()
 	if b := stream.ReadBlock(); b != nil {
 		t.Errorf("expected nil on empty closed stream, got %v", b)
@@ -264,7 +264,7 @@ func (r *testReceiver) AddEvent(evt *chat.ClientEvent) {
 
 func TestBlockStream_EmitsChunkEvents(t *testing.T) {
 	recv := &testReceiver{}
-	stream := NewBlockStream("s1", recv)
+	stream := NewBlockStream(recv)
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: "hello"}})
 	stream.Close()
 
@@ -275,14 +275,11 @@ func TestBlockStream_EmitsChunkEvents(t *testing.T) {
 	if chunk.EventType != chat.EventTypeChunk || chunk.Content != "hello" {
 		t.Errorf("expected chunk 'hello', got type=%s content=%q", chunk.EventType, chunk.Content)
 	}
-	if chunk.SessionId != "s1" {
-		t.Errorf("expected sessionId 's1', got %q", chunk.SessionId)
-	}
 }
 
 func TestBlockStream_EmitsThinkingEvents(t *testing.T) {
 	recv := &testReceiver{}
-	stream := NewBlockStream("s1", recv)
+	stream := NewBlockStream(recv)
 	stream.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeThinking, Thinking: "hmm"}})
 	stream.Close()
 

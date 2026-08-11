@@ -132,7 +132,6 @@ func (r *BlockStream) flushPending() error {
 // emit 通过 receiver 向外推送客户端事件（SessionId 由 BlockStream 补齐）。
 func (r *BlockStream) emit(evt *chat.ClientEvent) {
 	if r.receiver != nil {
-		evt.SessionId = r.sessionId
 		r.receiver.AddEvent(evt)
 	}
 }

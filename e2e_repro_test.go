@@ -51,7 +51,7 @@ func (t *fakeTool) Execute(_ *agent.Turn, writer chat.StreamWriter) error {
 }
 
 // waitForDone 读到 done 返回 true；超时 dump 全部协程栈后 fail。
-func waitForDone(t *testing.T, client *agent.ChatClient, label string) {
+func waitForDone(t *testing.T, client *agent.Client, label string) {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	type result struct {
@@ -96,11 +96,11 @@ func filterStack(s string) string {
 
 // TestTwoRoundsWithTool 复现：第一轮工具调用 + 第二轮普通对话。
 func TestTwoRoundsWithTool(t *testing.T) {
-	manager := agent.NewChatManager()
+	manager := agent.NewManager()
 	manager.AddTool(&fakeTool{})
 	manager.RegisterChat("fake", &fakeProvider{}, true)
 
-	client, err := manager.GetChat("session-1", 0)
+	client, err := manager.GetClient("session-1", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ type capturingWriter struct {
 	text strings.Builder
 }
 
-func (w *capturingWriter) Write(_ chat.Event) error        { return nil }
+func (w *capturingWriter) Write(_ chat.Event) error { return nil }
 func (w *capturingWriter) WriteBlock(block chat.Block) error {
 	if tb, ok := block.(*chat.TextBlock); ok {
 		w.text.WriteString(tb.Text)

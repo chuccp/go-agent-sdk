@@ -22,7 +22,7 @@ const maxActiveConns = 100
 // connState tracks per-WebSocket-connection state: the active chat client
 // and a cancel function to stop the event relay goroutine.
 type connState struct {
-	client *agent.ChatClient
+	client *agent.Client
 	cancel context.CancelFunc
 }
 
@@ -128,7 +128,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			lastSeq = event.Seq
 			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", event.EventType))
 			if event.EventType == "done" {
-				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq), zap.String("session", event.SessionId))
+				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq))
 			}
 			data, err := json.Marshal(event)
 			if err != nil {

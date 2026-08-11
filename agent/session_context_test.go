@@ -29,7 +29,7 @@ func newTestSessionContext(opts ...chat.Option) *SessionContext {
 		inbox:       new(util.SliceQueue[*QueuedMessage]),
 		events:      NewStore("test-session", nil),
 		registry:    chat.NewProviderRegistry(),
-		chatClients: new(util.SliceArray[*ChatClient]),
+		chatClients: new(util.SliceArray[*Client]),
 		opts:        o,
 		clientMutex: new(sync.Mutex),
 		runLock:     sync.Mutex{},

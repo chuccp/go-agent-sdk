@@ -30,7 +30,7 @@ type SessionContext struct {
 	sessionId     string
 	events        *Store
 	registry      *chat.ProviderRegistry
-	chatClients   *util.SliceArray[*ChatClient]
+	chatClients   *util.SliceArray[*Client]
 	toolExecutors []ToolExecutor
 	system        string
 	opts          *chat.Options
@@ -86,7 +86,7 @@ func (c *SessionContext) ReadEvent(position *Position) *chat.ClientEvent {
 	return c.events.ReadFrom(position)
 }
 
-func (c *SessionContext) DeleteClient(client *ChatClient) {
+func (c *SessionContext) DeleteClient(client *Client) {
 	c.clientMutex.Lock()
 	c.chatClients.Remove(client)
 	client.queue.Close()
@@ -99,9 +99,9 @@ func (c *SessionContext) Stop() {
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
-func (c *SessionContext) GetChatClient(start uint) *ChatClient {
+func (c *SessionContext) GetChatClient(start uint) *Client {
 	position := c.events.GetPosition(start)
-	chatClient := &ChatClient{
+	chatClient := &Client{
 		queue:    util.NewQueue[bool](),
 		handler:  c,
 		position: position,

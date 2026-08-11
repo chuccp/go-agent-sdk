@@ -19,14 +19,14 @@ import (
 type Agent struct {
 	core.IRunner
 	ctx                *core.Context
-	chatManager        *agent.ChatManager
+	chatManager        *agent.Manager
 	lock               sync.RWMutex
 	chatSessionService *service.ChatSessionService
 }
 
 func (r *Agent) Init(ctx *core.Context) error {
 	r.ctx = ctx
-	r.chatManager = agent.NewChatManager()
+	r.chatManager = agent.NewManager()
 	providers, err := core.UnmarshalKeyConfig[[]*Provider](configKey, ctx)
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
 	return result, nil
 }
 
-func (r *Agent) HandleChat(chat *agent.ChatClient, message *entity.WsChatMessage) error {
+func (r *Agent) HandleChat(chat *agent.Client, message *entity.WsChatMessage) error {
 	if err := chat.SendText(message.Message); err != nil {
 		log.Warn("HandleChat: send failed", zap.Error(err))
 		return err
@@ -85,7 +85,7 @@ func (r *Agent) HandleChat(chat *agent.ChatClient, message *entity.WsChatMessage
 	return nil
 }
 
-func (r *Agent) HandleStop(chat *agent.ChatClient, message *entity.WsStopMessage) error {
+func (r *Agent) HandleStop(chat *agent.Client, message *entity.WsStopMessage) error {
 	chat.Stop()
 	return nil
 }

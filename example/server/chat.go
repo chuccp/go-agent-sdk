@@ -11,8 +11,8 @@ import (
 )
 
 type Session struct {
-	chatManager *agent.ChatManager
-	chatClient  *agent.ChatClient
+	chatManager *agent.Manager
+	chatClient  *agent.Client
 	lock        sync.Mutex
 	hasClient   chan bool
 }
@@ -53,7 +53,7 @@ func (s *Session) getChatClient(id string, start uint) error {
 		s.lock.Unlock()
 		return nil
 	}
-	chatClient, err := s.chatManager.GetChat(id, start)
+	chatClient, err := s.chatManager.GetClient(id, start)
 	if err != nil {
 		s.lock.Unlock()
 		return err
@@ -87,6 +87,6 @@ func (s *Session) Release() {
 	}
 }
 
-func newSession(chatManager *agent.ChatManager) *Session {
+func newSession(chatManager *agent.Manager) *Session {
 	return &Session{chatManager: chatManager, hasClient: make(chan bool, 1)}
 }
