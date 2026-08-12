@@ -11,7 +11,7 @@ import (
 )
 
 type Session struct {
-	chatManager *agent.Manager
+	chatManager *agent.Agent
 	chatClient  *agent.Client
 	lock        sync.Mutex
 	hasClient   chan bool
@@ -87,6 +87,6 @@ func (s *Session) Release() {
 	}
 }
 
-func newSession(chatManager *agent.Manager) *Session {
+func newSession(chatManager *agent.Agent) *Session {
 	return &Session{chatManager: chatManager, hasClient: make(chan bool, 1)}
 }

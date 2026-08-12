@@ -9,8 +9,8 @@ import (
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
-// Manager agent管理器
-type Manager struct {
+// Agent agent管理器
+type Agent struct {
 	sessions        map[string]*session
 	lock            *sync.RWMutex
 	registry        *chat.ProviderRegistry
@@ -21,12 +21,12 @@ type Manager struct {
 	workflowManager *workflow.Manager
 }
 
-func NewManager(opt ...chat.Option) *Manager {
+func NewAgent(opt ...chat.Option) *Agent {
 	opts := chat.DefaultOptions()
 	for _, o := range opt {
 		o(opts)
 	}
-	return &Manager{
+	return &Agent{
 		sessions:        make(map[string]*session),
 		lock:            new(sync.RWMutex),
 		registry:        chat.NewProviderRegistry(),
@@ -35,25 +35,25 @@ func NewManager(opt ...chat.Option) *Manager {
 		workflowManager: workflow.NewManager(),
 	}
 }
-func (m *Manager) AddWorkflows(workflows ...*exec.Workflow) {
+func (m *Agent) AddWorkflows(workflows ...*exec.Workflow) {
 	m.workflowManager.AddWorkflow(workflows...)
 }
-func (m *Manager) Workflows() []*exec.Workflow {
+func (m *Agent) Workflows() []*exec.Workflow {
 	return m.workflowManager.Workflows()
 }
 
 // WorkflowManager 返回 workflow 注册表（供 flow 工具组共享）。
-func (m *Manager) WorkflowManager() *workflow.Manager {
+func (m *Agent) WorkflowManager() *workflow.Manager {
 	return m.workflowManager
 }
-func (m *Manager) AddTools(exec ...ToolExecutor) {
+func (m *Agent) AddTools(exec ...ToolExecutor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.toolExecutors = append(m.toolExecutors, exec...)
 }
 
 // SetSystem 设置全局系统提示词，对之后新建的会话生效。
-func (m *Manager) SetSystem(system string) {
+func (m *Agent) SetSystem(system string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.system = system
@@ -61,20 +61,20 @@ func (m *Manager) SetSystem(system string) {
 
 // SetHistoryStore 设置聊天记录持久化实现。
 // 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *Manager) SetHistoryStore(store HistoryStore) {
+func (m *Agent) SetHistoryStore(store HistoryStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.historyStore = store
 }
 
-func (m *Manager) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
+func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.registry.Register(provider, chatService, isDefault)
 }
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
-func (m *Manager) getOrCreateSession(id string) *session {
+func (m *Agent) getOrCreateSession(id string) *session {
 	if c, ok := m.sessions[id]; ok {
 		return c
 	}
@@ -100,7 +100,7 @@ func (m *Manager) getOrCreateSession(id string) *session {
 	return session
 }
 
-func (m *Manager) History(id string) ([]*chat.Message, error) {
+func (m *Agent) History(id string) ([]*chat.Message, error) {
 	m.lock.Lock()
 	session := m.getOrCreateSession(id)
 	m.lock.Unlock()
@@ -110,7 +110,7 @@ func (m *Manager) History(id string) ([]*chat.Message, error) {
 	return session.History(), nil
 }
 
-func (m *Manager) GetClient(id string, start uint) (*Client, error) {
+func (m *Agent) GetClient(id string, start uint) (*Client, error) {
 	m.lock.Lock()
 	session := m.getOrCreateSession(id)
 	m.lock.Unlock()
@@ -121,14 +121,14 @@ func (m *Manager) GetClient(id string, start uint) (*Client, error) {
 }
 
 // SessionContext 返回指定会话的上下文（不存在则创建）。测试/集成用。
-func (m *Manager) SessionContext(id string) *SessionContext {
+func (m *Agent) SessionContext(id string) *SessionContext {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	return m.getOrCreateSession(id).sessionContext
 }
 
 // RemoveChat 关闭并移除指定会话。若会话不存在则无操作。
-func (m *Manager) RemoveChat(id string) {
+func (m *Agent) RemoveChat(id string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if session, ok := m.sessions[id]; ok {

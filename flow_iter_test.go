@@ -130,7 +130,7 @@ func mustJSON(v any) string {
 // TestFlowIteration 迭代链路端到端：split 产出 JSON 数组 → expand 逐项执行
 // （{{item}} 渲染 + {{prev}} 滑动窗口 + item 进度事件）→ merge 消费聚合数组。
 func TestFlowIteration(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	llm := &iterFakeProvider{}
 	manager.RegisterChat("fake", llm, true)
 	manager.AddWorkflows(newExpandFlow())

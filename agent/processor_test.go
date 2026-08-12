@@ -179,7 +179,7 @@ func assertEventType(t *testing.T, events []*chat.ClientEvent, wantType string) 
 // ── Tests ──
 
 func TestSingleRoundText(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "Hello, world!",
@@ -197,7 +197,7 @@ func TestSingleRoundText(t *testing.T) {
 }
 
 func TestToolUseWithRegisteredTool(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.AddTools(&echoTool{})
 
 	// 第一次返回 tool_use，第二次返回 end_turn
@@ -221,7 +221,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 }
 
 func TestToolUse_UnknownTool(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.AddTools(&echoTool{}) // 只注册 echo，不注册 other_tool
 
 	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
@@ -245,7 +245,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 }
 
 func TestMultipleRounds(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response",
@@ -269,7 +269,7 @@ func TestMultipleRounds(t *testing.T) {
 }
 
 func TestStopGeneration(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response after stop",
@@ -294,7 +294,7 @@ func TestStopGeneration(t *testing.T) {
 }
 
 func TestTwoClientsSameSession(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "shared response",
@@ -328,7 +328,7 @@ func TestTwoClientsSameSession(t *testing.T) {
 }
 
 func TestMaxTokensStopReason(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{
 		stopReason: chat.StopReasonMaxTokens,
 		text:       "partial response...",

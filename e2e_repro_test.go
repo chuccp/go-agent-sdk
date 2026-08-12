@@ -96,7 +96,7 @@ func filterStack(s string) string {
 
 // TestTwoRoundsWithTool 复现：第一轮工具调用 + 第二轮普通对话。
 func TestTwoRoundsWithTool(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	manager.AddTools(&fakeTool{})
 	manager.RegisterChat("fake", &fakeProvider{}, true)
 

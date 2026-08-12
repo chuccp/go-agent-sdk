@@ -179,7 +179,7 @@ func hasEvent(events []*chat.ClientEvent, eventType string) bool {
 // ==================== 端到端：主 LLM 按剧本完整走完 story003 ====================
 
 func TestFlowEndToEnd(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	mainLLM := &flowFakeProvider{}
 	manager.RegisterChat("fake", mainLLM, true)
 	manager.AddWorkflows(newStoryFlow())
@@ -247,7 +247,7 @@ func TestFlowEndToEnd(t *testing.T) {
 // ==================== 护栏：未激活/跳步/漏步 ====================
 
 func TestFlowGuards(t *testing.T) {
-	manager := agent.NewManager()
+	manager := agent.NewAgent()
 	storyLLM := &fakeStoryNode{}
 	manager.RegisterChat("fake", storyLLM, true)
 	manager.AddWorkflows(newStoryFlow())

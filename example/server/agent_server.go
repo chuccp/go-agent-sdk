@@ -21,7 +21,7 @@ import (
 type Agent struct {
 	core.IRunner
 	ctx                *core.Context
-	agentManager       *agent.Manager
+	agentManager       *agent.Agent
 	lock               sync.RWMutex
 	chatSessionService *service.ChatSessionService
 	storeFlow          *flow.StoreFlow
@@ -29,7 +29,7 @@ type Agent struct {
 
 func (r *Agent) Init(ctx *core.Context) error {
 	r.ctx = ctx
-	r.agentManager = agent.NewManager()
+	r.agentManager = agent.NewAgent()
 	providers, err := core.UnmarshalKeyConfig[[]*Provider](configKey, ctx)
 	if err != nil {
 		return err
