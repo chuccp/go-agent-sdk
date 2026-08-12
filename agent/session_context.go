@@ -11,17 +11,9 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// processorHandler 定义 SessionContext 反向调用 messageProcessor 的能力。
-type processorHandler interface {
-	handleMessage(message *chat.RevMessage, opt ...chat.Option) error
-	doLoop()
-	Stop()
-}
-
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
-	processorHandler
 	inbox         *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
 	running       bool                             // 主循环是否运行中（runLock 保护）
 	runCtx        context.Context                  // 主循环上下文（runLock 保护）
@@ -68,14 +60,11 @@ func (c *SessionContext) Flush() {
 	}
 }
 
-// ── chatHandler 接口实现（ChatClient 的 handler 指向 SessionContext）──
-
-func (c *SessionContext) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
-	return c.processorHandler.handleMessage(message, opt...)
-}
-
 func (c *SessionContext) History() []*chat.Message {
 	return c.events.History()
+}
+func (c *SessionContext) Stop() {
+	c.cancel()
 }
 
 func (c *SessionContext) ReadEvent(position *Position) *chat.ClientEvent {
@@ -90,16 +79,12 @@ func (c *SessionContext) DeleteClient(client *Client) {
 	c.events.RemovePosition(client.position)
 }
 
-func (c *SessionContext) Stop() {
-	c.processorHandler.Stop()
-}
-
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
-func (c *SessionContext) GetChatClient(start uint) *Client {
+func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 	position := c.events.GetPosition(start)
 	chatClient := &Client{
 		queue:    util.NewQueue[bool](),
-		handler:  c,
+		handler:  handler,
 		position: position,
 	}
 	c.clientMutex.Lock()

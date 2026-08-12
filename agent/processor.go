@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -9,44 +10,67 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
+// QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
+type QueuedMessage struct {
+	ctx  *SessionContext
+	id   uint64
+	msg  *chat.RevMessage
+	opts []chat.Option // 本次消息附带的per-turn选项覆盖
+}
+
+// Msg 返回包装的原始用户消息。
+func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
+
+// Context 返回消息所属的会话上下文（消息链上的过滤器通过它访问会话能力）。
+func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
+
 // messageProcessor 会话编排器：接收用户消息后交给消息过滤器链（message_chain），
 // 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行（executeTools）。
 // 消息链主体位于 coreMessageFilter（链的最内层），会话状态集中于 SessionContext。
 type messageProcessor struct {
-	ctx            *SessionContext
-	messageFilters []MessageFilter
-	toolExecutors  []ToolExecutor
+	ctx           *SessionContext
+	toolExecutors []ToolExecutor
 }
 
 func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
 	p := &messageProcessor{
-		ctx:            sessionContext,
-		messageFilters: make([]MessageFilter, 0),
-		toolExecutors:  sessionContext.toolExecutors,
-	}
-	sessionContext.processorHandler = p
-	// 实现了 MessageFilter 的工具（如 ask_user_question）注册到消息链，
-	// 用于拦截用户回答；工具执行由 doLoop 直接驱动（executeTools）。
-	for _, exec := range sessionContext.toolExecutors {
-		if mf, ok := exec.(MessageFilter); ok {
-			p.messageFilters = append(p.messageFilters, mf)
-		}
+		ctx:           sessionContext,
+		toolExecutors: sessionContext.toolExecutors,
 	}
 	return p
 }
 
-// handleMessage 接收一条用户消息：包装为 QueuedMessage 后交给消息过滤器链。
-// 链的最内层（coreMessageFilter）负责入队并按需启动主循环；
-// 实现了 MessageFilter 的工具（如 ask_user_question）可在链上拦截消费。
-func (p *messageProcessor) handleMessage(message *chat.RevMessage, opt ...chat.Option) error {
+func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...chat.Option) error {
+	ctx := p.ctx
+	ctx.runLock.Lock()
+	defer ctx.runLock.Unlock()
 	qm := &QueuedMessage{
 		id:   p.ctx.getSeq(),
 		ctx:  p.ctx,
 		msg:  message,
 		opts: opt,
 	}
-	messageFilterChain := newMessageFilterChain(qm, newCoreMessageFilter(), p.messageFilters...)
-	return messageFilterChain.Next()
+	err := ctx.inbox.Write(qm)
+	if err != nil {
+		log.Printf("[chatSession] inbox write failed: %v", err)
+		return err
+	}
+	if !ctx.running {
+		ctx.runCtx, ctx.cancel = context.WithCancel(context.Background())
+		ctx.running = true
+		ctx.AddEvent(chat.NewMessageSentEvent(qm.id, ctx.sessionId, qm.msg))
+		util.GoWithRecover(func() {
+			p.doLoop()
+		}, func(r any) {
+			log.Printf("[chatSession] run panic recovered: %v", r)
+			evt := chat.NewErrorEvent("internal error")
+			evt.Done = true
+			ctx.AddEvent(evt)
+		})
+	} else {
+		ctx.AddEvent(chat.NewMessageQueuedEvent(qm.id, ctx.sessionId, qm.msg))
+	}
+	return nil
 }
 
 // doLoop 会话主循环：执行单轮 LLM 交互（executeRound：构建请求、流式调用）与
@@ -90,17 +114,17 @@ func (p *messageProcessor) doLoop() {
 			// 工具消费的用户回答（如 ask_user，问答机制由工具按 sessionId 自管）：
 			// 在 tool_result 之后入历史，避免 assistant(tool_use) 与 user(tool_result)
 			// 之间插入 user 消息触发 Anthropic 校验错误
-			for _, exec := range p.toolExecutors {
-				ac, ok := exec.(AnswerConsumer)
-				if !ok {
-					continue
-				}
-				if answer := ac.TakeConsumedAnswer(ctx.sessionId); answer != nil {
-					ctx.AddEvent(chat.NewMessageConsumedEvent(ctx.getSeq(), ctx.sessionId, answer))
-					answerMsg := answer.ToMessage()
-					ctx.events.AppendHistory(&answerMsg)
-				}
-			}
+			//for _, exec := range p.toolExecutors {
+			//	ac, ok := exec.(AnswerConsumer)
+			//	if !ok {
+			//		continue
+			//	}
+			//	if answer := ac.TakeConsumedAnswer(ctx.sessionId); answer != nil {
+			//		ctx.AddEvent(chat.NewMessageConsumedEvent(ctx.getSeq(), ctx.sessionId, answer))
+			//		answerMsg := answer.ToMessage()
+			//		ctx.events.AppendHistory(&answerMsg)
+			//	}
+			//}
 			// 继续循环：携带 tool_result 再次调用 LLM
 
 		default: // end_turn
