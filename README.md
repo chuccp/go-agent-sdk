@@ -44,7 +44,7 @@
 go-agent-sdk/
 ├── agent/          # Agent 层：Agent, SessionContext, Client, messageProcessor,
 │                   #   MessageFilter 链, Tool, Turn, Store
-├── chat/           # 协议层：Block, Event, Message, Request/Response, Store, Position, Provider
+├── chat/           # 协议层：Block, Event, Message, Request/Response, Provider, Options
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
 └── example/        # 完整示例应用（Go 后端 + React 前端）
@@ -176,8 +176,8 @@ type MessageFilter interface {
 
 ```go
 type HistoryStore interface {
-    LoadHistory(sessionID string) ([]Message, error)     // 懒加载历史
-    AppendMessages(sessionID string, messages []Message) error // 增量追加
+    LoadHistory(sessionID string) ([]chat.Message, error)     // 懒加载历史
+    AppendMessages(sessionID string, messages []chat.Message) error // 增量追加
 }
 ```
 
@@ -202,30 +202,30 @@ type HistoryStore interface {
 
 ### 服务端 → 客户端
 
-所有推送事件均为 `ClientEvent` JSON，公共字段为 `seq`, `source`, `type`, `session_id`，其余字段按事件类型出现。
+所有推送事件均为 `ClientEvent` JSON，公共字段为 `seq`, `source`, `type`，其余字段按事件类型出现。
 
 ```
 # 消息生命周期（send/display 分离）
-{"seq": 1, "source": "client", "type": "message_sent",     "message_id": 1, "content": "你好", "session_id": "1"}
-{"seq": 2, "source": "client", "type": "message_queued",   "message_id": 1, "content": "你好", "session_id": "1"}
-{"seq": 3, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好", "session_id": "1"}
+{"seq": 1, "source": "client", "type": "message_sent",     "message_id": 1, "content": "你好"}
+{"seq": 2, "source": "client", "type": "message_queued",   "message_id": 1, "content": "你好"}
+{"seq": 3, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好"}
 
 # AI 流式输出
-{"seq": 4, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录...",           "session_id": "1"}
-{"seq": 5, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是：",            "session_id": "1"}
-{"seq": 6, "source": "ai",     "type": "chunk",           "content": "\n\nproject/",                  "session_id": "1"}
+{"seq": 4, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录..."}
+{"seq": 5, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是："}
+{"seq": 6, "source": "ai",     "type": "chunk",           "content": "\n\nproject/"}
 
 # 工具执行（如果有 tool_use）
-{"seq": 7, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "...", "session_id": "1"}
+{"seq": 7, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "..."}
 
 # LLM 向用户提问（AskUserQuestion 工具）
-{"seq": 8, "source": "ai",     "type": "ask_user",        "questions": [...],                        "session_id": "1"}
+{"seq": 8, "source": "ai",     "type": "ask_user",        "questions": [...]}
 
 # 本轮结束
-{"seq": 9, "source": "ai",     "type": "done",            "done": true,                              "session_id": "1"}
+{"seq": 9, "source": "ai",     "type": "done",            "done": true}
 
 # 错误
-{"seq": 10, "source": "system", "type": "error",          "message": "network timeout",              "session_id": "1"}
+{"seq": 10, "source": "system", "type": "error",          "message": "network timeout"}
 ```
 
 前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `message_consumed` 后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致。当消息进入等待队列时返回 `message_queued`，前端可显示"待处理"状态。
