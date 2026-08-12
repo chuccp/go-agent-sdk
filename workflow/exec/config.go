@@ -1,6 +1,8 @@
 package exec
 
-import "github.com/chuccp/go-agent-sdk/workflow/value"
+import (
+	"github.com/chuccp/go-agent-sdk/value"
+)
 
 type Config struct {
 	parameter *value.Object

@@ -126,7 +126,7 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter
 	if err != nil {
 		return fmt.Errorf("序列化问题失败: %w", err)
 	}
-	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), ctx.ID()))
+	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))
 
 	// 2. 告知 LLM 问题已送达，等待用户下一条消息（不代为回答）
 	return writer.WriteBlock(chat.NewTextBlock(

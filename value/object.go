@@ -1,12 +1,12 @@
 package value
 
 type Object struct {
-	*NodeValue
-	data map[string]*NodeValue
+	Value
+	data map[string]Value
 }
 
 func NewObject() *Object {
 	return &Object{
-		data: make(map[string]*NodeValue),
+		data: make(map[string]Value),
 	}
 }

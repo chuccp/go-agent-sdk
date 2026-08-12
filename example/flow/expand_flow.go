@@ -27,7 +27,7 @@ func (s *StoreFlow) GetExpandFlow() *exec.Workflow {
 		SystemTemplate("你是故事编辑").
 		UserTemplate("把下面各段扩写内容按顺序缝合成一篇连贯的短文，" +
 			"保持原文、只补充必要的过渡，输出全文：\n{{expand}}").
-		Deliver(node.DeliverEvent).
+		Deliver(node.DeliverContext).
 		Build()
 
 	return exec.NewBuilder("expand001", "故事扩写").

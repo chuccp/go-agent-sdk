@@ -165,22 +165,22 @@ func NewErrorEvent(message string) *ClientEvent {
 }
 
 // NewChunkEvent 创建一个流式文本片段事件
-func NewChunkEvent(content, sessionId string) *ClientEvent {
+func NewChunkEvent(content string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeChunk, Content: content}
 }
 
 // NewThinkingEvent 创建一个 AI 思考链增量事件
-func NewThinkingEvent(content, sessionId string) *ClientEvent {
+func NewThinkingEvent(content string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeThinking, Content: content}
 }
 
 // NewDoneEvent 创建一个流结束事件
-func NewDoneEvent(sessionId string) *ClientEvent {
+func NewDoneEvent() *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeDone, Done: true}
 }
 
 // NewMessageSentEvent 创建一个消息已被立即处理事件
-func NewMessageSentEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageSentEvent(messageID uint64, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageSent,
@@ -191,7 +191,7 @@ func NewMessageSentEvent(messageID uint64, sessionId string, msg *RevMessage) *C
 }
 
 // NewMessageQueuedEvent 创建一个消息进入等待队列事件
-func NewMessageQueuedEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageQueuedEvent(messageID uint64, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageQueued,
@@ -202,7 +202,7 @@ func NewMessageQueuedEvent(messageID uint64, sessionId string, msg *RevMessage) 
 }
 
 // NewMessageConsumedEvent 创建一个队列消息已被消费事件
-func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage) *ClientEvent {
+func NewMessageConsumedEvent(messageID uint64, msg *RevMessage) *ClientEvent {
 	return &ClientEvent{
 		EventSource: SourceClient,
 		EventType:   EventTypeMessageConsumed,
@@ -213,17 +213,17 @@ func NewMessageConsumedEvent(messageID uint64, sessionId string, msg *RevMessage
 }
 
 // NewToolExecutionEvent 创建一个工具执行事件，携带工具名称、入参展示文本和执行输出。
-func NewToolExecutionEvent(toolName, args, output, sessionId string) *ClientEvent {
+func NewToolExecutionEvent(toolName, args, output string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeToolExecution, Content: output, Message: toolName, Args: args}
 }
 
 // NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
-func NewAskUserEvent(content, sessionId string) *ClientEvent {
+func NewAskUserEvent(content string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeAskUser, Content: content}
 }
 
 // NewFlowProgressEvent 创建一个 flow 步骤进度事件，content 为 JSON：
 // {"flowId", "stepId", "phase": "start"|"item"|"done"|"error", "output"}。
-func NewFlowProgressEvent(content, sessionId string) *ClientEvent {
+func NewFlowProgressEvent(content string) *ClientEvent {
 	return &ClientEvent{EventSource: SourceAI, EventType: EventTypeFlowProgress, Content: content}
 }

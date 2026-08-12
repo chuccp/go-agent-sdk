@@ -1,8 +1,8 @@
 package workflow
 
 import (
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
-	"github.com/chuccp/go-agent-sdk/workflow/value"
 )
 
 type Executor struct {

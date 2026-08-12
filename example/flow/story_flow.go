@@ -21,7 +21,7 @@ func (s *StoreFlow) GetFlow() *exec.Workflow {
 	storyNode := node.NewChatNodeBuilder("story").
 		SystemTemplate("你是一位富有想象力的故事创作者").
 		UserTemplate("主题：{{topic}}\n受众：{{audience}}\n附加要求：{{note}}\n请创作一个约 800 字的故事。").
-		Deliver(node.DeliverEvent).
+		Deliver(node.DeliverContext).
 		Build()
 
 	return exec.NewBuilder("story003", "故事生成").

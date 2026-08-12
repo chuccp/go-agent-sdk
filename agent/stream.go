@@ -51,10 +51,10 @@ func (r *BlockStream) Write(event chat.Event) error {
 		switch e.Delta.Type {
 		case chat.DeltaTypeText:
 			r.assembler.appendText(e.Delta.Text)
-			r.emit(chat.NewChunkEvent(e.Delta.Text, ""))
+			r.emit(chat.NewChunkEvent(e.Delta.Text))
 		case chat.DeltaTypeThinking:
 			r.assembler.appendThinking(e.Delta.Thinking)
-			r.emit(chat.NewThinkingEvent(e.Delta.Thinking, ""))
+			r.emit(chat.NewThinkingEvent(e.Delta.Thinking))
 		case chat.DeltaTypeInputJSON:
 			r.assembler.appendJSON(e.Delta.PartialJSON)
 		}

@@ -89,13 +89,17 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error
 	t.suite.store.MarkStepDone(sessionId, stepId)
 	t.emitProgress(sctx, st.Workflow.Id, stepId, "done", summarize(output, 500))
 
-	// 产出去向：event 模式全文随事件直达前端，主 LLM 只拿摘要；
-	// context 模式全文返回主 LLM
-	resultText := fmt.Sprintf("步骤「%s」执行完成。%s", step.Title(), summary)
+	// 产出去向：context 模式全文返回主 LLM（交付型产出，摘要无意义）；
+	// event 模式全文随事件直达前端，主 LLM 只拿摘要
+	var resultText string
 	if step.Node().Deliver() == node.DeliverContext {
 		if str, ok := output.(string); ok {
-			resultText += "\n产出全文：\n" + str
+			resultText = fmt.Sprintf("步骤「%s」执行完成，产出全文：\n%s", step.Title(), str)
+		} else {
+			resultText = fmt.Sprintf("步骤「%s」执行完成。%s", step.Title(), summary)
 		}
+	} else {
+		resultText = fmt.Sprintf("步骤「%s」执行完成。%s", step.Title(), summary)
 	}
 	resultText += t.suite.footer(t.suite.store.Get(sessionId))
 	return writer.WriteBlock(chat.NewTextBlock(resultText))
@@ -186,7 +190,7 @@ func (t *ExecNodeTool) emitProgress(sctx *agent.SessionContext, flowId, stepId, 
 	}
 	payload := map[string]string{"flowId": flowId, "stepId": stepId, "phase": phase, "output": output}
 	data, _ := json.Marshal(payload)
-	sctx.AddEvent(chat.NewFlowProgressEvent(string(data), sctx.ID()))
+	sctx.AddEvent(chat.NewFlowProgressEvent(string(data)))
 }
 
 // ==================== FlowStore 执行核配套方法 ====================

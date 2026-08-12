@@ -131,7 +131,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 // 返回该消息附带的 per-turn 选项。
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
-	c.AddEvent(chat.NewMessageConsumedEvent(qm.id, c.sessionId, qm.msg))
+	c.AddEvent(chat.NewMessageConsumedEvent(qm.id, qm.msg))
 	msg := qm.msg.ToMessage()
 	c.events.AppendHistory(&msg)
 	return qm.opts

@@ -1,8 +1,8 @@
 package exec
 
 import (
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
-	"github.com/chuccp/go-agent-sdk/workflow/value"
 )
 
 type Context struct {

@@ -58,7 +58,7 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 	if !ctx.running {
 		ctx.runCtx, ctx.cancel = context.WithCancel(context.Background())
 		ctx.running = true
-		ctx.AddEvent(chat.NewMessageSentEvent(qm.id, ctx.sessionId, qm.msg))
+		ctx.AddEvent(chat.NewMessageSentEvent(qm.id, qm.msg))
 		util.GoWithRecover(func() {
 			p.doLoop()
 		}, func(r any) {
@@ -68,7 +68,7 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 			ctx.AddEvent(evt)
 		})
 	} else {
-		ctx.AddEvent(chat.NewMessageQueuedEvent(qm.id, ctx.sessionId, qm.msg))
+		ctx.AddEvent(chat.NewMessageQueuedEvent(qm.id, qm.msg))
 	}
 	return nil
 }
@@ -116,7 +116,7 @@ func (p *messageProcessor) doLoop() {
 		default: // end_turn
 			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
 			// 前端根据历史计算的 start 会落在 done 之后，重连时不会重放残留的 done
-			ctx.AddEvent(chat.NewDoneEvent(ctx.sessionId))
+			ctx.AddEvent(chat.NewDoneEvent())
 			ctx.appendAssistantMessage(blocks)
 			ctx.saveAndReset()
 			// inbox 还有消息则继续循环，否则退出
@@ -247,7 +247,7 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	}
 
 	args, _ := tu.Input.(map[string]any)
-	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), resultText, ctx.sessionId))
+	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), resultText))
 
 	content = append(chat.Blocks{chat.NewTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)

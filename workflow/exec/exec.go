@@ -1,7 +1,7 @@
 package exec
 
 import (
-	"github.com/chuccp/go-agent-sdk/workflow/value"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 type Executor struct {
