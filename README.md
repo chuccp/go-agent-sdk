@@ -6,7 +6,7 @@
 
 - **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 Position 独立追踪读取进度，互不阻塞
 - **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
-- **Client 无状态** — `ChatClient` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
+- **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
 - **流式对话** — SSE 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
@@ -17,10 +17,10 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  ChatManager                                                  │
+│  Agent                                                        │
 │  ├── ProviderRegistry (多 LLM 后端)                            │
 │  ├── ToolExecutors (工具注册)                                  │
-│  └── map[id] → ChatSession                                    │
+│  └── map[id] → session                                        │
 │                  └── SessionContext (状态中心)                  │
 │                       ├── inbox (消息队列, runMutex 保护)       │
 │                       ├── messageProcessor (会话编排器)         │
@@ -34,7 +34,7 @@
 │                       │    ├── history (全量消息, 持久化)        │
 │                       │    ├── positions (客户端读取位置列表)    │
 │                       │    └── base (Reset 推进, seq 单调递增)   │
-│                       └── ChatClient[] (轻量订阅句柄)           │
+│                       └── Client[] (轻量订阅句柄)               │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,8 +42,8 @@
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：ChatManager, ChatSession, ChatClient, SessionContext,
-│                   #   messageProcessor, MessageFilter 链, Tool, Turn, Options
+├── agent/          # Agent 层：Agent, SessionContext, Client, messageProcessor,
+│                   #   MessageFilter 链, Tool, Turn, Store
 ├── chat/           # 协议层：Block, Event, Message, Request/Response, Store, Position, Provider
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
@@ -69,24 +69,24 @@ import (
 )
 
 func main() {
-    // 1. 创建 Manager
-    manager := agent.NewChatManager(
-        agent.WithModel("deepseek-v4-flash"),
-        agent.WithMaxTokens(4096),
-        agent.WithThinking(agent.ThinkingLow),
+    // 1. 创建 Agent
+    agent := agent.NewAgent(
+        chat.WithModel("deepseek-v4-flash"),
+        chat.WithMaxTokens(4096),
+        chat.WithThinking(chat.ThinkingLow),
     )
 
     // 2. 注册 LLM 提供商
-    manager.RegisterChat("my-provider", myChatService, true)
+    agent.RegisterChat("my-provider", myChatService, true)
 
     // 3. 注册工具（可选）
-    manager.AddTool(tools.NewCommandTool())
+    agent.AddTools(tools.NewCommandTool())
 
     // 4. 设置持久化（可选）
-    manager.SetHistoryStore(myHistoryStore)
+    agent.SetHistoryStore(myHistoryStore)
 
     // 5. 获取客户端（session_id + 起始偏移）
-    client, _ := manager.GetChat("session-1", 0)
+    client, _ := agent.GetClient("session-1", 0)
 
     // 6. 发送消息
     client.SendText("你好，帮我查看当前目录")
@@ -248,16 +248,16 @@ pnpm dev
 ## 配置选项
 
 ```go
-agent.NewChatManager(
-    agent.WithModel("claude-opus-4-8"),     // 模型名称
-    agent.WithMaxTokens(8192),              // 最大生成 token
-    agent.WithMaxContext(50),               // 最大上下文消息条数，超出时截断（0=不限制）
-    agent.WithTemperature(0.7),             // 采样温度
-    agent.WithTopP(0.9),                    // nucleus 采样
-    agent.WithTopK(40),                     // top-k 采样
-    agent.WithStopSequences("\n\nHuman:"),  // 停止序列
-    agent.WithStream(true),                 // 流式模式（默认 true）
-    agent.WithThinking(agent.ThinkingHigh), // 扩展思考级别
+agent.NewAgent(
+    chat.WithModel("claude-opus-4-8"),     // 模型名称
+    chat.WithMaxTokens(8192),              // 最大生成 token
+    chat.WithMaxContext(50),               // 最大上下文消息条数，超出时截断（0=不限制）
+    chat.WithTemperature(0.7),             // 采样温度
+    chat.WithTopP(0.9),                    // nucleus 采样
+    chat.WithTopK(40),                     // top-k 采样
+    chat.WithStopSequences("\n\nHuman:"),  // 停止序列
+    chat.WithStream(true),                 // 流式模式（默认 true）
+    chat.WithThinking(chat.ThinkingHigh),  // 扩展思考级别
 )
 ```
 
