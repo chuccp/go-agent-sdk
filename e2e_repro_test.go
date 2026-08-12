@@ -46,6 +46,7 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{Name: "fake_tool", Description: "fake", InputSchema: map[string]any{"type": "object"}}
 }
 func (t *fakeTool) Name() string { return "fake_tool" }
+func (t *fakeTool) UsagePrompt() string { return "" }
 func (t *fakeTool) Execute(_ *agent.Turn, writer chat.StreamWriter) error {
 	return writer.WriteBlock(chat.NewTextBlock("fake tool output"))
 }

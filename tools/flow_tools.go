@@ -326,6 +326,9 @@ type FlowStepDoneTool struct{ suite *FlowToolSuite }
 
 func (t *FlowStepDoneTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *FlowStepDoneTool) UsagePrompt() string { return "" }
+
 func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "flow_step_done",
@@ -368,6 +371,9 @@ func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer chat.StreamWriter) e
 type FlowStatusTool struct{ suite *FlowToolSuite }
 
 func (t *FlowStatusTool) Name() string { return t.Definition().Name }
+
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *FlowStatusTool) UsagePrompt() string { return "" }
 
 func (t *FlowStatusTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -413,6 +419,9 @@ func (t *FlowStatusTool) Execute(turn *agent.Turn, writer chat.StreamWriter) err
 type FinishFlowTool struct{ suite *FlowToolSuite }
 
 func (t *FinishFlowTool) Name() string { return t.Definition().Name }
+
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *FinishFlowTool) UsagePrompt() string { return "" }
 
 func (t *FinishFlowTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{

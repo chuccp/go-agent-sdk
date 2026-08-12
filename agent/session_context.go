@@ -228,17 +228,15 @@ func (c *SessionContext) buildRequest() *chat.Request {
 }
 
 // composeSystem 组装本轮请求的 System：基础系统提示词 + 各工具的引导提示词。
-// 实现了 PromptProvider 的工具，其 UsagePrompt 按需拼接——用了哪个工具，
-// 就带上哪个工具的引导词，宿主应用无需硬编码。
+// 工具可通过 UsagePrompt() 返回引导提示词——用了哪个工具就带上哪个，
+// 宿主应用无需硬编码；未提供引导词时返回空字符串。
 // 调用方必须持有 runLock。
 func (c *SessionContext) composeSystem() string {
 	system := c.system
 	var prompts []string
 	for _, exec := range c.toolExecutors {
-		if pp, ok := exec.(PromptProvider); ok {
-			if p := pp.UsagePrompt(); p != "" {
-				prompts = append(prompts, p)
-			}
+		if p := exec.UsagePrompt(); p != "" {
+			prompts = append(prompts, p)
 		}
 	}
 	if len(prompts) > 0 {

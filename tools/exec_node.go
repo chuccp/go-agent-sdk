@@ -18,6 +18,9 @@ type ExecNodeTool struct{ suite *FlowToolSuite }
 
 func (t *ExecNodeTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *ExecNodeTool) UsagePrompt() string { return "" }
+
 func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "exec_node",

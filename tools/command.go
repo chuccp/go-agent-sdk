@@ -25,6 +25,9 @@ func NewCommandTool() agent.ToolExecutor {
 // Name 返回工具名称。
 func (t *CommandTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *CommandTool) UsagePrompt() string { return "" }
+
 func (t *CommandTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name:        "execute_command",

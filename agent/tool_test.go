@@ -83,6 +83,7 @@ func (f *fakeTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{Name: "fake", Description: "a fake tool"}
 }
 func (f *fakeTool) Name() string    { return "fake" }
+func (f *fakeTool) UsagePrompt() string { return "" }
 func (f *fakeTool) Execute(_ *Turn, _ chat.StreamWriter) error { return nil }
 
 var _ ToolExecutor = (*fakeTool)(nil)

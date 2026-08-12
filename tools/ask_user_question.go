@@ -46,6 +46,9 @@ type AskUserQuestionTool struct {
 // Name 返回工具名称。
 func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *AskUserQuestionTool) UsagePrompt() string { return "" }
+
 // NewAskUserQuestionTool 创建用户提问工具。
 func NewAskUserQuestionTool() agent.ToolExecutor {
 	return &AskUserQuestionTool{

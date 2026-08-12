@@ -12,6 +12,7 @@ import (
 type ToolExecutor interface {
 	Definition() *chat.ToolFunction
 	Name() string
+	UsagePrompt() string
 	Execute(turn *Turn, writer chat.StreamWriter) error
 }
 
@@ -19,14 +20,6 @@ type ToolExecutor interface {
 type Turn struct {
 	ctx  *SessionContext
 	args map[string]any // 当前执行的 tool_use 入参
-}
-
-// PromptProvider 工具引导提示词接口（可选实现）：
-// 实现该接口的工具，其 UsagePrompt 会被拼接进每轮请求的 System，
-// 用于引导 LLM 何时/如何使用该工具——引导词随工具走，
-// 宿主应用无需硬编码全局提示词。
-type PromptProvider interface {
-	UsagePrompt() string
 }
 
 // Context 返回本次执行所属的会话上下文。

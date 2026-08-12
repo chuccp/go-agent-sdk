@@ -57,6 +57,9 @@ type TaskCreateTool struct{ store *TodoStore }
 // Name 返回工具名称。
 func (t *TaskCreateTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *TaskCreateTool) UsagePrompt() string { return "" }
+
 func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "task_create",
@@ -127,6 +130,9 @@ type TaskUpdateTool struct{ store *TodoStore }
 
 // Name 返回工具名称。
 func (t *TaskUpdateTool) Name() string { return t.Definition().Name }
+
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *TaskUpdateTool) UsagePrompt() string { return "" }
 
 func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
@@ -334,6 +340,9 @@ type TaskListTool struct{ store *TodoStore }
 // Name 返回工具名称。
 func (t *TaskListTool) Name() string { return t.Definition().Name }
 
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *TaskListTool) UsagePrompt() string { return "" }
+
 func (t *TaskListTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "task_list",
@@ -390,6 +399,9 @@ type TaskGetTool struct{ store *TodoStore }
 
 // Name 返回工具名称。
 func (t *TaskGetTool) Name() string { return t.Definition().Name }
+
+// UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
+func (t *TaskGetTool) UsagePrompt() string { return "" }
 
 func (t *TaskGetTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
