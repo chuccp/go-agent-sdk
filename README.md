@@ -43,8 +43,8 @@
 ```
 go-agent-sdk/
 ├── agent/          # Agent 层：Agent, SessionContext, Client, messageProcessor,
-│                   #   MessageFilter 链, Tool, Turn, Store
-├── chat/           # 协议层：Block, Event, Message, Request/Response, Provider, Options
+│                   #   MessageFilter 链, ToolExecutor, Turn, Store, HistoryStore, Position
+├── chat/           # 协议层：Block, Event, Message, Request, Service, Options
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
 └── example/        # 完整示例应用（Go 后端 + React 前端）
