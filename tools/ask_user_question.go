@@ -3,8 +3,6 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
-	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -24,24 +22,10 @@ type Option struct {
 	Preview     string `json:"preview,omitempty"` // 可选预览内容（markdown/html），用于视觉对比
 }
 
-// AskUserQuestionResponse 是工具返回给 LLM 的答案结构。
-// 对齐文档中的响应格式: { questions, answers, response? }
-type AskUserQuestionResponse struct {
-	Questions []Question        `json:"questions"`
-	Answers   map[string]string `json:"answers"`
-	Response  string            `json:"response,omitempty"` // 用户自由格式回复（非问题特定的）
-}
-
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
-// 实现 agent.ToolExecutor 接口：执行时向前端推送问题事件，并阻塞等待用户回答。
-// 问答机制由工具按 sessionId 自管（工具实例跨会话共享）：等待通道注册在
-// waiting 中，用户消息经消息链拦截（HandleRevMessage）投递；被消费的回答
-// 记入 consumed，由 doLoop 通过 AnswerConsumer 在 tool_result 之后入历史。
-type AskUserQuestionTool struct {
-	mu       sync.Mutex
-	waiting  map[string]chan *chat.RevMessage // sessionId → 正在等待的回答投递通道
-	consumed map[string]*chat.RevMessage      // sessionId → 本轮已消费、待入历史的回答
-}
+// 实现 agent.ToolExecutor 接口：执行时向前端推送 ask_user 事件后立即返回（不阻塞），
+// 是否阻塞等待回答由前端自行控制；用户的回答作为下一条普通消息进入会话。
+type AskUserQuestionTool struct{}
 
 // Name 返回工具名称。
 func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
@@ -51,41 +35,7 @@ func (t *AskUserQuestionTool) UsagePrompt() string { return "" }
 
 // NewAskUserQuestionTool 创建用户提问工具。
 func NewAskUserQuestionTool() agent.ToolExecutor {
-	return &AskUserQuestionTool{
-		waiting:  make(map[string]chan *chat.RevMessage),
-		consumed: make(map[string]*chat.RevMessage),
-	}
-}
-
-// HandleRevMessage 实现 agent.MessageFilter 接口：
-// 若本会话正在阻塞等待用户回答，拦截并投递该消息；否则透传给链上后续过滤器。
-// 会话 ID 从消息上下文获取（消息为会话私有，避免共享工具实例被其他会话串用）。
-func (t *AskUserQuestionTool) HandleRevMessage(chain agent.MessageFilterChain, msg *agent.QueuedMessage) error {
-	if ctx := msg.Context(); ctx != nil && t.deliverAnswer(ctx.ID(), msg.Msg()) {
-		return nil // 消费，不调用 chain.Next（不入 inbox）
-	}
-	return chain.Next()
-}
-
-// deliverAnswer 若指定会话正在等待用户回答，投递并消费该消息，返回 true。
-func (t *AskUserQuestionTool) deliverAnswer(sessionId string, msg *chat.RevMessage) bool {
-	t.mu.Lock()
-	ch := t.waiting[sessionId]
-	t.mu.Unlock()
-	if ch == nil {
-		return false
-	}
-	ch <- msg
-	return true
-}
-
-// TakeConsumedAnswer 实现 agent.AnswerConsumer：取出并清除本会话已消费的用户回答。
-func (t *AskUserQuestionTool) TakeConsumedAnswer(sessionId string) *chat.RevMessage {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	msg := t.consumed[sessionId]
-	delete(t.consumed, sessionId)
-	return msg
+	return &AskUserQuestionTool{}
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -157,8 +107,9 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 	}
 }
 
-// Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON），
-// 阻塞等待用户的下一条消息作为回答，组装后写入 writer 返回给 LLM。
+// Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
+// 后立即返回，不阻塞等待回答；同时写入简短提示作为 tool_result，
+// 告知 LLM 结束本轮、等待用户以普通消息形式回答。
 func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
 	ctx := turn.Context()
 	if ctx == nil {
@@ -177,41 +128,9 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON), ctx.ID()))
 
-	// 2. 阻塞等待用户回答：按 sessionId 注册等待通道，下一条用户消息会被
-	// 消息链上的本工具拦截投递，不进入 inbox（不触发新的 LLM 调用）
-	sessionId := ctx.ID()
-	ch := make(chan *chat.RevMessage, 1)
-	t.mu.Lock()
-	t.waiting[sessionId] = ch
-	t.mu.Unlock()
-	defer func() {
-		t.mu.Lock()
-		delete(t.waiting, sessionId)
-		t.mu.Unlock()
-	}()
-
-	var msg *chat.RevMessage
-	select {
-	case msg = <-ch:
-	case <-ctx.Done():
-		return fmt.Errorf("等待用户回答被中断（会话已停止）")
-	}
-
-	// 记录已消费的回答：doLoop 在 tool_result 入历史后通过 AnswerConsumer 取出
-	t.mu.Lock()
-	t.consumed[sessionId] = msg
-	t.mu.Unlock()
-
-	// 3. 组装答案返回给 LLM
-	answers := make(map[string]string, len(questions))
-	for _, q := range questions {
-		answers[q.Question] = msg.Text
-	}
-	answer, err := formatResponse(questions, answers, msg.Text)
-	if err != nil {
-		return err
-	}
-	return writer.WriteBlock(chat.NewTextBlock(answer))
+	// 2. 告知 LLM 问题已送达，等待用户下一条消息（不代为回答）
+	return writer.WriteBlock(chat.NewTextBlock(
+		"问题已发送给用户。请结束本轮，等待用户的回答（回答将作为下一条消息到达），不要替用户回答。"))
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。
@@ -301,39 +220,6 @@ func parseOptions(obj map[string]any, qi int) ([]Option, error) {
 	}
 
 	return opts, nil
-}
-
-// formatResponse 将问题和答案按文档格式序列化为 JSON 返回给 LLM。
-// 格式: { "questions": [...], "answers": { "q": "a" }, "response": "..." }
-func formatResponse(questions []Question, answers map[string]string, response string) (string, error) {
-	if len(answers) == 0 && response == "" {
-		return "", fmt.Errorf("用户未回答任何问题")
-	}
-
-	resp := AskUserQuestionResponse{
-		Questions: questions,
-		Answers:   answers,
-		Response:  response,
-	}
-
-	b, err := json.Marshal(resp)
-	if err != nil {
-		return "", fmt.Errorf("序列化答案失败: %w", err)
-	}
-
-	// 同时返回人类可读和 JSON（LLM 可以用 JSON 精确解析）
-	var sb strings.Builder
-	if response != "" {
-		sb.WriteString(fmt.Sprintf("用户回复: %s\n", response))
-	}
-	for _, q := range questions {
-		if ans, ok := answers[q.Question]; ok && ans != "" {
-			sb.WriteString(fmt.Sprintf("- %s → %s\n", q.Question, ans))
-		}
-	}
-	sb.WriteString(fmt.Sprintf("\n%s", string(b)))
-
-	return sb.String(), nil
 }
 
 // ==================== 辅助函数 ====================

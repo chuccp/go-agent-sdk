@@ -93,7 +93,7 @@ func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 	return chatClient
 }
 
-// ── 会话主体能力（消息链终端与主循环调用）──
+// ── 会话主体能力（主循环调用）──
 
 // ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 BlockStream。
 // stream 创建时传入本上下文作为事件接收方（AddEvent），
@@ -117,7 +117,7 @@ func (c *SessionContext) ChatComplete(ctx context.Context, request *chat.Request
 	return text, nil
 }
 
-// Done 返回主循环上下文的取消通道，供阻塞中的工具（如等待用户回答）响应会话停止。
+// Done 返回主循环上下文的取消通道，供长耗时工具（如 exec_node 的 LLM 调用）响应会话停止。
 // 主循环未启动时返回 nil。
 func (c *SessionContext) Done() <-chan struct{} {
 	c.runLock.Lock()

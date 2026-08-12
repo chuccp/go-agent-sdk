@@ -38,14 +38,6 @@ func NewTurnWithContext(ctx *SessionContext, args map[string]any) *Turn {
 	return &Turn{ctx: ctx, args: args}
 }
 
-//// AnswerConsumer 由执行期间会消费用户消息的工具实现（如 ask_user_question）。
-//// 问答等待机制由工具按 sessionId 自行管理；doLoop 在 tool_result 入历史后
-//// 调用 TakeConsumedAnswer 取出被消费的回答再入历史（顺序要求：回答必须
-//// 位于 tool_result 之后，否则触发 Anthropic 校验错误）。
-//type AnswerConsumer interface {
-//	TakeConsumedAnswer(sessionId string) *chat.RevMessage
-//}
-
 // toolArgsDisplay 生成工具入参的展示文本，与前端历史展示逻辑保持一致：
 // 优先使用 command 字段（如命令行工具），否则输出入参 JSON。
 func toolArgsDisplay(args map[string]any) string {

@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -191,135 +193,87 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 	}
 }
 
-// ── formatResponse ──
+// ── Execute（非阻塞）──
 
-func TestFormatResponse(t *testing.T) {
-	questions := []Question{
-		{Question: "What color?", Header: "Color", Options: []Option{
-			{Label: "Red", Description: "Red"},
-			{Label: "Blue", Description: "Blue"},
-		}},
-	}
-	answers := map[string]string{"What color?": "Red"}
-	response := "I like red"
-
-	result, err := formatResponse(questions, answers, response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(result, "Red") {
-		t.Errorf("expected Red in response, got %q", result)
-	}
-	if !strings.Contains(result, "I like red") {
-		t.Errorf("expected free response, got %q", result)
-	}
-}
-
-func TestFormatResponse_NoAnswersOrResponse(t *testing.T) {
-	_, err := formatResponse(nil, nil, "")
+func TestExecute_NilContext(t *testing.T) {
+	tool := NewAskUserQuestionTool()
+	err := tool.Execute(agent.NewTurn(map[string]any{}), &capturingWriter{})
 	if err == nil {
-		t.Error("expected error for no answers and no response")
+		t.Error("expected error when SessionContext is not injected")
 	}
 }
 
-// ── HandleRevMessage (MessageFilter) ──
+func TestExecute_InvalidQuestions(t *testing.T) {
+	tool := NewAskUserQuestionTool()
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("ask-s1")
 
-// recordingChain 记录 Next 被调用，用于验证消息未被拦截。
-type recordingChain struct {
-	called bool
+	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), &capturingWriter{})
+	if err == nil {
+		t.Error("expected error for missing questions")
+	}
 }
 
-func (r *recordingChain) Next() error {
-	r.called = true
-	return nil
-}
-
-func TestHandleRevMessage_NoContext(t *testing.T) {
-	tool := NewAskUserQuestionTool().(*AskUserQuestionTool)
-
-	// 消息没有 SessionContext，deliverAnswer 返回 false，应继续链
-	qm := &agent.QueuedMessage{}
-	chain := &recordingChain{}
-
-	err := tool.HandleRevMessage(chain, qm)
+// TestExecute_NonBlocking 验证 Execute 推送 ask_user 事件后立即返回：
+// 事件内容为问题列表 JSON，且 tool_result 文本提示 LLM 等待用户回答。
+func TestExecute_NonBlocking(t *testing.T) {
+	tool := NewAskUserQuestionTool()
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("ask-s2")
+	client, err := manager.GetClient("ask-s2", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !chain.called {
-		t.Error("expected chain.Next() to be called when no context")
-	}
-}
+	defer client.Close()
 
-func TestHandleRevMessage_NoWaitingChannel(t *testing.T) {
-	tool := NewAskUserQuestionTool().(*AskUserQuestionTool)
-
-	// 消息带有 context 但没有注册 waiting channel → 透传
-	// ctx != nil 但 deliverAnswer 返回 false（无 waiting channel）
-	// → chain.Next() 被调用
-
-	// 验证内部状态：无 session 的 waiting channel
-	if _, exists := tool.waiting["nosuch"]; exists {
-		t.Error("expected no waiting channel for unknown session")
-	}
-	// TakeConsumedAnswer 在无记录时返回 nil
-	if msg := tool.TakeConsumedAnswer("nosuch"); msg != nil {
-		t.Error("expected nil for unknown session")
-	}
-}
-
-// ── deliverAnswer ──
-
-func TestDeliverAnswer_NoWaitingChannel(t *testing.T) {
-	tool := NewAskUserQuestionTool().(*AskUserQuestionTool)
-
-	// 没有注册等待通道，deliverAnswer 应返回 false
-	result := tool.deliverAnswer("nosuch", &chat.RevMessage{Text: "hello"})
-	if result {
-		t.Error("expected false when no waiting channel")
-	}
-}
-
-func TestDeliverAnswer_WithWaitingChannel(t *testing.T) {
-	tool := NewAskUserQuestionTool().(*AskUserQuestionTool)
-
-	sid := "test-session"
-	ch := make(chan *chat.RevMessage, 1)
-	tool.mu.Lock()
-	tool.waiting[sid] = ch
-	tool.mu.Unlock()
-
-	msg := &chat.RevMessage{Text: "my answer"}
-	result := tool.deliverAnswer(sid, msg)
-	if !result {
-		t.Error("expected true when waiting channel exists")
+	args := map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "What color?",
+				"header":   "Color",
+				"options": []any{
+					map[string]any{"label": "Red", "description": "Red color"},
+					map[string]any{"label": "Blue", "description": "Blue color"},
+				},
+			},
+		},
 	}
 
-	// 消息应该被投递到 channel
-	received := <-ch
-	if received.Text != "my answer" {
-		t.Errorf("expected 'my answer', got %q", received.Text)
-	}
-}
+	w := &capturingWriter{}
+	done := make(chan error, 1)
+	go func() {
+		done <- tool.Execute(agent.NewTurnWithContext(ctx, args), w)
+	}()
 
-// ── TakeConsumedAnswer ──
-
-func TestTakeConsumedAnswer_RemovesAfterTake(t *testing.T) {
-	tool := NewAskUserQuestionTool().(*AskUserQuestionTool)
-
-	sid := "s1"
-	tool.mu.Lock()
-	tool.consumed[sid] = &chat.RevMessage{Text: "consumed answer"}
-	tool.mu.Unlock()
-
-	msg := tool.TakeConsumedAnswer(sid)
-	if msg == nil || msg.Text != "consumed answer" {
-		t.Fatalf("expected consumed answer, got %v", msg)
+	// 不依赖任何用户回答，Execute 必须立即返回
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute() error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Execute blocked: expected immediate return")
 	}
 
-	// 第二次获取返回 nil（已清除）
-	msg = tool.TakeConsumedAnswer(sid)
-	if msg != nil {
-		t.Error("expected nil after take")
+	// tool_result 文本提示 LLM 等待用户回答
+	if !strings.Contains(w.text.String(), "问题已发送给用户") {
+		t.Errorf("expected tool_result guidance text, got %q", w.text.String())
+	}
+
+	// 前端收到 ask_user 事件，content 为问题列表 JSON
+	evt := client.ReadEvent()
+	if evt == nil {
+		t.Fatal("expected ask_user event")
+	}
+	if evt.EventType != chat.EventTypeAskUser {
+		t.Fatalf("expected ask_user event, got %q", evt.EventType)
+	}
+	var questions []Question
+	if err := json.Unmarshal([]byte(evt.Content), &questions); err != nil {
+		t.Fatalf("event content is not question list JSON: %v", err)
+	}
+	if len(questions) != 1 || questions[0].Question != "What color?" {
+		t.Errorf("unexpected questions in event: %+v", questions)
 	}
 }
 
@@ -345,12 +299,4 @@ func TestAskUserQuestion_Definition(t *testing.T) {
 
 func TestAskUserQuestion_ImplementsToolExecutor(t *testing.T) {
 	var _ agent.ToolExecutor = NewAskUserQuestionTool()
-}
-
-func TestAskUserQuestion_ImplementsMessageFilter(t *testing.T) {
-	var _ agent.MessageFilter = NewAskUserQuestionTool().(*AskUserQuestionTool)
-}
-
-func TestAskUserQuestion_ImplementsAnswerConsumer(t *testing.T) {
-	var _ agent.AnswerConsumer = NewAskUserQuestionTool().(*AskUserQuestionTool)
 }

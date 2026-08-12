@@ -43,7 +43,7 @@
 ```
 go-agent-sdk/
 ├── agent/          # Agent 层：Agent, SessionContext, Client, messageProcessor,
-│                   #   MessageFilter 链, ToolExecutor, Turn, Store, HistoryStore, Position
+│                   #   ToolExecutor, Turn, Store, HistoryStore, Position
 ├── chat/           # 协议层：Block, Event, Message, Request, Service, Options
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
@@ -155,20 +155,7 @@ type ToolExecutor interface {
 |------|------|------|
 | `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + GUI 程序自动 `start` + 30s 超时。`command_unix.go` / `command_windows.go` 提供平台适配 |
 | `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持 pending/in_progress/completed 状态，通过 `TodoStore` 跨会话共享 |
-| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题，通过 `AskUserQuestionResponse` 收集答案，实现 `MessageFilter` 拦截用户回答 |
-
-### 消息过滤器链
-
-工具可以实现 `MessageFilter` 接口注册到消息过滤器链，拦截和消费用户消息：
-
-```go
-type MessageFilter interface {
-    HandleRevMessage(chain MessageFilterChain, msg *QueuedMessage) error
-}
-```
-
-过滤器按注册顺序执行，链的最内层是 `coreMessageFilter`（负责入队并驱动主循环）。
-`AskUserQuestionTool` 即通过过滤器链在等待用户回答时拦截消息并消费。
+| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题：推送 `ask_user` 事件（问题列表 JSON）后立即返回（不阻塞），用户回答作为下一条普通消息进入会话；是否阻塞等待由前端自行控制 |
 
 ## HistoryStore 接口
 

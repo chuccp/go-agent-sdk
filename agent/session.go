@@ -7,7 +7,6 @@ import (
 // session 会话门面：会话状态集中于 SessionContext，
 // 消息处理与主循环编排委托给 processor（messageProcessor）。
 type session struct {
-	handler
 	sessionContext *SessionContext
 	processor      *messageProcessor
 }
@@ -35,9 +34,19 @@ func (s *session) newClient(start uint) *Client {
 	return s.sessionContext.GetChatClient(start, s)
 }
 
-// SendMessage 接收一条用户消息，交给消息过滤器链处理。
+// SendMessage 接收一条用户消息，交给会话主循环处理。
 func (s *session) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
 	return s.processor.HandleRevMessage(message, opt...)
+}
+
+// ReadEvent 从指定位置读取一个事件（委托给 SessionContext 的事件存储）。
+func (s *session) ReadEvent(position *Position) *chat.ClientEvent {
+	return s.sessionContext.ReadEvent(position)
+}
+
+// DeleteClient 注销事件消费客户端（委托给 SessionContext）。
+func (s *session) DeleteClient(client *Client) {
+	s.sessionContext.DeleteClient(client)
 }
 
 // Stop 取消当前正在运行的会话主循环。

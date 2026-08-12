@@ -21,12 +21,12 @@ type QueuedMessage struct {
 // Msg 返回包装的原始用户消息。
 func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
 
-// Context 返回消息所属的会话上下文（消息链上的过滤器通过它访问会话能力）。
+// Context 返回消息所属的会话上下文（通过它访问会话能力）。
 func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
 
-// messageProcessor 会话编排器：接收用户消息后交给消息过滤器链（message_chain），
-// 会话主循环驱动单轮 LLM 交互（executeRound）与工具执行（executeTools）。
-// 消息链主体位于 coreMessageFilter（链的最内层），会话状态集中于 SessionContext。
+// messageProcessor 会话编排器：接收用户消息后入队并驱动会话主循环，
+// 主循环执行单轮 LLM 交互（executeRound）与工具执行（executeTools）。
+// 会话状态集中于 SessionContext。
 type messageProcessor struct {
 	ctx           *SessionContext
 	toolExecutors []ToolExecutor
@@ -111,20 +111,6 @@ func (p *messageProcessor) doLoop() {
 			// tool_result 作为 user 消息入历史；未命中工具的 tool_use 已在 executeTools 补错误结果
 			results := p.executeTools(ctx, blocks)
 			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
-			// 工具消费的用户回答（如 ask_user，问答机制由工具按 sessionId 自管）：
-			// 在 tool_result 之后入历史，避免 assistant(tool_use) 与 user(tool_result)
-			// 之间插入 user 消息触发 Anthropic 校验错误
-			//for _, exec := range p.toolExecutors {
-			//	ac, ok := exec.(AnswerConsumer)
-			//	if !ok {
-			//		continue
-			//	}
-			//	if answer := ac.TakeConsumedAnswer(ctx.sessionId); answer != nil {
-			//		ctx.AddEvent(chat.NewMessageConsumedEvent(ctx.getSeq(), ctx.sessionId, answer))
-			//		answerMsg := answer.ToMessage()
-			//		ctx.events.AppendHistory(&answerMsg)
-			//	}
-			//}
 			// 继续循环：携带 tool_result 再次调用 LLM
 
 		default: // end_turn
