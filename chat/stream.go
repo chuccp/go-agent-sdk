@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"log"
+	"sync"
 
 	"github.com/chuccp/go-agent-sdk/value"
 )
@@ -108,7 +109,9 @@ type Usage struct {
 // 内部的 blockAssembler 将增量组装为完整的 Block 收集到列表；
 // 调用方先 Close（flush 未完成的 block），再通过 ReadBlocks() 一次性取回全部 Block。
 // 每个 StreamWriter 独享自己的收集列表与组装器，不同请求之间互不干扰。
+// 写入方法（Write/WriteError/Close/StopReason/Usage）内部加锁，并发调用安全。
 type StreamWriter struct {
+	mu             sync.Mutex
 	blocks         []Block
 	receiver       EventReceiver
 	usage          *Usage
@@ -136,6 +139,7 @@ func NewStreamWriter(receiver EventReceiver) *StreamWriter {
 
 // Write 写入一个 Stream 项：块开始事件开启新的组装（上一个 block 自动 flush 入队），
 // 增量追加到当前 block，并按当前 block 类型通过 receiver 向外推送客户端事件。
+// 状态变更加锁保护；emit 在锁外调用，避免持锁期间执行外部代码（AddEvent）。
 func (s *StreamWriter) Write(stream Stream) error {
 	switch stream.Type() {
 	case StreamStartType:
@@ -146,13 +150,18 @@ func (s *StreamWriter) Write(stream Stream) error {
 		if tu, ok := stream.(*ToolUseBlockStart); ok {
 			id, name = tu.Id, tu.Name
 		}
+		s.mu.Lock()
 		if prev := s.blockAssembler.start(stream.(BlockStream).BlockType(), id, name); prev != nil {
 			s.blocks = append(s.blocks, prev)
 		}
+		s.mu.Unlock()
 	case DeltaType:
 		content := stream.(*Delta).Content
+		s.mu.Lock()
 		s.blockAssembler.append(content)
-		switch s.blockAssembler.blockType {
+		blockType := s.blockAssembler.blockType
+		s.mu.Unlock()
+		switch blockType {
 		case TextBlockType:
 			s.emit(NewChunkEvent(content))
 		case ThinkBlockType:
@@ -164,11 +173,15 @@ func (s *StreamWriter) Write(stream Stream) error {
 
 // WriteError 记录错误，ReadBlocks 返回时携带该错误。
 func (s *StreamWriter) WriteError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.err = err
 }
 
 // Close 结束写入：flush 未完成的 block。幂等，多次调用安全。
 func (s *StreamWriter) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closed {
 		return
 	}
@@ -180,27 +193,45 @@ func (s *StreamWriter) Close() {
 
 // StopReason 设置模型停止生成的原因。
 func (s *StreamWriter) StopReason(stopReason StopReason) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.stopReason = stopReason
 }
 
 // Usage 设置本次请求的 token 消耗。
 func (s *StreamWriter) Usage(usage *Usage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.usage = usage
 }
 
 // ReadBlocks 返回已组装完成的全部 Block、停止原因与流错误（调用前应先 Close）。
 func (s *StreamWriter) ReadBlocks() (Blocks, StopReason, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.blocks, s.stopReason, s.err
 }
 
 // GetStopReason 返回模型停止生成的原因（流结束后有效）。
-func (s *StreamWriter) GetStopReason() StopReason { return s.stopReason }
+func (s *StreamWriter) GetStopReason() StopReason {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopReason
+}
 
 // GetUsage 返回本次请求的 token 消耗。
-func (s *StreamWriter) GetUsage() *Usage { return s.usage }
+func (s *StreamWriter) GetUsage() *Usage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.usage
+}
 
 // Err 返回流处理过程中发生的错误（流结束后检查）。
-func (s *StreamWriter) Err() error { return s.err }
+func (s *StreamWriter) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
 
 // emit 通过 receiver 向外推送客户端事件。
 func (s *StreamWriter) emit(evt *ClientEvent) {
