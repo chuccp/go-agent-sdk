@@ -149,30 +149,24 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 
 	var blocks chat.Blocks
 	var stopReason chat.StopReason
-	var streamErr error
 	if callErr == nil {
 		// Block 的拼接与组装由 StreamWriter 内部完成；增量已在写入时
 		// 通过 EventReceiver（AddEvent）向外广播，此处只取回结果
-		blocks, stopReason, streamErr = stream.ReadBlocks()
+		blocks, stopReason = stream.ReadBlocks()
 	}
 
 	// ===== 重新持锁 =====
 	ctx.runLock.Lock()
 
-	if callErr != nil || streamErr != nil {
+	if callErr != nil {
 		ctx.drainInbox()
 		ctx.saveAndReset()
 		ctx.running = false
-		var err error
-		if callErr != nil {
-			err = callErr
-		} else {
-			err = streamErr
-		}
-		evt := chat.NewErrorEvent(err.Error())
+
+		evt := chat.NewErrorEvent(callErr.Error())
 		evt.Done = true
 		ctx.AddEvent(evt)
-		return nil, "", err
+		return nil, "", callErr
 	}
 	return blocks, stopReason, nil
 }

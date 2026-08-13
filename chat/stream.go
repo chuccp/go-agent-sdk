@@ -117,7 +117,6 @@ type StreamWriter struct {
 	usage          *Usage
 	stopReason     StopReason
 	blockAssembler *blockAssembler
-	err            error
 	closed         bool
 }
 
@@ -171,13 +170,6 @@ func (s *StreamWriter) Write(stream Stream) error {
 	return nil
 }
 
-// WriteError 记录错误，ReadBlocks 返回时携带该错误。
-func (s *StreamWriter) WriteError(err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.err = err
-}
-
 // Close 结束写入：flush 未完成的 block。幂等，多次调用安全。
 func (s *StreamWriter) Close() {
 	s.mu.Lock()
@@ -206,10 +198,10 @@ func (s *StreamWriter) Usage(usage *Usage) {
 }
 
 // ReadBlocks 返回已组装完成的全部 Block、停止原因与流错误（调用前应先 Close）。
-func (s *StreamWriter) ReadBlocks() (Blocks, StopReason, error) {
+func (s *StreamWriter) ReadBlocks() (Blocks, StopReason) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.blocks, s.stopReason, s.err
+	return s.blocks, s.stopReason
 }
 
 // GetStopReason 返回模型停止生成的原因（流结束后有效）。
@@ -224,13 +216,6 @@ func (s *StreamWriter) GetUsage() *Usage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.usage
-}
-
-// Err 返回流处理过程中发生的错误（流结束后检查）。
-func (s *StreamWriter) Err() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.err
 }
 
 // emit 通过 receiver 向外推送客户端事件。

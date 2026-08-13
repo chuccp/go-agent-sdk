@@ -70,8 +70,7 @@ func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Req
 		return fmt.Errorf("API error (%d): %s", r.StatusCode(), string(body))
 	}
 
-	s.parseSSE(r.RawResponse.Body, response)
-	return nil
+	return s.parseSSE(r.RawResponse.Body, response)
 }
 
 // applyDefaults 将 Config 中的默认值填入请求。
@@ -127,7 +126,8 @@ type sseMessage struct {
 // parseSSE 从 HTTP 响应体中读取 SSE 事件流，转换为简化的 Stream 项写入 response：
 // 块开始（BlockStart）→ 内容增量（Delta）→ 停止原因/用量，解析完成后关闭 response。
 // SSE 协议细节（index/message_start 等）在这里被消化，不外泄到流模型。
-func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) {
+// 读取失败时返回错误（由调用方 ChatWithStream 透传）。
+func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) error {
 	defer resp.Close()
 	defer body.Close()
 
@@ -188,11 +188,12 @@ func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) {
 			}
 
 		case "message_stop":
-			return // 流正常结束
+			return nil // 流正常结束
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		resp.WriteError(fmt.Errorf("SSE stream read error: %w", err))
+		return fmt.Errorf("SSE stream read error: %w", err)
 	}
+	return nil
 }

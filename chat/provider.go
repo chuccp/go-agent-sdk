@@ -40,14 +40,8 @@ func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, 
 	if chatService == nil {
 		return errors.New("no such provider: " + provider)
 	}
-
-	// 同步写入：provider 完成输出后 Close（flush 未完成的 block），
-	// 调用方随后通过 stream.ReadBlocks() 一次性取回全部 Block
-	if err := chatService.ChatWithStream(ctx, chatMessages, stream); err != nil {
-		stream.WriteError(err)
-	}
-	stream.Close()
-	return nil
+	defer stream.Close()
+	return chatService.ChatWithStream(ctx, chatMessages, stream)
 }
 
 func (r *ProviderRegistry) Register(provider string, chatService Service, isDefault bool) {

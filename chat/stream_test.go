@@ -1,17 +1,13 @@
 package chat
 
 import (
-	"errors"
 	"testing"
 )
 
-// drainBlocks 取回 StreamWriter 中的全部 block（要求无错误结束，调用前应先 Close）。
+// drainBlocks 取回 StreamWriter 中的全部 block（调用前应先 Close）。
 func drainBlocks(t *testing.T, stream *StreamWriter) []Block {
 	t.Helper()
-	blocks, _, err := stream.ReadBlocks()
-	if err != nil {
-		t.Fatalf("ReadBlocks error: %v", err)
-	}
+	blocks, _ := stream.ReadBlocks()
 	return blocks
 }
 
@@ -128,23 +124,6 @@ func TestStreamWriter_StopReasonAndUsage(t *testing.T) {
 	}
 }
 
-// ── WriteError ──
-func TestStreamWriter_WriteError(t *testing.T) {
-	stream := NewStreamWriter(nil)
-	stream.Write(&TextBlockStart{})
-	stream.Write(&Delta{Content: "before error"})
-	stream.WriteError(errors.New("test error"))
-	stream.Close()
-
-	blocks, _, err := stream.ReadBlocks()
-	if len(blocks) != 1 {
-		t.Fatalf("expected 1 block (before error), got %d", len(blocks))
-	}
-	if err == nil || stream.Err() == nil {
-		t.Error("expected ReadBlocks/Err() to return error")
-	}
-}
-
 // ── Close：幂等 / flush 未完成 block ──
 
 func TestStreamWriter_Close_Idempotent(t *testing.T) {
@@ -179,9 +158,9 @@ func TestStreamWriter_Close_FlushesActiveBlock(t *testing.T) {
 func TestStreamWriter_ReadBlock_Empty(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.Close()
-	blocks, _, err := stream.ReadBlocks()
-	if len(blocks) != 0 || err != nil {
-		t.Errorf("expected empty blocks without error, got %v, %v", blocks, err)
+	blocks, _ := stream.ReadBlocks()
+	if len(blocks) != 0 {
+		t.Errorf("expected empty blocks, got %v", blocks)
 	}
 }
 
