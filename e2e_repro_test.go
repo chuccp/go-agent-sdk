@@ -42,7 +42,7 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 }
 func (t *fakeTool) Name() string { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
-func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.StreamWriter) error {
+func (t *fakeTool) Execute(_ *agent.Turn, writer *agent.BlockStream) error {
 	return writer.WriteBlock(chat.NewTextBlock("fake tool output"))
 }
 
@@ -118,11 +118,11 @@ func TestTwoRoundsWithTool(t *testing.T) {
 
 // ── CommandTool 中文输出编码测试（Windows）──
 
-// runCommand 用 CommandTool 执行命令并返回输出文本（独享 StreamWriter 收集）。
+// runCommand 用 CommandTool 执行命令并返回输出文本（工具专用 BlockStream 收集）。
 func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
-	writer := chat.NewStreamWriter(nil)
+	writer := agent.NewBlockStream()
 	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可
 	err := tool.Execute(agent.NewTurn(map[string]any{"command": cmd}), writer)
 	if err != nil {
@@ -130,11 +130,8 @@ func runCommand(t *testing.T, cmd string) string {
 	}
 	writer.Close()
 	var sb strings.Builder
-	for {
-		b, _ := writer.ReadBlock()
-		if b == nil {
-			break
-		}
+	blocks, _ := writer.ReadBlocks()
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)
 		}

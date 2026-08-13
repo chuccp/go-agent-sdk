@@ -42,7 +42,7 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 
 // Execute 执行节点：依赖校验 → 组装变量 → 零上下文 LLM 调用（或逐项迭代）→
 // 登记输出（重跑使下游失效）→ 标记完成。
-func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
+func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
 	stepId, _ := args["step_id"].(string)
 	if stepId == "" {

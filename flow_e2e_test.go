@@ -116,18 +116,15 @@ func newStoryFlow() *exec.Workflow {
 
 // ==================== 辅助 ====================
 
-// execToolText 在独享 StreamWriter 上执行工具并收集输出文本。
+// execToolText 在工具专用 BlockStream 上执行工具并收集输出文本。
 func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) (string, error) {
 	t.Helper()
-	w := chat.NewStreamWriter(nil)
+	w := agent.NewBlockStream()
 	err := exec.Execute(turn, w)
 	w.Close()
 	var sb strings.Builder
-	for {
-		b, _ := w.ReadBlock()
-		if b == nil {
-			break
-		}
+	blocks, _ := w.ReadBlocks()
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)
 		}

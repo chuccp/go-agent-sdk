@@ -197,7 +197,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
-	err := tool.Execute(agent.NewTurn(map[string]any{}), chat.NewStreamWriter(nil))
+	err := tool.Execute(agent.NewTurn(map[string]any{}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error when SessionContext is not injected")
 	}
@@ -208,7 +208,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s1")
 
-	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), chat.NewStreamWriter(nil))
+	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error for missing questions")
 	}
@@ -239,7 +239,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 		},
 	}
 
-	w := chat.NewStreamWriter(nil)
+	w := agent.NewBlockStream()
 	done := make(chan error, 1)
 	go func() {
 		done <- tool.Execute(agent.NewTurnWithContext(ctx, args), w)

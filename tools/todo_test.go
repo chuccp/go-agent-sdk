@@ -8,15 +8,12 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// drainText 关闭独享 StreamWriter 并收集其中的文本内容。
-func drainText(w *chat.StreamWriter) string {
+// drainText 关闭工具专用 BlockStream 并收集其中的文本内容。
+func drainText(w *agent.BlockStream) string {
 	w.Close()
 	var sb strings.Builder
-	for {
-		b, _ := w.ReadBlock()
-		if b == nil {
-			break
-		}
+	blocks, _ := w.ReadBlocks()
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)
 		}
@@ -26,7 +23,7 @@ func drainText(w *chat.StreamWriter) string {
 
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
-	w := chat.NewStreamWriter(nil)
+	w := agent.NewBlockStream()
 	err := tool.Execute(agent.NewTurn(args), w)
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
@@ -67,7 +64,7 @@ func TestTaskCreate_MissingSubject(t *testing.T) {
 
 	err := create.Execute(agent.NewTurn(map[string]any{
 		"description": "desc",
-	}), chat.NewStreamWriter(nil))
+	}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error for missing subject")
 	}
@@ -79,7 +76,7 @@ func TestTaskCreate_MissingDescription(t *testing.T) {
 
 	err := create.Execute(agent.NewTurn(map[string]any{
 		"subject": "Fix bug",
-	}), chat.NewStreamWriter(nil))
+	}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error for missing description")
 	}
@@ -132,7 +129,7 @@ func TestTaskUpdate_BlockedTaskCannotStart(t *testing.T) {
 	err := update.Execute(agent.NewTurn(map[string]any{
 		"task_id": "1",
 		"status":  "in_progress",
-	}), chat.NewStreamWriter(nil))
+	}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error: blocked by incomplete task")
 	}
@@ -368,7 +365,7 @@ func TestTaskGet_NotFound(t *testing.T) {
 	store := NewTodoStore()
 	get := &TaskGetTool{store}
 
-	err := get.Execute(agent.NewTurn(map[string]any{"task_id": "999"}), chat.NewStreamWriter(nil))
+	err := get.Execute(agent.NewTurn(map[string]any{"task_id": "999"}), agent.NewBlockStream())
 	if err == nil {
 		t.Error("expected error for non-existent task")
 	}

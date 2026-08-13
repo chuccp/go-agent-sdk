@@ -78,23 +78,25 @@ func TestWithoutThinking_PreservesOrder(t *testing.T) {
 	}
 }
 
-// ── StreamWriter 文本聚合（工具输出收集场景）──
+// ── BlockStream: WriteBlock 文本拼接（工具输出场景）──
 
-func TestStreamWriter_TextCollect(t *testing.T) {
-	stream := chat.NewStreamWriter(nil)
+func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
+	stream := NewBlockStream()
 	stream.WriteBlock(chat.NewTextBlock("hello "))
 	stream.WriteBlock(chat.NewTextBlock("world"))
 	stream.Close()
 
 	var text string
-	for {
-		b, _ := stream.ReadBlock()
-		if b == nil {
-			break
-		}
+	count := 0
+	blocks, _ := stream.ReadBlocks()
+	for _, b := range blocks {
+		count++
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text += tb.Text
 		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 coalesced block, got %d", count)
 	}
 	if text != "hello world" {
 		t.Errorf("expected 'hello world', got %q", text)

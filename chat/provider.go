@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-
-	"github.com/chuccp/go-agent-sdk/util"
 )
 
 // Service 是 LLM 提供方的流式对话接口。
@@ -43,13 +41,12 @@ func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, 
 		return errors.New("no such provider: " + provider)
 	}
 
-	util.Go(func() {
-		if err := chatService.ChatWithStream(ctx, chatMessages, stream); err != nil {
-			stream.WriteError(err)
-			return
-		}
-		stream.Close()
-	})
+	// 同步写入：provider 完成输出后 Close（flush 未完成的 block），
+	// 调用方随后通过 stream.ReadBlocks() 一次性取回全部 Block
+	if err := chatService.ChatWithStream(ctx, chatMessages, stream); err != nil {
+		stream.WriteError(err)
+	}
+	stream.Close()
 	return nil
 }
 

@@ -106,7 +106,7 @@ func (t *echoTool) Definition() *chat.ToolFunction {
 }
 func (t *echoTool) Name() string { return "echo" }
 func (t *echoTool) UsagePrompt() string { return "" }
-func (t *echoTool) Execute(turn *agent.Turn, w *chat.StreamWriter) error {
+func (t *echoTool) Execute(turn *agent.Turn, w *agent.BlockStream) error {
 	return w.WriteBlock(chat.NewTextBlock("echo output"))
 }
 

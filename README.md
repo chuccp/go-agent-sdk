@@ -142,12 +142,14 @@ ToolResultBlock { ToolUseID string; Content any }
 type ToolExecutor interface {
     Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
     Name() string                                       // 工具唯一名称
-    Execute(turn *Turn, writer chat.StreamWriter) error // 执行逻辑
+    UsagePrompt() string                                // 工具引导提示词（随每轮 System 注入）
+    Execute(turn *Turn, writer *BlockStream) error      // 执行逻辑
 }
 ```
 
 `Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`SessionContext`）。
-执行结果通过 `writer` 流式写出，支持逐块输出内容。
+执行结果通过 `writer`（工具专用的 `BlockStream`）写出，支持逐块输出内容；
+LLM 流式输出则由独享的 `chat.StreamWriter` 接收，两者不共用。
 
 ### 内置工具
 

@@ -5,19 +5,12 @@ import (
 	"testing"
 )
 
-// drainBlocks 消费 StreamWriter 中的所有 block（要求无错误结束）。
+// drainBlocks 取回 StreamWriter 中的全部 block（要求无错误结束，调用前应先 Close）。
 func drainBlocks(t *testing.T, stream *StreamWriter) []Block {
 	t.Helper()
-	var blocks []Block
-	for {
-		b, err := stream.ReadBlock()
-		if b == nil {
-			if err != nil {
-				t.Fatalf("ReadBlock error: %v", err)
-			}
-			break
-		}
-		blocks = append(blocks, b)
+	blocks, _, err := stream.ReadBlocks()
+	if err != nil {
+		t.Fatalf("ReadBlocks error: %v", err)
 	}
 	return blocks
 }
@@ -135,39 +128,20 @@ func TestStreamWriter_StopReasonAndUsage(t *testing.T) {
 	}
 }
 
-// ── WriteBlock / WriteError ──
-
-func TestStreamWriter_WriteBlock_Direct(t *testing.T) {
-	stream := NewStreamWriter(nil)
-	stream.WriteBlock(NewTextBlock("hello"))
-	stream.WriteBlock(NewToolResultBlock("tu_1", "done"))
-	stream.Close()
-
-	blocks := drainBlocks(t, stream)
-	if len(blocks) != 2 {
-		t.Fatalf("expected 2 blocks, got %d", len(blocks))
-	}
-}
-
+// ── WriteError ──
 func TestStreamWriter_WriteError(t *testing.T) {
 	stream := NewStreamWriter(nil)
-	stream.WriteBlock(NewTextBlock("before error"))
+	stream.Write(&TextBlockStart{})
+	stream.Write(&Delta{Content: "before error"})
 	stream.WriteError(errors.New("test error"))
-	// WriteError 调用 Close，之后不再写入
+	stream.Close()
 
-	var blocks []Block
-	for {
-		b, _ := stream.ReadBlock()
-		if b == nil {
-			break
-		}
-		blocks = append(blocks, b)
-	}
+	blocks, _, err := stream.ReadBlocks()
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block (before error), got %d", len(blocks))
 	}
-	if stream.Err() == nil {
-		t.Error("expected Err() to return error")
+	if err == nil || stream.Err() == nil {
+		t.Error("expected ReadBlocks/Err() to return error")
 	}
 }
 
@@ -175,7 +149,8 @@ func TestStreamWriter_WriteError(t *testing.T) {
 
 func TestStreamWriter_Close_Idempotent(t *testing.T) {
 	stream := NewStreamWriter(nil)
-	stream.WriteBlock(NewTextBlock("x"))
+	stream.Write(&TextBlockStart{})
+	stream.Write(&Delta{Content: "x"})
 	stream.Close()
 	stream.Close() // 幂等
 	stream.Close()
@@ -204,9 +179,9 @@ func TestStreamWriter_Close_FlushesActiveBlock(t *testing.T) {
 func TestStreamWriter_ReadBlock_Empty(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.Close()
-	b, err := stream.ReadBlock()
-	if b != nil || err != nil {
-		t.Errorf("expected (nil, nil) on empty closed stream, got %v, %v", b, err)
+	blocks, _, err := stream.ReadBlocks()
+	if len(blocks) != 0 || err != nil {
+		t.Errorf("expected empty blocks without error, got %v, %v", blocks, err)
 	}
 }
 

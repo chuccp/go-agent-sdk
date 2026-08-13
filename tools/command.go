@@ -100,7 +100,7 @@ func needsStartPrefix(cmd string) bool {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出写入 writer。
-func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
+func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
 	cmd, ok := args["command"].(string)
 	if !ok || strings.TrimSpace(cmd) == "" {

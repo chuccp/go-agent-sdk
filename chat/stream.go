@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
@@ -104,13 +103,13 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-// StreamWriter 是单次请求独享的流式写入器（类似 http.ResponseWriter）。
-// 生产方（LLM provider / 工具）通过 Write 写入 Stream 项（块开始/增量），
-// 内部的 blockAssembler 将增量组装为完整的 Block 入队；
-// 消费方循环调用 ReadBlock() 读取，(nil, nil) 表示流结束。
-// 每个 StreamWriter 独享自己的队列与组装器，不同请求之间互不干扰。
+// StreamWriter 是单次请求独享的流式写入器，仅用于接收大模型的输出。
+// 生产方（LLM provider）通过 Write 写入 Stream 项（块开始/增量），
+// 内部的 blockAssembler 将增量组装为完整的 Block 收集到列表；
+// 调用方先 Close（flush 未完成的 block），再通过 ReadBlocks() 一次性取回全部 Block。
+// 每个 StreamWriter 独享自己的收集列表与组装器，不同请求之间互不干扰。
 type StreamWriter struct {
-	blocks         *util.Queue[Block]
+	blocks         []Block
 	receiver       EventReceiver
 	usage          *Usage
 	stopReason     StopReason
@@ -122,7 +121,7 @@ type StreamWriter struct {
 // NewStreamWriter 创建一个独享的 StreamWriter。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
 func NewStreamWriter(receiver EventReceiver) *StreamWriter {
 	return &StreamWriter{
-		blocks:   util.NewQueue[Block](),
+		blocks:   make([]Block, 0),
 		receiver: receiver,
 		usage: &Usage{
 			InputTokens:  0,
@@ -148,7 +147,7 @@ func (s *StreamWriter) Write(stream Stream) error {
 			id, name = tu.Id, tu.Name
 		}
 		if prev := s.blockAssembler.start(stream.(BlockStream).BlockType(), id, name); prev != nil {
-			return s.blocks.Offer(prev)
+			s.blocks = append(s.blocks, prev)
 		}
 	case DeltaType:
 		content := stream.(*Delta).Content
@@ -163,15 +162,20 @@ func (s *StreamWriter) Write(stream Stream) error {
 	return nil
 }
 
-// WriteBlock 直接写入一个完整内容块（跳过组装器，适用于工具输出等场景）。
-func (s *StreamWriter) WriteBlock(block Block) error {
-	return s.blocks.Offer(block)
-}
-
-// WriteError 记录错误并结束流，ReadBlock 消费完剩余内容后返回 (nil, nil)。
+// WriteError 记录错误，ReadBlocks 返回时携带该错误。
 func (s *StreamWriter) WriteError(err error) {
 	s.err = err
-	s.Close()
+}
+
+// Close 结束写入：flush 未完成的 block。幂等，多次调用安全。
+func (s *StreamWriter) Close() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	if b := s.blockAssembler.flush(); b != nil {
+		s.blocks = append(s.blocks, b)
+	}
 }
 
 // StopReason 设置模型停止生成的原因。
@@ -184,25 +188,9 @@ func (s *StreamWriter) Usage(usage *Usage) {
 	s.usage = usage
 }
 
-// Close 关闭流：flush 未完成的 block 后关闭队列。幂等，多次调用安全。
-func (s *StreamWriter) Close() {
-	if s.closed {
-		return
-	}
-	s.closed = true
-	if b := s.blockAssembler.flush(); b != nil {
-		s.blocks.Offer(b)
-	}
-	s.blocks.Close()
-}
-
-// ReadBlock 读取下一个已组装完成的 Block，(nil, nil) 表示流结束。
-func (s *StreamWriter) ReadBlock() (Block, error) {
-	b, ok := s.blocks.Dequeue()
-	if !ok {
-		return nil, s.err
-	}
-	return b, nil
+// ReadBlocks 返回已组装完成的全部 Block、停止原因与流错误（调用前应先 Close）。
+func (s *StreamWriter) ReadBlocks() (Blocks, StopReason, error) {
+	return s.blocks, s.stopReason, s.err
 }
 
 // GetStopReason 返回模型停止生成的原因（流结束后有效）。

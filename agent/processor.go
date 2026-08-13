@@ -151,7 +151,9 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	var stopReason chat.StopReason
 	var streamErr error
 	if callErr == nil {
-		blocks, stopReason, streamErr = ctx.streamResponse(stream)
+		// Block 的拼接与组装由 StreamWriter 内部完成；增量已在写入时
+		// 通过 EventReceiver（AddEvent）向外广播，此处只取回结果
+		blocks, stopReason, streamErr = stream.ReadBlocks()
 	}
 
 	// ===== 重新持锁 =====
@@ -176,7 +178,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 }
 
 // executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks。
-// 每个工具在独立协程中执行（runTool），输出写入各自独享的 StreamWriter；
+// 每个工具的输出写入各自的 BlockStream（工具专用），同步执行完成后一次性取回；
 // 本方法消费每个工具的输出并组装为 tool_result，未命中任何工具的 tool_use 补错误结果
 // （避免下一轮请求缺 tool_result 报错）。
 // 锁协议：进入时持有 runLock；工具执行期间由 runTool 自行释放/重取，返回时保持持锁。
@@ -196,20 +198,18 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		stream := chat.NewStreamWriter(ctx)
-		util.Go(func() {
-			p.runTool(ctx, tu, exec, stream)
-			stream.Close()
-		})
+		stream := NewBlockStream()
+		p.runTool(ctx, tu, exec, stream)
+		stream.Close()
 
 		results = append(results, p.collectToolResult(ctx, tu, stream))
 	}
 	return results
 }
 
-// runTool 执行单个工具：输出内容块流式写入独享的 writer。
+// runTool 执行单个工具：输出内容块写入工具专用的 writer。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer *chat.StreamWriter) {
+func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer *BlockStream) {
 	args, _ := tu.Input.(map[string]any)
 	turn := &Turn{ctx: ctx, args: args}
 
@@ -218,21 +218,18 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 	ctx.runLock.Lock()
 
 	if execErr != nil {
-		// 错误通过 StreamWriter.Err() 传递给消费方组装进 tool_result
+		// 错误通过 BlockStream.Err() 传递给消费方组装进 tool_result
 		writer.WriteError(execErr)
 	}
 }
 
-// collectToolResult 消费单个工具的输出直到流结束：文本拼接为结果正文，
+// collectToolResult 取回单个工具的全部输出：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
-func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *chat.StreamWriter) *chat.ToolResultBlock {
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
 	var text strings.Builder
 	var content chat.Blocks
-	for {
-		b, _ := stream.ReadBlock()
-		if b == nil {
-			break
-		}
+	blocks, _ := stream.ReadBlocks()
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text.WriteString(tb.Text)
 			continue

@@ -105,22 +105,18 @@ func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Requ
 
 // ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
 // 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
-// 注意：不能提前 Close，流的关闭由 ProviderRegistry 的写入协程负责，
-// 此处只阻塞消费到流结束。
+// ChatWithStream 同步等待写入协程结束（其负责 Close），此处直接取回全部 Block。
 func (c *SessionContext) ChatComplete(ctx context.Context, request *chat.Request) (string, error) {
 	stream := chat.NewStreamWriter(nil)
 	if err := c.ChatWithStream(ctx, request, stream); err != nil {
 		return "", err
 	}
+	blocks, _, err := stream.ReadBlocks()
+	if err != nil {
+		return "", err
+	}
 	var text string
-	for {
-		b, e := stream.ReadBlock()
-		if b == nil {
-			if e != nil {
-				return "", e
-			}
-			break
-		}
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text += tb.Text
 		}
