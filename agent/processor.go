@@ -142,18 +142,9 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	// 每轮请求独享一个 StreamWriter：内部自行组装 Block、推送增量事件
-	stream := chat.NewStreamWriter(ctx)
-
-	callErr := ctx.ChatWithStream(ctx.runCtx, request, stream)
-
-	var blocks chat.Blocks
-	var stopReason chat.StopReason
-	if callErr == nil {
-		// Block 的拼接与组装由 StreamWriter 内部完成；增量已在写入时
-		// 通过 EventReceiver（AddEvent）向外广播，此处只取回结果
-		blocks, stopReason = stream.ReadBlocks()
-	}
+	// ChatWithStream 内部创建独享 StreamWriter（组装 Block、推送增量事件），
+	// 同步完成后一次性返回全部结果
+	blocks, stopReason, callErr := ctx.ChatWithStream(ctx.runCtx, request)
 
 	// ===== 重新持锁 =====
 	ctx.runLock.Lock()
