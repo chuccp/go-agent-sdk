@@ -17,3 +17,64 @@ type StreamWriter interface {
 	WriteError(err error)
 	Close()
 }
+
+type Stream interface {
+	Type() string
+}
+type BlockStream interface {
+	BlockType() string
+}
+
+const (
+	StreamStartType = "Start"
+	BlockStartType  = "BlockStart"
+)
+const (
+	TextBlockType    = "text"
+	ThinkBlockType   = "think"
+	ToolUseBlockType = "toolUse"
+)
+
+type Start struct {
+	Stream
+}
+
+func (s *Start) Type() string {
+	return StreamStartType
+}
+
+type TextBlockStart struct {
+	Stream
+	BlockStream
+}
+
+func (s *TextBlockStart) Type() string {
+	return BlockStartType
+}
+func (s *TextBlockStart) BlockType() string {
+	return TextBlockType
+}
+
+type ThinkingBlockStart struct {
+	Stream
+	BlockStream
+}
+
+func (s *ThinkingBlockStart) Type() string {
+	return BlockStartType
+}
+func (s *ThinkingBlockStart) BlockType() string {
+	return ThinkBlockType
+}
+
+type ToolUseBlockStart struct {
+	Stream
+	BlockStream
+}
+
+func (s *ToolUseBlockStart) Type() string {
+	return BlockStartType
+}
+func (s *ToolUseBlockStart) BlockType() string {
+	return ToolUseBlockType
+}
