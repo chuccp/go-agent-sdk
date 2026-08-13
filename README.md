@@ -18,23 +18,22 @@
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │  Agent                                                        │
-│  ├── ProviderRegistry (多 LLM 后端)                            │
-│  ├── ToolExecutors (工具注册)                                  │
+│  ├── ProviderRegistry (多 LLM 后端)                              │
+│  ├── ToolExecutors (工具注册)                                     │
 │  └── map[id] → session                                        │
-│                  └── SessionContext (状态中心)                  │
-│                       ├── inbox (消息队列, runMutex 保护)       │
-│                       ├── messageProcessor (会话编排器)         │
-│                       │    ├── MessageFilter 链 (拦截/过滤消息)  │
-│                       │    ├── coreMessageFilter (链最内层)     │
-│                       │    │    ├── 入队 + 启动主循环            │
-│                       │    │    └── executeRound → doLoop      │
-│                       │    └── 工具级过滤器 (ask_user 等)       │
+│                  └── SessionContext (状态中心)                    │
+│                       ├── inbox (消息队列, runLock 保护)            │
+│                       ├── messageProcessor (会话编排器)            │
+│                       │    ├── HandleRevMessage (入队+启动主循环)    │
+│                       │    └── doLoop                         │
+│                       │    │    ├── executeRound (构建请求+LLM)   │
+│                       │    │    └── executeTools (tool_result)│
 │                       ├── Store                               │
-│                       │    ├── entries (活跃事件缓冲区)          │
-│                       │    ├── history (全量消息, 持久化)        │
-│                       │    ├── positions (客户端读取位置列表)    │
-│                       │    └── base (Reset 推进, seq 单调递增)   │
-│                       └── Client[] (轻量订阅句柄)               │
+│                       │    ├── entries (活跃事件缓冲区)              │
+│                       │    ├── history (全量消息, 持久化)            │
+│                       │    ├── positions (客户端读取位置列表)          │
+│                       │    └── seq (事件序号, 单调递增)               │
+│                       └── Client[] (轻量订阅句柄)                   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -130,7 +129,7 @@ ToolResultBlock { ToolUseID string; Content any }
 
 ### 事件流与断线续传
 
-每条 Message 携带 `[Start, Offset)` 区间，标记它产出了哪些事件。客户端持有一个 `start` 值即可精确续读——`start < base` 表示事件已归档，从 history 恢复；`start >= base` 表示事件仍在活跃缓冲区，从 entries 增量读取。
+每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `Reset` 裁掉，`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
 
 多个 Client 同时订阅时，每个 Client 通过 Position 独立推进读取进度，互不阻塞。
 
