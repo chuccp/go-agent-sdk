@@ -197,11 +197,9 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			))
 			continue
 		}
-
 		stream := NewBlockStream(ctx)
 		p.runTool(ctx, tu, exec, stream)
 		stream.Close()
-
 		results = append(results, p.collectToolResult(ctx, tu, stream))
 	}
 	return results
@@ -228,7 +226,7 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
 	var text strings.Builder
 	var content chat.Blocks
-	blocks, _ := stream.ReadBlocks()
+	blocks, err := stream.ReadBlocks()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text.WriteString(tb.Text)
@@ -236,9 +234,8 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 		}
 		content = append(content, b)
 	}
-
 	resultText := text.String()
-	if err := stream.Err(); err != nil {
+	if err != nil {
 		if resultText != "" {
 			resultText += "\n"
 		}
@@ -247,7 +244,6 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	if resultText == "" {
 		resultText = "(无输出)"
 	}
-
 	args, _ := tu.Input.(map[string]any)
 	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), resultText))
 
