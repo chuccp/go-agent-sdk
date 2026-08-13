@@ -122,7 +122,7 @@ func TestTwoRoundsWithTool(t *testing.T) {
 func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
-	writer := agent.NewBlockStream()
+	writer := agent.NewBlockStream(nil)
 	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可
 	err := tool.Execute(agent.NewTurn(map[string]any{"command": cmd}), writer)
 	if err != nil {

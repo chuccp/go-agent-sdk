@@ -23,7 +23,7 @@ func drainText(w *agent.BlockStream) string {
 
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
-	w := agent.NewBlockStream()
+	w := agent.NewBlockStream(nil)
 	err := tool.Execute(agent.NewTurn(args), w)
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
@@ -64,7 +64,7 @@ func TestTaskCreate_MissingSubject(t *testing.T) {
 
 	err := create.Execute(agent.NewTurn(map[string]any{
 		"description": "desc",
-	}), agent.NewBlockStream())
+	}), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for missing subject")
 	}
@@ -76,7 +76,7 @@ func TestTaskCreate_MissingDescription(t *testing.T) {
 
 	err := create.Execute(agent.NewTurn(map[string]any{
 		"subject": "Fix bug",
-	}), agent.NewBlockStream())
+	}), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for missing description")
 	}
@@ -129,7 +129,7 @@ func TestTaskUpdate_BlockedTaskCannotStart(t *testing.T) {
 	err := update.Execute(agent.NewTurn(map[string]any{
 		"task_id": "1",
 		"status":  "in_progress",
-	}), agent.NewBlockStream())
+	}), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error: blocked by incomplete task")
 	}
@@ -365,7 +365,7 @@ func TestTaskGet_NotFound(t *testing.T) {
 	store := NewTodoStore()
 	get := &TaskGetTool{store}
 
-	err := get.Execute(agent.NewTurn(map[string]any{"task_id": "999"}), agent.NewBlockStream())
+	err := get.Execute(agent.NewTurn(map[string]any{"task_id": "999"}), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for non-existent task")
 	}

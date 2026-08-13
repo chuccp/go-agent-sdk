@@ -119,7 +119,7 @@ func newStoryFlow() *exec.Workflow {
 // execToolText 在工具专用 BlockStream 上执行工具并收集输出文本。
 func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) (string, error) {
 	t.Helper()
-	w := agent.NewBlockStream()
+	w := agent.NewBlockStream(nil)
 	err := exec.Execute(turn, w)
 	w.Close()
 	var sb strings.Builder

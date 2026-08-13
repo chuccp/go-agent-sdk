@@ -1,11 +1,15 @@
 package tools
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -99,7 +103,8 @@ func needsStartPrefix(cmd string) bool {
 	return guiApps[prog]
 }
 
-// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出写入 writer。
+// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出逐行流式写入 writer
+// （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）。
 func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
 	cmd, ok := args["command"].(string)
@@ -112,7 +117,7 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 		return writer.WriteBlock(chat.NewTextBlock(err.Error()))
 	}
 
-	// Windows 下对 GUI 程序自动加 start "" 前缀，防止 CombinedOutput 阻塞
+	// Windows 下对 GUI 程序自动加 start "" 前缀，防止阻塞
 	if isWindows() && needsStartPrefix(cmd) {
 		cmd = `start "" ` + cmd
 	}
@@ -121,25 +126,52 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 	defer cancel()
 
 	c := newShellCommand(ctx, cmd)
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("命令执行失败: %w", err)
+	}
+	stderr, err := c.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("命令执行失败: %w", err)
+	}
+	if err := c.Start(); err != nil {
+		return fmt.Errorf("命令执行失败: %w", err)
+	}
 
-	output, err := c.CombinedOutput()
-	output = decodeOutput(output)
+	// 流式排空 stdout/stderr：逐行实时推送（两个协程并发写入，BlockStream 内部已加锁）
+	var gotOutput atomic.Bool
+	var wg sync.WaitGroup
+	streamLines := func(rd io.Reader) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(rd)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := string(decodeOutput(scanner.Bytes()))
+			writer.WriteEvent(line + "\n")
+			gotOutput.Store(true)
+		}
+	}
+	wg.Add(2)
+	go streamLines(stdout)
+	go streamLines(stderr)
+	wg.Wait()
+
+	err = c.Wait()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("命令执行超时（30s）: %s", cmd)
 		}
-		// 命令执行失败时也返回输出（如 stderr 信息）
-		if len(output) > 0 {
-			return writer.WriteBlock(chat.NewTextBlock(
-				fmt.Sprintf("命令退出码非零，输出:\n%s\n错误: %v", string(output), err)))
+		// 命令执行失败：已流式写入的输出保留，补充错误说明
+		if gotOutput.Load() {
+			return writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令退出码非零，错误: %v", err)))
 		}
 		return fmt.Errorf("命令执行失败: %w", err)
 	}
 
-	if len(output) == 0 {
+	if !gotOutput.Load() {
 		return writer.WriteBlock(chat.NewTextBlock("(无输出)"))
 	}
-	return writer.WriteBlock(chat.NewTextBlock(string(output)))
+	return nil
 }
 
 func isWindows() bool {

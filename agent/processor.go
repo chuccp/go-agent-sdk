@@ -198,7 +198,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		stream := NewBlockStream()
+		stream := NewBlockStream(ctx)
 		p.runTool(ctx, tu, exec, stream)
 		stream.Close()
 

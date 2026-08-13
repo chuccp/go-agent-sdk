@@ -81,7 +81,7 @@ func TestWithoutThinking_PreservesOrder(t *testing.T) {
 // ── BlockStream: WriteBlock 文本拼接（工具输出场景）──
 
 func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
-	stream := NewBlockStream()
+	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("hello "))
 	stream.WriteBlock(chat.NewTextBlock("world"))
 	stream.Close()
@@ -100,5 +100,69 @@ func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
 	}
 	if text != "hello world" {
 		t.Errorf("expected 'hello world', got %q", text)
+	}
+}
+
+// ── BlockStream: WriteEvent 流式输出（长耗时命令实时回显场景）──
+
+type testReceiver struct {
+	events []*chat.ClientEvent
+}
+
+func (r *testReceiver) AddEvent(evt *chat.ClientEvent) {
+	r.events = append(r.events, evt)
+}
+
+func TestBlockStream_WriteEvent_EmitsChunkAndCollects(t *testing.T) {
+	recv := &testReceiver{}
+	stream := NewBlockStream(recv)
+	stream.WriteEvent("line1\n")
+	stream.WriteEvent("line2\n")
+	stream.Close()
+
+	// 每段流式输出都实时推送了 chunk 事件
+	if len(recv.events) != 2 {
+		t.Fatalf("expected 2 chunk events, got %d", len(recv.events))
+	}
+	for i, want := range []string{"line1\n", "line2\n"} {
+		if recv.events[i].EventType != chat.EventTypeChunk || recv.events[i].Content != want {
+			t.Errorf("event[%d] expected chunk %q, got type=%s content=%q",
+				i, want, recv.events[i].EventType, recv.events[i].Content)
+		}
+	}
+
+	// 同时进入 tool_result（连续文本拼接为一块）
+	blocks, _ := stream.ReadBlocks()
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 coalesced block, got %d", len(blocks))
+	}
+	if tb, ok := blocks[0].(*chat.TextBlock); !ok || tb.Text != "line1\nline2\n" {
+		t.Errorf("expected 'line1\\nline2\\n', got %v", blocks[0])
+	}
+}
+
+func TestBlockStream_WriteEvent_EmptyIgnored(t *testing.T) {
+	recv := &testReceiver{}
+	stream := NewBlockStream(recv)
+	stream.WriteEvent("")
+	stream.Close()
+
+	if len(recv.events) != 0 {
+		t.Errorf("empty content should not emit event, got %d", len(recv.events))
+	}
+	blocks, _ := stream.ReadBlocks()
+	if len(blocks) != 0 {
+		t.Errorf("empty content should not collect block, got %d", len(blocks))
+	}
+}
+
+func TestBlockStream_WriteEvent_NilReceiver(t *testing.T) {
+	stream := NewBlockStream(nil)
+	stream.WriteEvent("no receiver") // 不应 panic
+	stream.Close()
+
+	blocks, _ := stream.ReadBlocks()
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block even without receiver, got %d", len(blocks))
 	}
 }

@@ -2,31 +2,60 @@ package agent
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
 // BlockStream 是工具输出专用的写入管道：内部维护一个 Block 列表。
 // 工具通过 WriteBlock 写入内容块（连续 TextBlock 会被拼接为一个），
+// 也可通过 WriteEvent 逐段推送流式输出（如长耗时命令的实时回显）；
 // 调用方先 Close（flush 未完成的拼接），再通过 ReadBlocks() 一次性取回全部 Block。
 // LLM 流式输出使用独享的 chat.StreamWriter（仅用于接收大模型的值），两者不共用。
 type BlockStream struct {
+	mu         sync.Mutex // 保护写入与 flush（工具流式输出可能来自多个协程）
 	blocks     []chat.Block
 	pending    strings.Builder // 连续 TextBlock 的拼接缓冲
 	hasPending bool
 	err        error
 	closed     bool
+	receiver   chat.EventReceiver
 }
 
-func NewBlockStream() *BlockStream {
+// NewBlockStream 创建工具输出管道。receiver 为事件接收方（如 SessionContext），
+// nil 表示不外发事件（WriteEvent 仅收集内容）。
+func NewBlockStream(receiver chat.EventReceiver) *BlockStream {
 	return &BlockStream{
-		blocks: make([]chat.Block, 0),
+		receiver: receiver,
+		blocks:   make([]chat.Block, 0),
 	}
+}
+
+// WriteEvent 推送一段流式输出：经 receiver 向外发送 chunk 事件（实时回显），
+// 同时作为文本块收集，Close 后随 ReadBlocks 进入 tool_result。
+// 兼容长耗时命令等不是一次性出结果、而是流式输出的场景。
+func (r *BlockStream) WriteEvent(content string) {
+	if content == "" {
+		return
+	}
+	if r.receiver != nil {
+		r.receiver.AddEvent(chat.NewChunkEvent(content))
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writeBlockLocked(chat.NewTextBlock(content))
 }
 
 // WriteBlock 写入一个内容块：连续的 TextBlock 会被拼接为一个，
 // 遇到其他类型（或 Close）时输出拼接结果，其余类型直接收集。
 func (r *BlockStream) WriteBlock(block chat.Block) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.writeBlockLocked(block)
+}
+
+// writeBlockLocked 要求调用方持有 mu。
+func (r *BlockStream) writeBlockLocked(block chat.Block) error {
 	if tb, ok := block.(*chat.TextBlock); ok {
 		r.pending.WriteString(tb.Text)
 		r.hasPending = true
@@ -46,6 +75,8 @@ func (r *BlockStream) WriteError(err error) {
 
 // Close 结束写入：输出未完成的拼接内容。幂等，多次调用安全。
 func (r *BlockStream) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.closed {
 		return
 	}
@@ -61,7 +92,7 @@ func (r *BlockStream) ReadBlocks() (chat.Blocks, error) {
 // Err 返回执行过程中发生的错误。
 func (r *BlockStream) Err() error { return r.err }
 
-// flushPending 将累积的文本拼接结果作为一个 TextBlock 收集。
+// flushPending 将累积的文本拼接结果作为一个 TextBlock 收集。要求调用方持有 mu。
 func (r *BlockStream) flushPending() error {
 	if !r.hasPending {
 		return nil
