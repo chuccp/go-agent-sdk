@@ -144,7 +144,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 
 	// ChatWithStream 内部创建独享 StreamWriter（组装 Block、推送增量事件），
 	// 同步完成后一次性返回全部结果
-	blocks, stopReason, callErr := ctx.ChatWithStream(ctx.runCtx, request)
+	blocks, stopReason, callErr := ctx.ChatWithStream(request)
 
 	// ===== 重新持锁 =====
 	ctx.runLock.Lock()

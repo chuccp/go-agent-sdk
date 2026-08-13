@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -180,7 +179,7 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars, itemV
 		Thinking: &chat.ThinkingConfig{Type: "disabled"},
 		Messages: []chat.Message{chat.NewTextMessage(user)},
 	}
-	return sctx.ChatComplete(doneContext(sctx.Done()), request)
+	return sctx.ChatComplete(request)
 }
 
 // emitProgress 推送 flow_progress 事件（前端步骤进度/作品卡片）。
@@ -290,19 +289,3 @@ func countDone(results []any) int {
 	}
 	return n
 }
-
-// doneContext 把会话的 Done 通道包装为可取消的 context：
-// 用户停止会话时，节点内部的 LLM 调用随之取消。
-func doneContext(done <-chan struct{}) context.Context {
-	if done == nil {
-		return context.Background()
-	}
-	return &cancelOnDone{Context: context.Background(), done: done}
-}
-
-type cancelOnDone struct {
-	context.Context
-	done <-chan struct{}
-}
-
-func (c *cancelOnDone) Done() <-chan struct{} { return c.done }
