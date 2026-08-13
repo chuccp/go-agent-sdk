@@ -197,7 +197,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
-	err := tool.Execute(agent.NewTurn(map[string]any{}), &capturingWriter{})
+	err := tool.Execute(agent.NewTurn(map[string]any{}), chat.NewStreamWriter(nil))
 	if err == nil {
 		t.Error("expected error when SessionContext is not injected")
 	}
@@ -208,7 +208,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s1")
 
-	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), &capturingWriter{})
+	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), chat.NewStreamWriter(nil))
 	if err == nil {
 		t.Error("expected error for missing questions")
 	}
@@ -239,7 +239,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 		},
 	}
 
-	w := &capturingWriter{}
+	w := chat.NewStreamWriter(nil)
 	done := make(chan error, 1)
 	go func() {
 		done <- tool.Execute(agent.NewTurnWithContext(ctx, args), w)
@@ -256,8 +256,8 @@ func TestExecute_NonBlocking(t *testing.T) {
 	}
 
 	// tool_result 文本提示 LLM 等待用户回答
-	if !strings.Contains(w.text.String(), "问题已发送给用户") {
-		t.Errorf("expected tool_result guidance text, got %q", w.text.String())
+	if text := drainText(w); !strings.Contains(text, "问题已发送给用户") {
+		t.Errorf("expected tool_result guidance text, got %q", text)
 	}
 
 	// 前端收到 ask_user 事件，content 为问题列表 JSON

@@ -142,7 +142,8 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	stream := NewBlockStream(ctx)
+	// 每轮请求独享一个 StreamWriter：内部自行组装 Block、推送增量事件
+	stream := chat.NewStreamWriter(ctx)
 
 	callErr := ctx.ChatWithStream(ctx.runCtx, request, stream)
 
@@ -175,7 +176,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 }
 
 // executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks。
-// 每个工具在独立协程中执行（runTool），输出内容块写入各自的 Response（由其拼接组合）；
+// 每个工具在独立协程中执行（runTool），输出写入各自独享的 StreamWriter；
 // 本方法消费每个工具的输出并组装为 tool_result，未命中任何工具的 tool_use 补错误结果
 // （避免下一轮请求缺 tool_result 报错）。
 // 锁协议：进入时持有 runLock；工具执行期间由 runTool 自行释放/重取，返回时保持持锁。
@@ -195,7 +196,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			continue
 		}
 
-		stream := NewBlockStream(ctx)
+		stream := chat.NewStreamWriter(ctx)
 		util.Go(func() {
 			p.runTool(ctx, tu, exec, stream)
 			stream.Close()
@@ -206,9 +207,9 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 	return results
 }
 
-// runTool 执行单个工具：输出内容块流式写入 writer。
+// runTool 执行单个工具：输出内容块流式写入独享的 writer。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer chat.StreamWriter) {
+func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer *chat.StreamWriter) {
 	args, _ := tu.Input.(map[string]any)
 	turn := &Turn{ctx: ctx, args: args}
 
@@ -217,17 +218,21 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 	ctx.runLock.Lock()
 
 	if execErr != nil {
-		// 错误通过 Response.Err() 传递给消费方组装进 tool_result
+		// 错误通过 StreamWriter.Err() 传递给消费方组装进 tool_result
 		writer.WriteError(execErr)
 	}
 }
 
 // collectToolResult 消费单个工具的输出直到流结束：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
-func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *chat.StreamWriter) *chat.ToolResultBlock {
 	var text strings.Builder
 	var content chat.Blocks
-	for b := stream.ReadBlock(); b != nil; b = stream.ReadBlock() {
+	for {
+		b, _ := stream.ReadBlock()
+		if b == nil {
+			break
+		}
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text.WriteString(tb.Text)
 			continue

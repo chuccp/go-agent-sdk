@@ -47,7 +47,7 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w chat.StreamWriter) error {
+func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
 	if len(req.Tools) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
 		f.nodeCalls++
@@ -59,27 +59,22 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 	f.mainSystems = append(f.mainSystems, req.System)
 	blocks := f.script()[f.mainCalls-1]
 	stop := chat.StopReasonToolUse
-	for i, b := range blocks {
+	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
-			w.Write(&chat.ContentBlockStartEvent{Index: i, ContentBlock: chat.NewTextBlock("")})
-			w.Write(&chat.ContentBlockDeltaEvent{Index: i, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: tb.Text}})
-			w.Write(&chat.ContentBlockStopEvent{Index: i})
+			w.Write(&chat.TextBlockStart{})
+			w.Write(&chat.Delta{Content: tb.Text})
 			continue
 		}
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
-			// 模拟真实 LLM：start 只带 id/name，入参经 input_json_delta 流式下发
-			w.Write(&chat.ContentBlockStartEvent{Index: i, ContentBlock: chat.NewToolUseBlock(tu.ID, tu.Name, nil)})
+			// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
+			w.Write(&chat.ToolUseBlockStart{Id: tu.ID, Name: tu.Name})
 			inputJSON, _ := json.Marshal(tu.Input)
-			w.Write(&chat.ContentBlockDeltaEvent{Index: i, Delta: chat.ContentDelta{Type: chat.DeltaTypeInputJSON, PartialJSON: string(inputJSON)}})
-			w.Write(&chat.ContentBlockStopEvent{Index: i})
+			w.Write(&chat.Delta{Content: string(inputJSON)})
 			continue
 		}
-		w.Write(&chat.ContentBlockStartEvent{Index: i, ContentBlock: b})
-		w.Write(&chat.ContentBlockStopEvent{Index: i})
 	}
-	w.Write(&chat.MessageDeltaEvent{StopReason: stop})
-	w.Write(&chat.MessageStopEvent{})
+	w.StopReason(stop)
 	return nil
 }
 
@@ -88,20 +83,17 @@ type fakeStoryNode struct {
 	last *chat.Request
 }
 
-func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w chat.StreamWriter) error {
+func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
 	f.last = req
 	emitText(w, "这是一个关于海洋的故事。")
 	return nil
 }
 
-// emitText 以协议事件写出一段完整文本（end_turn）。
-func emitText(w chat.StreamWriter, text string) {
-	w.Write(&chat.MessageStartEvent{ID: "m", Model: "fake", Role: "assistant"})
-	w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-	w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: text}})
-	w.Write(&chat.ContentBlockStopEvent{Index: 0})
-	w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonEndTurn})
-	w.Write(&chat.MessageStopEvent{})
+// emitText 以简化流项写出一段完整文本（end_turn）。
+func emitText(w *chat.StreamWriter, text string) {
+	w.Write(&chat.TextBlockStart{})
+	w.Write(&chat.Delta{Content: text})
+	w.StopReason(chat.StopReasonEndTurn)
 }
 
 // ==================== flow 定义（与 example 的 story003 同构） ====================
@@ -124,20 +116,24 @@ func newStoryFlow() *exec.Workflow {
 
 // ==================== 辅助 ====================
 
-// textCollector 收集工具输出文本。
-type textCollector struct{ text strings.Builder }
-
-func (c *textCollector) Write(_ chat.Event) error { return nil }
-func (c *textCollector) WriteBlock(b chat.Block) error {
-	if tb, ok := b.(*chat.TextBlock); ok {
-		c.text.WriteString(tb.Text)
+// execToolText 在独享 StreamWriter 上执行工具并收集输出文本。
+func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) (string, error) {
+	t.Helper()
+	w := chat.NewStreamWriter(nil)
+	err := exec.Execute(turn, w)
+	w.Close()
+	var sb strings.Builder
+	for {
+		b, _ := w.ReadBlock()
+		if b == nil {
+			break
+		}
+		if tb, ok := b.(*chat.TextBlock); ok {
+			sb.WriteString(tb.Text)
+		}
 	}
-	return nil
+	return sb.String(), err
 }
-func (c *textCollector) WriteError(_ error) {}
-func (c *textCollector) Close()             {}
-func (c *textCollector) Reset()             { c.text.Reset() }
-func (c *textCollector) String() string     { return c.text.String() }
 
 // collectUntilDone 读事件直到 done。
 func collectUntilDone(t *testing.T, client *agent.Client) []*chat.ClientEvent {
@@ -234,13 +230,13 @@ func TestFlowEndToEnd(t *testing.T) {
 		t.Errorf("节点 user 模板渲染错误: %q", userText)
 	}
 	// ④ finish 已清理：flow_status 报告无激活 flow
-	w := &textCollector{}
 	statusTurn := agent.NewTurnWithContext(manager.SessionContext("flow-e2e"), nil)
-	if err := status.Execute(statusTurn, w); err != nil {
+	out, err := execToolText(t, status, statusTurn)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(w.String(), "无激活") {
-		t.Errorf("finish 后应无激活 flow: %s", w.String())
+	if !strings.Contains(out, "无激活") {
+		t.Errorf("finish 后应无激活 flow: %s", out)
 	}
 }
 
@@ -257,61 +253,60 @@ func TestFlowGuards(t *testing.T) {
 	turn := func(args map[string]any) *agent.Turn {
 		return agent.NewTurnWithContext(sctx, args)
 	}
-	w := &textCollector{}
+	run := func(exec agent.ToolExecutor, args map[string]any) (string, error) {
+		return execToolText(t, exec, turn(args))
+	}
 
 	// ① 未激活时 exec_node 被拒
-	err := execNode.Execute(turn(map[string]any{"step_id": "story"}), w)
+	_, err := run(execNode, map[string]any{"step_id": "story"})
 	if err == nil || !strings.Contains(err.Error(), "activate_flow") {
 		t.Errorf("未激活 exec 应报错: %v", err)
 	}
 
 	// ② 激活（不登记 audience）→ confirm 未完成 → exec story 被依赖校验拒绝
-	w.Reset()
-	if err := activate.Execute(turn(map[string]any{
+	out, err := run(activate, map[string]any{
 		"flow_id": "story003", "input": map[string]any{"topic": "太空"},
-	}), w); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(w.String(), "【执行守则】") || !strings.Contains(w.String(), "【步骤】") {
-		t.Errorf("首次激活应返回完整卡片: %s", w.String())
+	if !strings.Contains(out, "【执行守则】") || !strings.Contains(out, "【步骤】") {
+		t.Errorf("首次激活应返回完整卡片: %s", out)
 	}
-	w.Reset()
-	err = execNode.Execute(turn(map[string]any{"step_id": "story"}), w)
+	_, err = run(execNode, map[string]any{"step_id": "story"})
 	if err == nil || !strings.Contains(err.Error(), "前置步骤") {
 		t.Errorf("跳步应被依赖校验拒绝: %v", err)
 	}
 
 	// ③ 补录 audience → DoneWhen 自动完成 confirm → exec 成功（零上下文调用）
-	w.Reset()
-	if err := activate.Execute(turn(map[string]any{
+	out, err = run(activate, map[string]any{
 		"flow_id": "story003", "input": map[string]any{"audience": "儿童"},
-	}), w); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(w.String(), "已补录") {
-		t.Errorf("幂等更新应返回补录确认: %s", w.String())
+	if !strings.Contains(out, "已补录") {
+		t.Errorf("幂等更新应返回补录确认: %s", out)
 	}
-	w.Reset()
-	if err := execNode.Execute(turn(map[string]any{"step_id": "story"}), w); err != nil {
+	out, err = run(execNode, map[string]any{"step_id": "story"})
+	if err != nil {
 		t.Fatalf("依赖满足后 exec 应成功: %v", err)
 	}
-	if !strings.Contains(w.String(), "执行完成") || !strings.Contains(w.String(), "【进度】") {
-		t.Errorf("exec 结果应含摘要与进度脚标: %s", w.String())
+	if !strings.Contains(out, "执行完成") || !strings.Contains(out, "【进度】") {
+		t.Errorf("exec 结果应含摘要与进度脚标: %s", out)
 	}
 	if storyLLM.last == nil || !strings.Contains(toString(storyLLM.last.Messages[0].Content), "主题：太空") {
 		t.Error("节点调用模板未正确渲染上游 input")
 	}
 
 	// ④ deliver 未完成 → finish(complete) 被验收拒绝
-	w.Reset()
-	errs := finish.Execute(turn(map[string]any{"action": "complete"}), w)
-	if errs == nil || !strings.Contains(errs.Error(), "未完成") {
-		t.Errorf("漏步 finish 应被拒: %v", errs)
+	_, err = run(finish, map[string]any{"action": "complete"})
+	if err == nil || !strings.Contains(err.Error(), "未完成") {
+		t.Errorf("漏步 finish 应被拒: %v", err)
 	}
 
 	// ⑤ abandon 成功清理
-	w.Reset()
-	if err := finish.Execute(turn(map[string]any{"action": "abandon"}), w); err != nil {
+	if _, err := run(finish, map[string]any{"action": "abandon"}); err != nil {
 		t.Errorf("abandon 应成功: %v", err)
 	}
 }

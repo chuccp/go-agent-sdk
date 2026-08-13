@@ -91,7 +91,7 @@ func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：创建一个新任务，结果写入 writer。
-func (t *TaskCreateTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
+func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
 	args := turn.Args()
 	subject, _ := args["subject"].(string)
 	if strings.TrimSpace(subject) == "" {
@@ -202,7 +202,7 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：更新一个已有任务，结果写入 writer。
-func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
+func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
 	args := turn.Args()
 	taskID, _ := args["task_id"].(string)
 	if strings.TrimSpace(taskID) == "" {
@@ -358,7 +358,7 @@ func (t *TaskListTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：列出所有活跃任务，结果写入 writer。
-func (t *TaskListTool) Execute(_ *agent.Turn, writer chat.StreamWriter) error {
+func (t *TaskListTool) Execute(_ *agent.Turn, writer *chat.StreamWriter) error {
 	t.store.mu.RLock()
 	defer t.store.mu.RUnlock()
 
@@ -421,7 +421,7 @@ func (t *TaskGetTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：获取一个任务的完整详情，结果写入 writer。
-func (t *TaskGetTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
+func (t *TaskGetTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
 	args := turn.Args()
 	taskID, _ := args["task_id"].(string)
 	if strings.TrimSpace(taskID) == "" {

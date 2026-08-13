@@ -44,8 +44,8 @@ func NewService(config *Config) Service {
 }
 
 // ChatWithStream 向 Anthropic Messages API 发送流式请求，
-// 将事件写入 response，完成后关闭。
-func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Request, response chat.StreamWriter) error {
+// 将解析后的内容写入 response（独享 StreamWriter），完成后关闭。
+func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Request, response *chat.StreamWriter) error {
 	s.applyDefaults(chatMessages)
 	chatMessages.Stream = true
 
@@ -124,9 +124,10 @@ type sseMessage struct {
 	StopReason chat.StopReason `json:"stop_reason"`
 }
 
-// parseSSE 从 HTTP 响应体中读取 SSE 事件流，转换为 chat.Event 并写入 Response。
-// 解析完成后关闭 Response。
-func (s *serviceImpl) parseSSE(body io.ReadCloser, resp chat.StreamWriter) {
+// parseSSE 从 HTTP 响应体中读取 SSE 事件流，转换为简化的 Stream 项写入 response：
+// 块开始（BlockStart）→ 内容增量（Delta）→ 停止原因/用量，解析完成后关闭 response。
+// SSE 协议细节（index/message_start 等）在这里被消化，不外泄到流模型。
+func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) {
 	defer resp.Close()
 	defer body.Close()
 
@@ -146,58 +147,52 @@ func (s *serviceImpl) parseSSE(body io.ReadCloser, resp chat.StreamWriter) {
 		switch raw.Type {
 		case "message_start":
 			if raw.Message != nil {
-				resp.Write(&chat.MessageStartEvent{
-					ID:    raw.Message.ID,
-					Model: raw.Message.Model,
-					Role:  raw.Message.Role,
-					Usage: raw.Message.Usage,
-				})
+				resp.Write(&chat.Start{})
+				usage := raw.Message.Usage
+				resp.Usage(&usage)
 			}
 
 		case "content_block_start":
-			if raw.ContentBlock != nil {
-				block, err := chat.UnmarshalBlock(raw.ContentBlock)
-				if err == nil {
-					resp.Write(&chat.ContentBlockStartEvent{
-						Index:        raw.Index,
-						ContentBlock: block,
-					})
-				}
+			if raw.ContentBlock == nil {
+				continue
+			}
+			block, err := chat.UnmarshalBlock(raw.ContentBlock)
+			if err != nil {
+				continue
+			}
+			switch b := block.(type) {
+			case *chat.ThinkingBlock:
+				resp.Write(&chat.ThinkingBlockStart{})
+			case *chat.ToolUseBlock:
+				resp.Write(&chat.ToolUseBlockStart{Id: b.ID, Name: b.Name})
+			default:
+				resp.Write(&chat.TextBlockStart{})
 			}
 
 		case "content_block_delta":
-			if raw.Delta != nil {
-				resp.Write(&chat.ContentBlockDeltaEvent{
-					Index: raw.Index,
-					Delta: chat.ContentDelta{
-						Type:        raw.Delta.Type,
-						Text:        raw.Delta.Text,
-						Thinking:    raw.Delta.Thinking,
-						PartialJSON: raw.Delta.PartialJSON,
-					},
-				})
+			if raw.Delta == nil {
+				continue
 			}
-
-		case "content_block_stop":
-			resp.Write(&chat.ContentBlockStopEvent{Index: raw.Index})
+			// text/thinking/input_json 三种增量统一为 Delta，语义由当前 block 决定
+			content := raw.Delta.Text + raw.Delta.Thinking + raw.Delta.PartialJSON
+			if content != "" {
+				resp.Write(&chat.Delta{Content: content})
+			}
 
 		case "message_delta":
-			evt := &chat.MessageDeltaEvent{}
-			if raw.Delta != nil {
-				evt.StopReason = chat.StopReason(raw.Delta.StopReason)
+			if raw.Delta != nil && raw.Delta.StopReason != "" {
+				resp.StopReason(chat.StopReason(raw.Delta.StopReason))
 			}
 			if raw.Usage != nil {
-				evt.Usage = *raw.Usage
+				resp.Usage(raw.Usage)
 			}
-			resp.Write(evt)
 
 		case "message_stop":
-			resp.Write(&chat.MessageStopEvent{})
 			return // 流正常结束
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		resp.Write(&chat.ErrorEvent{Err: fmt.Errorf("SSE stream read error: %w", err)})
+		resp.WriteError(fmt.Errorf("SSE stream read error: %w", err))
 	}
 }

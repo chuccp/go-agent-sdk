@@ -110,7 +110,7 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
 // 后立即返回，不阻塞等待回答；同时写入简短提示作为 tool_result，
 // 告知 LLM 结束本轮、等待用户以普通消息形式回答。
-func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer chat.StreamWriter) error {
+func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.StreamWriter) error {
 	ctx := turn.Context()
 	if ctx == nil {
 		return fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")

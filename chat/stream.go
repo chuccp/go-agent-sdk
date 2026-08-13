@@ -1,5 +1,37 @@
 package chat
 
+import (
+	"encoding/json"
+	"log"
+
+	"github.com/chuccp/go-agent-sdk/util"
+	"github.com/chuccp/go-agent-sdk/value"
+)
+
+// StopReason 是模型停止生成的原因
+type StopReason string
+
+const (
+	StopReasonEndTurn   StopReason = "end_turn"      // 自然结束
+	StopReasonMaxTokens StopReason = "max_tokens"    // 达到 max_tokens 上限
+	StopReasonToolUse   StopReason = "tool_use"      // 需要调用工具
+	StopReasonStopSeq   StopReason = "stop_sequence" // 命中停止序列
+)
+
+type StreamType string
+type BlockType string
+
+const (
+	StreamStartType StreamType = "Start"
+	BlockStartType  StreamType = "BlockStart"
+	DeltaType       StreamType = "Delta"
+)
+const (
+	TextBlockType    BlockType = "text"
+	ThinkBlockType   BlockType = "think"
+	ToolUseBlockType BlockType = "toolUse"
+)
+
 // -------- StreamWriter / EventReceiver --------
 
 // EventReceiver 事件接收方：流式过程中产生的客户端推送事件（文本/思考链增量等）
@@ -8,38 +40,198 @@ type EventReceiver interface {
 	AddEvent(event *ClientEvent)
 }
 
-// StreamWriter 是流式内容的生产方接口（类似 http.ResponseWriter）。
-// 生产方（LLM provider / 工具）通过它写入协议事件或内容块，
-// Block 的拼接与组合由 BlockStream 内部完成，写入方无需关心。
-type StreamWriter interface {
-	Write(event Event) error
-	WriteBlock(block Block) error
-	WriteError(err error)
-	Close()
+// blockAssembler 是独享的 block 组装器：每个 StreamWriter 持有自己的实例，
+// 在流式接收过程中累积构建一个 content block（start → delta… → 下一个 start/Close 时 flush）。
+type blockAssembler struct {
+	blockType BlockType
+	stream    *value.Stream
+	id        string // tool_use block 的 ID
+	name      string // tool_use block 的工具名
+	active    bool
+}
+
+// start 开始构建一个新的 content block（自动 flush 上一个未完成的 block，返回给调用方入队）。
+func (a *blockAssembler) start(blockType BlockType, id, name string) Block {
+	prev := a.flush()
+	a.blockType = blockType
+	a.id = id
+	a.name = name
+	a.active = true
+	return prev
+}
+
+// append 向当前 block 追加增量内容（文本/思考链/工具入参 JSON 片段）。
+func (a *blockAssembler) append(content string) {
+	if a.active {
+		a.stream.WriteString(content)
+	}
+}
+
+// flush 完成当前 block 并返回具体的 Block 实现（无活动 block 时返回 nil）。
+func (a *blockAssembler) flush() Block {
+	if !a.active {
+		return nil
+	}
+	a.active = false
+	content := a.stream.Text()
+	defer a.stream.Reset()
+
+	switch a.blockType {
+	case TextBlockType:
+		return NewTextBlock(content)
+	case ThinkBlockType:
+		// 跳过空的 thinking block（避免产生 {"type":"thinking"} 脏数据）
+		if len(content) == 0 {
+			return nil
+		}
+		return NewThinkingBlock(content)
+	case ToolUseBlockType:
+		var input any
+		if len(content) > 0 {
+			if err := json.Unmarshal([]byte(content), &input); err != nil {
+				log.Printf("tool_use JSON 解析失败: %v, raw=%s", err, content)
+			}
+		}
+		return NewToolUseBlock(a.id, a.name, input)
+	default:
+		return NewTextBlock(content)
+	}
+}
+
+// Usage 记录本次请求的 token 消耗。
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// StreamWriter 是单次请求独享的流式写入器（类似 http.ResponseWriter）。
+// 生产方（LLM provider / 工具）通过 Write 写入 Stream 项（块开始/增量），
+// 内部的 blockAssembler 将增量组装为完整的 Block 入队；
+// 消费方循环调用 ReadBlock() 读取，(nil, nil) 表示流结束。
+// 每个 StreamWriter 独享自己的队列与组装器，不同请求之间互不干扰。
+type StreamWriter struct {
+	blocks         *util.Queue[Block]
+	receiver       EventReceiver
+	usage          *Usage
+	stopReason     StopReason
+	blockAssembler *blockAssembler
+	err            error
+	closed         bool
+}
+
+// NewStreamWriter 创建一个独享的 StreamWriter。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
+func NewStreamWriter(receiver EventReceiver) *StreamWriter {
+	return &StreamWriter{
+		blocks:   util.NewQueue[Block](),
+		receiver: receiver,
+		usage: &Usage{
+			InputTokens:  0,
+			OutputTokens: 0,
+		},
+		stopReason: StopReasonEndTurn,
+		blockAssembler: &blockAssembler{
+			stream: value.NewStream(),
+		},
+	}
+}
+
+// Write 写入一个 Stream 项：块开始事件开启新的组装（上一个 block 自动 flush 入队），
+// 增量追加到当前 block，并按当前 block 类型通过 receiver 向外推送客户端事件。
+func (s *StreamWriter) Write(stream Stream) error {
+	switch stream.Type() {
+	case StreamStartType:
+		// 消息开始，无状态需要处理
+		return nil
+	case BlockStartType:
+		var id, name string
+		if tu, ok := stream.(*ToolUseBlockStart); ok {
+			id, name = tu.Id, tu.Name
+		}
+		if prev := s.blockAssembler.start(stream.(BlockStream).BlockType(), id, name); prev != nil {
+			return s.blocks.Offer(prev)
+		}
+	case DeltaType:
+		content := stream.(*Delta).Content
+		s.blockAssembler.append(content)
+		switch s.blockAssembler.blockType {
+		case TextBlockType:
+			s.emit(NewChunkEvent(content))
+		case ThinkBlockType:
+			s.emit(NewThinkingEvent(content))
+		}
+	}
+	return nil
+}
+
+// WriteBlock 直接写入一个完整内容块（跳过组装器，适用于工具输出等场景）。
+func (s *StreamWriter) WriteBlock(block Block) error {
+	return s.blocks.Offer(block)
+}
+
+// WriteError 记录错误并结束流，ReadBlock 消费完剩余内容后返回 (nil, nil)。
+func (s *StreamWriter) WriteError(err error) {
+	s.err = err
+	s.Close()
+}
+
+// StopReason 设置模型停止生成的原因。
+func (s *StreamWriter) StopReason(stopReason StopReason) {
+	s.stopReason = stopReason
+}
+
+// Usage 设置本次请求的 token 消耗。
+func (s *StreamWriter) Usage(usage *Usage) {
+	s.usage = usage
+}
+
+// Close 关闭流：flush 未完成的 block 后关闭队列。幂等，多次调用安全。
+func (s *StreamWriter) Close() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	if b := s.blockAssembler.flush(); b != nil {
+		s.blocks.Offer(b)
+	}
+	s.blocks.Close()
+}
+
+// ReadBlock 读取下一个已组装完成的 Block，(nil, nil) 表示流结束。
+func (s *StreamWriter) ReadBlock() (Block, error) {
+	b, ok := s.blocks.Dequeue()
+	if !ok {
+		return nil, s.err
+	}
+	return b, nil
+}
+
+// GetStopReason 返回模型停止生成的原因（流结束后有效）。
+func (s *StreamWriter) GetStopReason() StopReason { return s.stopReason }
+
+// GetUsage 返回本次请求的 token 消耗。
+func (s *StreamWriter) GetUsage() *Usage { return s.usage }
+
+// Err 返回流处理过程中发生的错误（流结束后检查）。
+func (s *StreamWriter) Err() error { return s.err }
+
+// emit 通过 receiver 向外推送客户端事件。
+func (s *StreamWriter) emit(evt *ClientEvent) {
+	if s.receiver != nil {
+		s.receiver.AddEvent(evt)
+	}
 }
 
 type Stream interface {
-	Type() string
+	Type() StreamType
 }
 type BlockStream interface {
-	BlockType() string
+	BlockType() BlockType
 }
-
-const (
-	StreamStartType = "Start"
-	BlockStartType  = "BlockStart"
-)
-const (
-	TextBlockType    = "text"
-	ThinkBlockType   = "think"
-	ToolUseBlockType = "toolUse"
-)
-
 type Start struct {
 	Stream
 }
 
-func (s *Start) Type() string {
+func (s *Start) Type() StreamType {
 	return StreamStartType
 }
 
@@ -48,10 +240,10 @@ type TextBlockStart struct {
 	BlockStream
 }
 
-func (s *TextBlockStart) Type() string {
+func (s *TextBlockStart) Type() StreamType {
 	return BlockStartType
 }
-func (s *TextBlockStart) BlockType() string {
+func (s *TextBlockStart) BlockType() BlockType {
 	return TextBlockType
 }
 
@@ -60,21 +252,34 @@ type ThinkingBlockStart struct {
 	BlockStream
 }
 
-func (s *ThinkingBlockStart) Type() string {
+func (s *ThinkingBlockStart) Type() StreamType {
 	return BlockStartType
 }
-func (s *ThinkingBlockStart) BlockType() string {
+func (s *ThinkingBlockStart) BlockType() BlockType {
 	return ThinkBlockType
 }
 
 type ToolUseBlockStart struct {
 	Stream
 	BlockStream
+	Id   string
+	Name string
 }
 
-func (s *ToolUseBlockStart) Type() string {
+func (s *ToolUseBlockStart) Type() StreamType {
 	return BlockStartType
 }
-func (s *ToolUseBlockStart) BlockType() string {
+func (s *ToolUseBlockStart) BlockType() BlockType {
 	return ToolUseBlockType
 }
+
+// -------- 增量 Stream 项 --------
+
+// Delta 是一段内容增量：只携带内容本身，不区分文本/思考链/工具入参，
+// 语义由它所属的当前 block（最近一次 BlockStart）决定。
+type Delta struct {
+	Stream
+	Content string
+}
+
+func (d *Delta) Type() StreamType { return DeltaType }

@@ -8,12 +8,12 @@ import (
 
 // ToolExecutor 工具执行器接口：定义工具的元数据（发给 LLM）和执行逻辑。
 // 执行时入参从 turn.Args() 获取（由 executeTools 按命中的 tool_use 设置），
-// 会话上下文从 turn.Context() 获取；输出内容块流式写入 writer（由 Response 拼接组合）。
+// 会话上下文从 turn.Context() 获取；输出内容块写入独享的 StreamWriter。
 type ToolExecutor interface {
 	Definition() *chat.ToolFunction
 	Name() string
 	UsagePrompt() string
-	Execute(turn *Turn, writer chat.StreamWriter) error
+	Execute(turn *Turn, writer *chat.StreamWriter) error
 }
 
 // Turn 一次工具执行的载体。

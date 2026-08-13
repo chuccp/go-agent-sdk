@@ -20,33 +20,24 @@ type askUserProvider struct {
 	lastReq atomic.Pointer[chat.Request]
 }
 
-func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w chat.StreamWriter) error {
+func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
 	f.lastReq.Store(req)
 	n := f.calls.Add(1)
 	switch n {
 	case 1:
-		w.Write(&chat.MessageStartEvent{ID: "m1", Model: "fake", Role: "assistant"})
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewToolUseBlock("tu_ask", "ask_user_question", nil)})
-		// 入参按真实协议以 input_json_delta 流式送达
-		w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{
-			Type: chat.DeltaTypeInputJSON,
-			PartialJSON: `{"questions":[{"question":"What color?","header":"Color","options":[` +
-				`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`,
-		}})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonToolUse})
-		w.Write(&chat.MessageStopEvent{})
+		w.Write(&chat.ToolUseBlockStart{Id: "tu_ask", Name: "ask_user_question"})
+		// 入参按真实协议以 Delta 流式送达
+		w.Write(&chat.Delta{Content: `{"questions":[{"question":"What color?","header":"Color","options":[` +
+			`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`})
+		w.StopReason(chat.StopReasonToolUse)
 	default:
 		text := "等待用户回答"
 		if n > 2 {
 			text = "已收到用户回答"
 		}
-		w.Write(&chat.MessageStartEvent{ID: "m1", Model: "fake", Role: "assistant"})
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-		w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: text}})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonEndTurn})
-		w.Write(&chat.MessageStopEvent{})
+		w.Write(&chat.TextBlockStart{})
+		w.Write(&chat.Delta{Content: text})
+		w.StopReason(chat.StopReasonEndTurn)
 	}
 	return nil
 }

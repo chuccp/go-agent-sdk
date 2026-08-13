@@ -69,7 +69,7 @@ func (f *iterFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w chat.StreamWriter) error {
+func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
 	if len(req.Tools) == 0 {
 		// 零上下文节点调用：按 System 模板识别节点
 		userText := ""
@@ -98,23 +98,20 @@ func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 	f.mainCalls++
 	blocks := f.script()[f.mainCalls-1]
 	stop := chat.StopReasonToolUse
-	for i, b := range blocks {
+	for _, b := range blocks {
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
-			w.Write(&chat.ContentBlockStartEvent{Index: i, ContentBlock: chat.NewToolUseBlock(tu.ID, tu.Name, nil)})
-			w.Write(&chat.ContentBlockDeltaEvent{Index: i, Delta: chat.ContentDelta{Type: chat.DeltaTypeInputJSON, PartialJSON: mustJSON(tu.Input)}})
-			w.Write(&chat.ContentBlockStopEvent{Index: i})
+			w.Write(&chat.ToolUseBlockStart{Id: tu.ID, Name: tu.Name})
+			w.Write(&chat.Delta{Content: mustJSON(tu.Input)})
 			continue
 		}
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
-			w.Write(&chat.ContentBlockStartEvent{Index: i, ContentBlock: chat.NewTextBlock("")})
-			w.Write(&chat.ContentBlockDeltaEvent{Index: i, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: tb.Text}})
-			w.Write(&chat.ContentBlockStopEvent{Index: i})
+			w.Write(&chat.TextBlockStart{})
+			w.Write(&chat.Delta{Content: tb.Text})
 			continue
 		}
 	}
-	w.Write(&chat.MessageDeltaEvent{StopReason: stop})
-	w.Write(&chat.MessageStopEvent{})
+	w.StopReason(stop)
 	return nil
 }
 

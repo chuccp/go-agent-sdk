@@ -11,7 +11,7 @@ import (
 // Service 是 LLM 提供方的流式对话接口。
 // 每个 provider（如 OpenAI、Anthropic）实现此接口。
 type Service interface {
-	ChatWithStream(ctx context.Context, chatMessages *Request, response StreamWriter) error
+	ChatWithStream(ctx context.Context, chatMessages *Request, response *StreamWriter) error
 }
 
 // ProviderRegistry 管理多个 LLM provider 的注册与路由。
@@ -37,17 +37,18 @@ func (r *ProviderRegistry) getProvider(provider string) Service {
 	return r.providerMap[provider]
 }
 
-func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream StreamWriter) error {
+func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream *StreamWriter) error {
 	chatService := r.getProvider(provider)
 	if chatService == nil {
 		return errors.New("no such provider: " + provider)
 	}
 
 	util.Go(func() {
-		defer stream.Close()
 		if err := chatService.ChatWithStream(ctx, chatMessages, stream); err != nil {
 			stream.WriteError(err)
+			return
 		}
+		stream.Close()
 	})
 	return nil
 }

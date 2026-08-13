@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,19 +20,20 @@ type singleResponseProvider struct {
 	toolUse    *chat.ToolUseBlock // 非 nil 时返回 tool_use
 }
 
-func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w chat.StreamWriter) error {
-	w.Write(&chat.MessageStartEvent{ID: "m1", Model: "fake", Role: "assistant"})
+func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.StreamWriter) error {
+	w.Write(&chat.Start{})
 	if f.toolUse != nil {
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewToolUseBlock(f.toolUse.ID, f.toolUse.Name, f.toolUse.Input)})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonToolUse})
+		w.Write(&chat.ToolUseBlockStart{Id: f.toolUse.ID, Name: f.toolUse.Name})
+		if f.toolUse.Input != nil {
+			inputJSON, _ := json.Marshal(f.toolUse.Input)
+			w.Write(&chat.Delta{Content: string(inputJSON)})
+		}
+		w.StopReason(chat.StopReasonToolUse)
 	} else {
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-		w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: f.text}})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: f.stopReason})
+		w.Write(&chat.TextBlockStart{})
+		w.Write(&chat.Delta{Content: f.text})
+		w.StopReason(f.stopReason)
 	}
-	w.Write(&chat.MessageStopEvent{})
 	return nil
 }
 
@@ -54,50 +56,44 @@ type blockSpec struct {
 	toolName  string
 }
 
-func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w chat.StreamWriter) error {
+func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.StreamWriter) error {
 	i := int(f.idx.Add(1)) - 1
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
-		w.Write(&chat.MessageStartEvent{ID: "m-fallback", Model: "fake", Role: "assistant"})
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-		w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: "fallback"}})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonEndTurn})
-		w.Write(&chat.MessageStopEvent{})
+		w.Write(&chat.TextBlockStart{})
+		w.Write(&chat.Delta{Content: "fallback"})
+		w.StopReason(chat.StopReasonEndTurn)
 		return nil
 	}
 
 	resp := f.responses[i]
-	w.Write(&chat.MessageStartEvent{ID: "m1", Model: "fake", Role: "assistant"})
 
 	// 如果设置了 text，使用快捷方式
 	if resp.text != "" {
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-		w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: resp.text}})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
+		w.Write(&chat.TextBlockStart{})
+		w.Write(&chat.Delta{Content: resp.text})
 	} else {
 		for _, bs := range resp.blocks {
-			var cb chat.Block
 			switch bs.blockType {
-			case chat.ContentTypeText:
-				cb = chat.NewTextBlock(bs.text)
 			case chat.ContentTypeToolUse:
-				cb = chat.NewToolUseBlock(bs.toolID, bs.toolName, map[string]any{"command": "echo hi"})
+				// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
+				w.Write(&chat.ToolUseBlockStart{Id: bs.toolID, Name: bs.toolName})
+				w.Write(&chat.Delta{Content: `{"command":"echo hi"}`})
 			case chat.ContentTypeThinking:
-				cb = chat.NewThinkingBlock(bs.text)
+				w.Write(&chat.ThinkingBlockStart{})
+				if bs.text != "" {
+					w.Write(&chat.Delta{Content: bs.text})
+				}
 			default:
-				cb = chat.NewTextBlock(bs.text)
+				w.Write(&chat.TextBlockStart{})
+				if bs.text != "" {
+					w.Write(&chat.Delta{Content: bs.text})
+				}
 			}
-			w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: cb})
-			if bs.text != "" && bs.blockType == chat.ContentTypeText {
-				w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: bs.text}})
-			}
-			w.Write(&chat.ContentBlockStopEvent{Index: 0})
 		}
 	}
 
-	w.Write(&chat.MessageDeltaEvent{StopReason: resp.reason})
-	w.Write(&chat.MessageStopEvent{})
+	w.StopReason(resp.reason)
 	return nil
 }
 
@@ -110,7 +106,7 @@ func (t *echoTool) Definition() *chat.ToolFunction {
 }
 func (t *echoTool) Name() string { return "echo" }
 func (t *echoTool) UsagePrompt() string { return "" }
-func (t *echoTool) Execute(turn *agent.Turn, w chat.StreamWriter) error {
+func (t *echoTool) Execute(turn *agent.Turn, w *chat.StreamWriter) error {
 	return w.WriteBlock(chat.NewTextBlock("echo output"))
 }
 

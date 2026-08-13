@@ -95,24 +95,35 @@ func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 
 // ── 会话主体能力（主循环调用）──
 
-// ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的 BlockStream。
+// ChatWithStream 使用默认 provider 发起流式对话请求，结果写入调用方创建的独享 StreamWriter。
 // stream 创建时传入本上下文作为事件接收方（AddEvent），
-// 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
-func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, stream *BlockStream) error {
+// 流式增量产生的客户端事件（chunk/thinking）由 StreamWriter 直接推送。
+func (c *SessionContext) ChatWithStream(ctx context.Context, messages *chat.Request, stream *chat.StreamWriter) error {
 	provider := c.registry.DefaultProvider()
 	return c.registry.ChatWithStream(ctx, provider, messages, stream)
 }
 
 // ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
 // 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
+// 注意：不能提前 Close，流的关闭由 ProviderRegistry 的写入协程负责，
+// 此处只阻塞消费到流结束。
 func (c *SessionContext) ChatComplete(ctx context.Context, request *chat.Request) (string, error) {
-	stream := NewBlockStream(nil)
+	stream := chat.NewStreamWriter(nil)
 	if err := c.ChatWithStream(ctx, request, stream); err != nil {
 		return "", err
 	}
-	text, _ := stream.Collect()
-	if err := stream.Err(); err != nil {
-		return "", err
+	var text string
+	for {
+		b, e := stream.ReadBlock()
+		if b == nil {
+			if e != nil {
+				return "", e
+			}
+			break
+		}
+		if tb, ok := b.(*chat.TextBlock); ok {
+			text += tb.Text
+		}
 	}
 	return text, nil
 }

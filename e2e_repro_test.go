@@ -20,22 +20,17 @@ type fakeProvider struct {
 	calls int
 }
 
-func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w chat.StreamWriter) error {
+func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
 	f.calls++
 	if f.calls == 1 {
-		w.Write(&chat.MessageStartEvent{ID: "m1", Model: "fake", Role: "assistant"})
-		w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewToolUseBlock("tu_1", "fake_tool", map[string]any{"command": "echo hi"})})
-		w.Write(&chat.ContentBlockStopEvent{Index: 0})
-		w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonToolUse})
-		w.Write(&chat.MessageStopEvent{})
+		w.Write(&chat.ToolUseBlockStart{Id: "tu_1", Name: "fake_tool"})
+		w.Write(&chat.Delta{Content: `{"command":"echo hi"}`})
+		w.StopReason(chat.StopReasonToolUse)
 		return nil
 	}
-	w.Write(&chat.MessageStartEvent{ID: "m2", Model: "fake", Role: "assistant"})
-	w.Write(&chat.ContentBlockStartEvent{Index: 0, ContentBlock: chat.NewTextBlock("")})
-	w.Write(&chat.ContentBlockDeltaEvent{Index: 0, Delta: chat.ContentDelta{Type: chat.DeltaTypeText, Text: "工具结果已收到"}})
-	w.Write(&chat.ContentBlockStopEvent{Index: 0})
-	w.Write(&chat.MessageDeltaEvent{StopReason: chat.StopReasonEndTurn})
-	w.Write(&chat.MessageStopEvent{})
+	w.Write(&chat.TextBlockStart{})
+	w.Write(&chat.Delta{Content: "工具结果已收到"})
+	w.StopReason(chat.StopReasonEndTurn)
 	return nil
 }
 
@@ -47,7 +42,7 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 }
 func (t *fakeTool) Name() string { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
-func (t *fakeTool) Execute(_ *agent.Turn, writer chat.StreamWriter) error {
+func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.StreamWriter) error {
 	return writer.WriteBlock(chat.NewTextBlock("fake tool output"))
 }
 
@@ -123,32 +118,28 @@ func TestTwoRoundsWithTool(t *testing.T) {
 
 // ── CommandTool 中文输出编码测试（Windows）──
 
-// capturingWriter 收集工具写入的内容块。
-type capturingWriter struct {
-	text strings.Builder
-}
-
-func (w *capturingWriter) Write(_ chat.Event) error { return nil }
-func (w *capturingWriter) WriteBlock(block chat.Block) error {
-	if tb, ok := block.(*chat.TextBlock); ok {
-		w.text.WriteString(tb.Text)
-	}
-	return nil
-}
-func (w *capturingWriter) WriteError(_ error) {}
-func (w *capturingWriter) Close()             {}
-
-// runCommand 用 CommandTool 执行命令并返回输出文本。
+// runCommand 用 CommandTool 执行命令并返回输出文本（独享 StreamWriter 收集）。
 func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
-	writer := &capturingWriter{}
+	writer := chat.NewStreamWriter(nil)
 	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可
 	err := tool.Execute(agent.NewTurn(map[string]any{"command": cmd}), writer)
 	if err != nil {
 		t.Fatalf("执行命令 %q 失败: %v", cmd, err)
 	}
-	return writer.text.String()
+	writer.Close()
+	var sb strings.Builder
+	for {
+		b, _ := writer.ReadBlock()
+		if b == nil {
+			break
+		}
+		if tb, ok := b.(*chat.TextBlock); ok {
+			sb.WriteString(tb.Text)
+		}
+	}
+	return sb.String()
 }
 
 // TestCommandChineseOutput 验证中文命令输出不乱码（chcp 65001 + GBK 兜底解码）。
