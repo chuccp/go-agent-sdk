@@ -3,6 +3,7 @@ module github.com/chuccp/go-agent-sdk/example
 go 1.26.4
 
 replace github.com/chuccp/go-agent-sdk => ../
+
 replace github.com/chuccp/go-web-frame => ../../go-web-frame
 
 require (
@@ -70,7 +71,7 @@ require (
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
