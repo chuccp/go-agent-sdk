@@ -154,10 +154,11 @@ func parseQuestions(args *value.Object) ([]Question, error) {
 	}
 
 	questions := make([]Question, 0, n)
-	for i := 0; i < n; i++ {
-		v := arr.Get(i)
+	var parseErr error
+	arr.ForEach(func(i int, v value.Value) bool {
 		if !v.IsObject() {
-			return nil, fmt.Errorf("questions[%d] 必须是对象", i)
+			parseErr = fmt.Errorf("questions[%d] 必须是对象", i)
+			return false
 		}
 		obj := v.AsObject()
 
@@ -168,16 +169,22 @@ func parseQuestions(args *value.Object) ([]Question, error) {
 		}
 
 		if q.Question == "" {
-			return nil, fmt.Errorf("questions[%d].question 不能为空", i)
+			parseErr = fmt.Errorf("questions[%d].question 不能为空", i)
+			return false
 		}
 
 		opts, err := parseOptions(obj, i)
 		if err != nil {
-			return nil, err
+			parseErr = err
+			return false
 		}
 		q.Options = opts
 
 		questions = append(questions, q)
+		return true
+	})
+	if parseErr != nil {
+		return nil, parseErr
 	}
 
 	return questions, nil
@@ -202,10 +209,11 @@ func parseOptions(obj *value.Object, qi int) ([]Option, error) {
 	}
 
 	opts := make([]Option, 0, n)
-	for j := 0; j < n; j++ {
-		v := arr.Get(j)
+	var parseErr error
+	arr.ForEach(func(j int, v value.Value) bool {
 		if !v.IsObject() {
-			return nil, fmt.Errorf("questions[%d].options[%d] 必须是对象", qi, j)
+			parseErr = fmt.Errorf("questions[%d].options[%d] 必须是对象", qi, j)
+			return false
 		}
 		optObj := v.AsObject()
 
@@ -215,10 +223,15 @@ func parseOptions(obj *value.Object, qi int) ([]Option, error) {
 			Preview:     optObj.GetString("preview"),
 		}
 		if opt.Label == "" {
-			return nil, fmt.Errorf("questions[%d].options[%d].label 不能为空", qi, j)
+			parseErr = fmt.Errorf("questions[%d].options[%d].label 不能为空", qi, j)
+			return false
 		}
 
 		opts = append(opts, opt)
+		return true
+	})
+	if parseErr != nil {
+		return nil, parseErr
 	}
 
 	return opts, nil
