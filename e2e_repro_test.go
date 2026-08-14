@@ -44,7 +44,8 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 func (t *fakeTool) Name() string { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
 func (t *fakeTool) Execute(_ *agent.Turn, writer *agent.BlockStream) error {
-	return writer.WriteBlock(chat.NewTextBlock("fake tool output"))
+	writer.WriteBlock(chat.NewTextBlock("fake tool output"))
+	return nil
 }
 
 // waitForDone 读到 done 返回 true；超时 dump 全部协程栈后 fail。

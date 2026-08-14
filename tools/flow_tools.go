@@ -315,10 +315,12 @@ func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) 
 	progress := t.suite.store.CardProgress(st)
 	if fresh {
 		// 首次激活：完整卡片入场（todo 式：经 tool_result 进历史，不碰 System）
-		return writer.WriteBlock(chat.NewTextBlock(wf.RenderCard(progress)))
+		writer.WriteBlock(chat.NewTextBlock(wf.RenderCard(progress)))
+		return nil
 	}
-	return writer.WriteBlock(chat.NewTextBlock(
+	writer.WriteBlock(chat.NewTextBlock(
 		"已补录 input，flow 继续。" + t.suite.footer(st)))
+	return nil
 }
 
 // ==================== FlowStepDoneTool ====================
@@ -363,8 +365,9 @@ func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *agent.BlockStream) 
 		return fmt.Errorf("步骤 %q 是执行步骤，请用 exec_node 执行", step.Title())
 	}
 	t.suite.store.MarkStepDone(sessionIdOf(turn), stepId)
-	return writer.WriteBlock(chat.NewTextBlock(
+	writer.WriteBlock(chat.NewTextBlock(
 		fmt.Sprintf("步骤「%s」已标记完成。", step.Title()) + t.suite.footer(st)))
+	return nil
 }
 
 // ==================== FlowStatusTool ====================
@@ -390,7 +393,8 @@ func (t *FlowStatusTool) Definition() *chat.ToolFunction {
 func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
-		return writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow）"))
+		writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow）"))
+		return nil
 	}
 	t.suite.store.mu.Lock()
 	defer t.suite.store.mu.Unlock()
@@ -412,7 +416,8 @@ func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 	if next := nextStep(st); next != "" {
 		sb.WriteString("建议下一步: " + next)
 	}
-	return writer.WriteBlock(chat.NewTextBlock(sb.String()))
+	writer.WriteBlock(chat.NewTextBlock(sb.String()))
+	return nil
 }
 
 // ==================== FinishFlowTool ====================
@@ -451,13 +456,15 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 	sessionId := sessionIdOf(turn)
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
-		return writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow，无需收尾）"))
+		writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow，无需收尾）"))
+		return nil
 	}
 
 	switch action {
 	case "abandon":
 		t.suite.store.Remove(sessionId)
-		return writer.WriteBlock(chat.NewTextBlock("flow 已放弃并清理。"))
+		writer.WriteBlock(chat.NewTextBlock("flow 已放弃并清理。"))
+		return nil
 	case "complete":
 		ok, missing := t.suite.store.AllDone(st)
 		if !ok {
@@ -469,7 +476,8 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 		if summary != "" {
 			text += " 总结: " + summary
 		}
-		return writer.WriteBlock(chat.NewTextBlock(text))
+		writer.WriteBlock(chat.NewTextBlock(text))
+		return nil
 	default:
 		return fmt.Errorf("未知 action: %s（可选 complete/abandon）", action)
 	}

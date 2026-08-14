@@ -130,8 +130,9 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *agent.BlockStrea
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))
 
 	// 2. 告知 LLM 问题已送达，等待用户下一条消息（不代为回答）
-	return writer.WriteBlock(chat.NewTextBlock(
+	writer.WriteBlock(chat.NewTextBlock(
 		"问题已发送给用户。请结束本轮，等待用户的回答（回答将作为下一条消息到达），不要替用户回答。"))
+	return nil
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

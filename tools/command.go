@@ -114,7 +114,8 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 	cmd = strings.TrimSpace(cmd)
 
 	if err := validateCommand(cmd); err != nil {
-		return writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		return nil
 	}
 
 	// Windows 下对 GUI 程序自动加 start "" 前缀，防止阻塞
@@ -163,13 +164,15 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 		}
 		// 命令执行失败：已流式写入的输出保留，补充错误说明
 		if gotOutput.Load() {
-			return writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令退出码非零，错误: %v", err)))
+			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令退出码非零，错误: %v", err)))
+			return nil
 		}
 		return fmt.Errorf("命令执行失败: %w", err)
 	}
 
 	if !gotOutput.Load() {
-		return writer.WriteBlock(chat.NewTextBlock("(无输出)"))
+		writer.WriteBlock(chat.NewTextBlock("(无输出)"))
+		return nil
 	}
 	return nil
 }

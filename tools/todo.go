@@ -122,7 +122,8 @@ func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 	}
 	t.store.tasks[task.ID] = task
 
-	return writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已创建:\n%s", formatTaskDetail(task))))
+	writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已创建:\n%s", formatTaskDetail(task))))
+	return nil
 }
 
 // ==================== TaskUpdateTool ====================
@@ -261,7 +262,8 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 	}
 
 	task.UpdatedAt = time.Now().Unix()
-	return writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已更新:\n%s", formatTaskDetail(task))))
+	writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已更新:\n%s", formatTaskDetail(task))))
+	return nil
 }
 
 // ==================== 双向依赖操作（需持有 mu.Lock） ====================
@@ -362,7 +364,8 @@ func (t *TaskListTool) Execute(_ *agent.Turn, writer *agent.BlockStream) error {
 	defer t.store.mu.RUnlock()
 
 	if len(t.store.tasks) == 0 {
-		return writer.WriteBlock(chat.NewTextBlock("(无任务)"))
+		writer.WriteBlock(chat.NewTextBlock("(无任务)"))
+		return nil
 	}
 
 	tasks := make([]*TodoTask, 0, len(t.store.tasks))
@@ -389,7 +392,8 @@ func (t *TaskListTool) Execute(_ *agent.Turn, writer *agent.BlockStream) error {
 			sb.WriteString("\n")
 		}
 	}
-	return writer.WriteBlock(chat.NewTextBlock(sb.String()))
+	writer.WriteBlock(chat.NewTextBlock(sb.String()))
+	return nil
 }
 
 // ==================== TaskGetTool ====================
@@ -434,7 +438,8 @@ func (t *TaskGetTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 	if !ok {
 		return fmt.Errorf("任务不存在: %s", taskID)
 	}
-	return writer.WriteBlock(chat.NewTextBlock(formatTaskDetail(task)))
+	writer.WriteBlock(chat.NewTextBlock(formatTaskDetail(task)))
+	return nil
 }
 
 // ==================== 格式化输出 ====================

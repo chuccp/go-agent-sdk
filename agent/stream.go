@@ -48,24 +48,21 @@ func (r *BlockStream) WriteEvent(content string) {
 
 // WriteBlock 写入一个内容块：连续的 TextBlock 会被拼接为一个，
 // 遇到其他类型（或 Close）时输出拼接结果，其余类型直接收集。
-func (r *BlockStream) WriteBlock(block chat.Block) error {
+func (r *BlockStream) WriteBlock(block chat.Block) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.writeBlockLocked(block)
+	r.writeBlockLocked(block)
 }
 
 // writeBlockLocked 要求调用方持有 mu。
-func (r *BlockStream) writeBlockLocked(block chat.Block) error {
+func (r *BlockStream) writeBlockLocked(block chat.Block) {
 	if tb, ok := block.(*chat.TextBlock); ok {
 		r.pending.WriteString(tb.Text)
 		r.hasPending = true
-		return nil
+		return
 	}
-	if err := r.flushPending(); err != nil {
-		return err
-	}
+
 	r.blocks = append(r.blocks, block)
-	return nil
 }
 
 // WriteError 记录错误，ReadBlocks 返回时携带该错误。
@@ -93,15 +90,14 @@ func (r *BlockStream) ReadBlocks() (chat.Blocks, error) {
 func (r *BlockStream) Err() error { return r.err }
 
 // flushPending 将累积的文本拼接结果作为一个 TextBlock 收集。要求调用方持有 mu。
-func (r *BlockStream) flushPending() error {
+func (r *BlockStream) flushPending() {
 	if !r.hasPending {
-		return nil
+		return
 	}
 	r.hasPending = false
 	b := chat.NewTextBlock(r.pending.String())
 	r.pending.Reset()
 	r.blocks = append(r.blocks, b)
-	return nil
 }
 
 // withoutThinking 从 blocks 中剥离 thinking block。

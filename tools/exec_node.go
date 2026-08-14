@@ -101,7 +101,8 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) erro
 		resultText = fmt.Sprintf("步骤「%s」执行完成。%s", step.Title(), summary)
 	}
 	resultText += t.suite.footer(t.suite.store.Get(sessionId))
-	return writer.WriteBlock(chat.NewTextBlock(resultText))
+	writer.WriteBlock(chat.NewTextBlock(resultText))
+	return nil
 }
 
 // execSingle 单次执行：渲染模板 → 零上下文 LLM 调用。
