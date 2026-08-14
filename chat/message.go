@@ -25,9 +25,10 @@ const (
 
 // Message 是 messages 数组中的一条消息。
 // Content 为 Block 接口数组，支持多态 JSON 序列化。
+// Start/Offset 是 SDK 内部的消息序号记账字段，不出现在发给模型的 JSON 中。
 type Message struct {
-	Start   uint   `json:"start"`
-	Offset  uint   `json:"offset"`
+	Start   uint   `json:"-"`
+	Offset  uint   `json:"-"`
 	Role    Role   `json:"role"`    // "user" | "assistant"
 	Content Blocks `json:"content"` // content block 数组
 }
