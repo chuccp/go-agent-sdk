@@ -1,6 +1,9 @@
 package value
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log"
+)
 
 type Object struct {
 	ValueBase
@@ -9,6 +12,32 @@ type Object struct {
 
 func (o *Object) PutAny(key string, value any) {
 	o.data[key] = fromInterface(value)
+}
+func (o *Object) Get(key string) Value {
+	return o.data[key]
+}
+func (o *Object) GetMustString(key string) string {
+	v := o.Get(key)
+	if v == nil {
+		log.Panic("GetString: " + key + " not found ")
+	}
+
+	if v.IsNull() {
+		return ""
+	}
+	return v.String()
+
+}
+
+func (o *Object) GetString(key string) string {
+	v := o.Get(key)
+	if v == nil {
+		return ""
+	}
+	if v.IsNull() {
+		return ""
+	}
+	return v.String()
 }
 
 func (o *Object) IsObject() bool { return true }
@@ -21,7 +50,7 @@ func (o *Object) ToJSON() json.RawMessage {
 	m := make(map[string]json.RawMessage, len(o.data))
 	for k, v := range o.data {
 		if v == nil {
-			m[k] = json.RawMessage("null")
+			m[k] = json.RawMessage("nil")
 		} else {
 			m[k] = v.ToJSON()
 		}

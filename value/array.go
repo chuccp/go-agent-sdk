@@ -17,7 +17,7 @@ func (a *Array) ToJSON() json.RawMessage {
 	arr := make([]json.RawMessage, len(a.data))
 	for i, v := range a.data {
 		if v == nil {
-			arr[i] = json.RawMessage("null")
+			arr[i] = json.RawMessage("nil")
 		} else {
 			arr[i] = v.ToJSON()
 		}

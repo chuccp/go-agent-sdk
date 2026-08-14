@@ -14,10 +14,15 @@ type Value interface {
 	IsNumber() bool
 	IsNull() bool
 
+	IsStream() bool
+
 	AsObject() *Object
 	AsArray() *Array
 	AsText() *Text
 	AsBool() *Bool
+
+	AsStream() *Stream
+
 	AsNumber() *Number
 
 	ToJSON() json.RawMessage
@@ -33,13 +38,14 @@ func (ValueBase) IsText() bool   { return false }
 func (ValueBase) IsBool() bool   { return false }
 func (ValueBase) IsNumber() bool { return false }
 func (ValueBase) IsNull() bool   { return false }
+func (ValueBase) IsStream() bool { return false }
 
-func (ValueBase) AsObject() *Object { panic("not an object") }
-func (ValueBase) AsArray() *Array   { panic("not an array") }
-func (ValueBase) AsText() *Text     { panic("not text") }
-func (ValueBase) AsBool() *Bool     { panic("not bool") }
-func (ValueBase) AsNumber() *Number { panic("not number") }
-
+func (ValueBase) AsObject() *Object       { panic("not an object") }
+func (ValueBase) AsArray() *Array         { panic("not an array") }
+func (ValueBase) AsText() *Text           { panic("not text") }
+func (ValueBase) AsBool() *Bool           { panic("not bool") }
+func (ValueBase) AsNumber() *Number       { panic("not number") }
+func (ValueBase) AsStream() *Stream       { panic("not Stream") }
 func (ValueBase) ToJSON() json.RawMessage { return json.RawMessage("null") }
 func (ValueBase) String() string          { return "null" }
 
@@ -48,10 +54,15 @@ type Stream struct {
 	text *strings.Builder
 }
 
+func (s *Stream) IsStream() bool { return true }
+
 func NewStream() *Stream {
 	return &Stream{
 		text: new(strings.Builder),
 	}
+}
+func (s *Stream) AsStream() *Stream {
+	return s
 }
 
 // WriteString 向流中追加文本内容。
@@ -61,6 +72,10 @@ func (s *Stream) WriteString(p string) (int, error) {
 
 // Text 返回流中已累积的文本内容。
 func (s *Stream) Text() string {
+	return s.text.String()
+}
+
+func (s *Stream) String() string {
 	return s.text.String()
 }
 
@@ -158,3 +173,4 @@ var _ Value = (*Bool)(nil)
 var _ Value = (*Number)(nil)
 var _ Value = (*Object)(nil)
 var _ Value = (*Array)(nil)
+var _ Value = (*Stream)(nil)
