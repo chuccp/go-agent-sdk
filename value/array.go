@@ -50,6 +50,13 @@ func (a *Array) Get(index int) Value {
 	return a.data[index]
 }
 
+func (a *Array) Set(index int, value Value) {
+	if a == nil || index < 0 || index >= len(a.data) {
+		return
+	}
+	a.data[index] = value
+}
+
 func (a *Array) ForEach(fn func(index int, value Value) bool) {
 	if a == nil {
 		return
@@ -78,4 +85,8 @@ func NewArray(v ...Value) *Array {
 	return &Array{
 		data: v,
 	}
+}
+
+func NewArraySize(n int) *Array {
+	return &Array{data: make([]Value, n)}
 }

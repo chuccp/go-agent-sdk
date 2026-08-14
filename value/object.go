@@ -13,6 +13,10 @@ type Object struct {
 func (o *Object) PutAny(key string, value any) {
 	o.data[key] = fromInterface(value)
 }
+
+func (o *Object) Put(key string, value Value) {
+	o.data[key] = value
+}
 func (o *Object) Get(key string) Value {
 	return o.data[key]
 }
@@ -95,6 +99,14 @@ func (o *Object) AddAll(other *Object) {
 
 func (o *Object) Delete(key string) {
 	delete(o.data, key)
+}
+
+func (o *Object) ForEach(fn func(key string, value Value) bool) {
+	for k, v := range o.data {
+		if !fn(k, v) {
+			break
+		}
+	}
 }
 
 // ToMap 将对象转换为原生 map（递归转换嵌套的 Object/Array）。

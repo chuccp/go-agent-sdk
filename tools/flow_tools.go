@@ -20,10 +20,10 @@ import (
 type FlowState struct {
 	Workflow *exec.Workflow
 	Input    *value.Object
-	Outputs  map[string]any            // step_id → 节点输出（迭代步骤为结果数组）
+	Outputs  *value.Object // step_id → 节点输出（迭代步骤为结果数组）
 	Status   map[string]exec.StepStatus
-	ItemDone map[string]map[int]bool   // 迭代步骤：已完成项（index 级跳过）
-	Reruns   map[string]int            // 步骤重跑计数（上游重跑失效下游用）
+	ItemDone map[string]map[int]bool // 迭代步骤：已完成项（index 级跳过）
+	Reruns   map[string]int          // 步骤重跑计数（上游重跑失效下游用）
 }
 
 // FlowStore 按 sessionId 管理激活的 flow（一会话一槽，新激活覆盖）。
@@ -37,7 +37,7 @@ func NewFlowStore() *FlowStore {
 }
 
 // Activate 激活（或幂等更新）会话的 flow。已激活且 flowId 相同时合并 input
-//（新键追加、同键覆盖）；不同 flowId 时覆盖旧状态。返回状态与"是否新激活"。
+// （新键追加、同键覆盖）；不同 flowId 时覆盖旧状态。返回状态与"是否新激活"。
 func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input *value.Object) (*FlowState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -53,7 +53,7 @@ func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input 
 	st := &FlowState{
 		Workflow: wf,
 		Input:    input,
-		Outputs:  make(map[string]any),
+		Outputs:  value.NewObject(),
 		Status:   make(map[string]exec.StepStatus),
 		ItemDone: make(map[string]map[int]bool),
 		Reruns:   make(map[string]int),
@@ -176,9 +176,10 @@ func (s *FlowStore) SetOutput(sessionId, stepName string, output any) bool {
 	if st == nil {
 		return false
 	}
-	old, existed := st.Outputs[stepName]
+	old := st.Outputs.Get(stepName)
+	existed := old != nil
 	changed := !existed || !jsonEqual(old, output)
-	st.Outputs[stepName] = output
+	st.Outputs.PutAny(stepName, output)
 	if changed && existed {
 		st.Reruns[stepName]++
 		invalidateDownstream(st, stepName)
@@ -192,7 +193,7 @@ func invalidateDownstream(st *FlowState, stepName string) {
 	found := false
 	for _, step := range st.Workflow.Steps {
 		if found {
-			delete(st.Outputs, step.Name())
+			st.Outputs.Delete(step.Name())
 			delete(st.ItemDone, step.Name())
 			if step.Kind() == exec.StepExec {
 				st.Status[step.Name()] = exec.StepPending
@@ -408,8 +409,8 @@ func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 			icon = "✓"
 		}
 		sb.WriteString(fmt.Sprintf("%s %s（%s）", icon, step.Title(), step.Kind()))
-		if out, ok := st.Outputs[step.Name()]; ok {
-			sb.WriteString("，产出: " + summarize(out, 120))
+		if out := st.Outputs.Get(step.Name()); out != nil {
+			sb.WriteString("，产出: " + summarize(out.String(), 120))
 		}
 		sb.WriteString("\n")
 	}

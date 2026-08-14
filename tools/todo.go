@@ -541,12 +541,13 @@ func mergeMetadata(base, patch *value.Object) *value.Object {
 	if patch == nil {
 		return base
 	}
-	for k, v := range patch.ToMap() {
-		if v == nil {
+	patch.ForEach(func(k string, v value.Value) bool {
+		if v == nil || v.IsNull() {
 			base.Delete(k)
 		} else {
-			base.PutAny(k, v)
+			base.Put(k, v)
 		}
-	}
+		return true
+	})
 	return base
 }

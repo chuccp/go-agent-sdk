@@ -7,6 +7,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -106,7 +107,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) erro
 }
 
 // execSingle 单次执行：渲染模板 → 零上下文 LLM 调用。
-func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars map[string]any) (any, string, error) {
+func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars *value.Object) (any, string, error) {
 	nd := step.Node()
 	text, err := t.nodeCall(turn, nd, vars, nil)
 	if err != nil {
@@ -117,7 +118,7 @@ func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars map[st
 
 // execIterating 迭代执行：展开数组 → 逐项零上下文调用（{{item}}/{{index}}/{{prev}}）→
 // 聚合。已完成项自动跳过（index 级断点续跑）。
-func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec.Step, vars map[string]any) (any, string, error) {
+func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec.Step, vars *value.Object) (any, string, error) {
 	arr, err := resolveIterSource(vars, step.IterateSource())
 	if err != nil {
 		return nil, "", err
@@ -135,8 +136,8 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 		}
 		itemVars := map[string]any{"item": raw, "index": i + 1, "total": len(arr)}
 		if i > 0 {
-			if prev, ok := results[i-1].(string); ok {
-				itemVars["prev"] = tailRunes(prev, step.PrevWindowSize())
+			if prev := results.Get(i - 1); prev != nil && prev.IsText() {
+				itemVars["prev"] = tailRunes(prev.String(), step.PrevWindowSize())
 			}
 		}
 		text, callErr := t.nodeCall(turn, step.Node(), vars, itemVars)
@@ -144,7 +145,7 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 			failures = append(failures, fmt.Sprintf("第%d项: %v", i+1, callErr))
 			break // 保留已完成部分，失败即返回（重试时跳过已完成项）
 		}
-		results[i] = text
+		results.Set(i, value.NewText(text))
 		t.suite.store.MarkItemDone(st, step.Name(), i)
 		t.emitProgress(sctx, st.Workflow.Id, step.Name(), "item",
 			fmt.Sprintf("%d/%d", i+1, len(arr)))
@@ -158,12 +159,9 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 
 // nodeCall 零上下文一次性 LLM 调用（硬边界）：不带会话历史，
 // 模板变量 = 共享变量(vars) + 项变量(itemVars)，不产生会话事件。
-func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars, itemVars map[string]any) (string, error) {
+func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value.Object, itemVars map[string]any) (string, error) {
 	sctx := turn.Context()
-	merged := make(map[string]any, len(vars)+len(itemVars))
-	for k, v := range vars {
-		merged[k] = v
-	}
+	merged := vars.ToMap()
 	for k, v := range itemVars {
 		merged[k] = v
 	}
@@ -195,7 +193,7 @@ func (t *ExecNodeTool) emitProgress(sctx *agent.SessionContext, flowId, stepId, 
 
 // ==================== FlowStore 执行核配套方法 ====================
 // PrepareExec 校验依赖并返回执行期变量（input + 全部上游产出）。
-func (s *FlowStore) PrepareExec(sessionId, stepName string) (map[string]any, error) {
+func (s *FlowStore) PrepareExec(sessionId, stepName string) (*value.Object, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.states[sessionId]
@@ -205,29 +203,28 @@ func (s *FlowStore) PrepareExec(sessionId, stepName string) (map[string]any, err
 	if err := checkDeps(st, stepName); err != nil {
 		return nil, err
 	}
-	vars := st.Input.ToMap()
-	if vars == nil {
-		vars = make(map[string]any)
-	}
-	for k, v := range st.Outputs {
-		vars[k] = v
-	}
+	vars := value.NewObject()
+	vars.AddAll(st.Input)
+	vars.AddAll(st.Outputs)
 	return vars, nil
 }
 
 // PartialResults 返回迭代步骤已有的部分结果与已完成项集合（重跑续跑用）。
-func (s *FlowStore) PartialResults(st *FlowState, stepName string, total int) ([]any, map[int]bool) {
+func (s *FlowStore) PartialResults(st *FlowState, stepName string, total int) (*value.Array, map[int]bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	results := make([]any, total)
+	results := value.NewArraySize(total)
 	doneSet := make(map[int]bool)
-	if prev, ok := st.Outputs[stepName].([]any); ok {
-		for i := 0; i < len(prev) && i < total; i++ {
-			results[i] = prev[i]
-		}
+	if arr := st.Outputs.Get(stepName); arr != nil && arr.IsArray() {
+		arr.AsArray().ForEach(func(i int, v value.Value) bool {
+			if i < total && v != nil {
+				results.Set(i, v)
+			}
+			return true
+		})
 	}
 	for i := range st.ItemDone[stepName] {
-		if i < total && results[i] != nil {
+		if i < total && results.Get(i) != nil {
 			doneSet[i] = true
 		}
 	}
@@ -261,8 +258,8 @@ func findStep(wf *exec.Workflow, name string) *exec.Step {
 
 // resolveIterSource 解析迭代源：从执行变量中取数组（支持 "step" 或 "step.field" 路径）；
 // 字符串值尝试 JSON 解析为数组（节点产出常为 JSON 文本）。
-func resolveIterSource(vars map[string]any, source string) ([]any, error) {
-	v, ok := exec.ResolvePath(vars, source)
+func resolveIterSource(vars *value.Object, source string) ([]any, error) {
+	v, ok := exec.ResolvePath(vars.ToMap(), source)
 	if !ok {
 		return nil, fmt.Errorf("迭代源 %q 不存在（检查上游步骤是否已执行、input 是否登记）", source)
 	}
@@ -281,12 +278,13 @@ func resolveIterSource(vars map[string]any, source string) ([]any, error) {
 }
 
 // countDone 统计迭代结果中已完成项数。
-func countDone(results []any) int {
+func countDone(results *value.Array) int {
 	n := 0
-	for _, r := range results {
-		if r != nil {
+	results.ForEach(func(_ int, v value.Value) bool {
+		if v != nil {
 			n++
 		}
-	}
+		return true
+	})
 	return n
 }

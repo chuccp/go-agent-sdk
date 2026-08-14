@@ -81,7 +81,7 @@ func TestRerunInvalidatesDownstream(t *testing.T) {
 	// 重跑 story（输出变化）→ 下游 deliver 状态保持（Talk 无输出），输出清空验证在 exec 链上
 	store.SetOutput("s1", "story", "修改稿")
 	st := store.Get("s1")
-	if got := st.Outputs["story"]; got != "修改稿" {
+	if got := st.Outputs.GetString("story"); got != "修改稿" {
 		t.Fatalf("输出未覆盖: %v", got)
 	}
 	if st.Reruns["story"] != 1 {
@@ -96,11 +96,11 @@ func TestRerunInvalidatesDownstream(t *testing.T) {
 }
 
 func TestIterSourceResolve(t *testing.T) {
-	vars := map[string]any{
+	vars := value.NewObjectFromMap(map[string]any{
 		"paragraphs": []any{"a", "b"},
 		"split":      `[{"title":"一"},{"title":"二"}]`, // 节点产出常为 JSON 文本
 		"bad":       "不是数组",
-	}
+	})
 	if arr, err := resolveIterSource(vars, "paragraphs"); err != nil || len(arr) != 2 {
 		t.Fatalf("paragraphs: %v %v", arr, err)
 	}

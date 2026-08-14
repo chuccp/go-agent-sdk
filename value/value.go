@@ -107,8 +107,8 @@ func (t *Text) ToJSON() json.RawMessage {
 
 func (t *Text) MarshalJSON() ([]byte, error) { return t.ToJSON(), nil }
 
-func NewText() *Text {
-	return &Text{}
+func NewText(text string) *Text {
+	return &Text{text: text}
 }
 
 type Number struct {
