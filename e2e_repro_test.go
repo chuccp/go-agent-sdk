@@ -12,6 +12,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/tools"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // fakeProvider 按调用次序返回不同响应：
@@ -124,7 +125,7 @@ func runCommand(t *testing.T, cmd string) string {
 	tool := tools.NewCommandTool()
 	writer := agent.NewBlockStream(nil)
 	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可
-	err := tool.Execute(agent.NewTurn(map[string]any{"command": cmd}), writer)
+	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), writer)
 	if err != nil {
 		t.Fatalf("执行命令 %q 失败: %v", cmd, err)
 	}

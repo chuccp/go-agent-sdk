@@ -6,6 +6,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // eventRecorder 记录工具流式输出推送的客户端事件。
@@ -23,7 +24,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	rec := &eventRecorder{}
 	w := agent.NewBlockStream(rec)
 	tool := NewCommandTool()
-	err := tool.Execute(agent.NewTurn(map[string]any{"command": "echo streaming-test"}), w)
+	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), w)
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 	w := agent.NewBlockStream(rec)
 	tool := NewCommandTool()
 	// printf 在 sh 与 cmd 下均可用；两行输出应产生至少 2 个 chunk 事件
-	err := tool.Execute(agent.NewTurn(map[string]any{"command": "printf \"aaa\\nbbb\\n\""}), w)
+	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), w)
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}

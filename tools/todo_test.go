@@ -6,6 +6,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // drainText 关闭工具专用 BlockStream 并收集其中的文本内容。
@@ -24,7 +25,7 @@ func drainText(w *agent.BlockStream) string {
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
 	w := agent.NewBlockStream(nil)
-	err := tool.Execute(agent.NewTurn(args), w)
+	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), w)
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
@@ -62,9 +63,9 @@ func TestTaskCreate_MissingSubject(t *testing.T) {
 	store := NewTodoStore()
 	create := &TaskCreateTool{store}
 
-	err := create.Execute(agent.NewTurn(map[string]any{
+	err := create.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
 		"description": "desc",
-	}), agent.NewBlockStream(nil))
+	})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for missing subject")
 	}
@@ -74,9 +75,9 @@ func TestTaskCreate_MissingDescription(t *testing.T) {
 	store := NewTodoStore()
 	create := &TaskCreateTool{store}
 
-	err := create.Execute(agent.NewTurn(map[string]any{
+	err := create.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
 		"subject": "Fix bug",
-	}), agent.NewBlockStream(nil))
+	})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for missing description")
 	}
@@ -126,10 +127,10 @@ func TestTaskUpdate_BlockedTaskCannotStart(t *testing.T) {
 	execTool(t, update, map[string]any{"task_id": "1", "add_blocked_by": []string{"2"}})
 
 	// T1 不能直接 in_progress
-	err := update.Execute(agent.NewTurn(map[string]any{
+	err := update.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
 		"task_id": "1",
 		"status":  "in_progress",
-	}), agent.NewBlockStream(nil))
+	})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error: blocked by incomplete task")
 	}
@@ -365,7 +366,7 @@ func TestTaskGet_NotFound(t *testing.T) {
 	store := NewTodoStore()
 	get := &TaskGetTool{store}
 
-	err := get.Execute(agent.NewTurn(map[string]any{"task_id": "999"}), agent.NewBlockStream(nil))
+	err := get.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"task_id": "999"})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for non-existent task")
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/tools"
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -28,7 +29,7 @@ type flowFakeProvider struct {
 
 func (f *flowFakeProvider) script() []chat.Blocks {
 	toolUse := func(id, name string, input map[string]any) chat.Blocks {
-		return chat.Blocks{chat.NewToolUseBlock(id, name, input)}
+		return chat.Blocks{chat.NewToolUseBlock(id, name, value.NewObjectFromMap(input))}
 	}
 	return []chat.Blocks{
 		// 轮1: activate_flow（原话已含主题+受众，零提问直通）
@@ -248,7 +249,7 @@ func TestFlowGuards(t *testing.T) {
 	activate, execNode, _, _, finish := tools.NewFlowTools(manager.WorkflowManager())
 	sctx := manager.SessionContext("flow-guards")
 	turn := func(args map[string]any) *agent.Turn {
-		return agent.NewTurnWithContext(sctx, args)
+		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))
 	}
 	run := func(exec agent.ToolExecutor, args map[string]any) (string, error) {
 		return execToolText(t, exec, turn(args))

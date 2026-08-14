@@ -93,16 +93,19 @@ func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 // Execute 实现 agent.ToolExecutor 接口：创建一个新任务，结果写入 writer。
 func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	subject, _ := args["subject"].(string)
+	subject := args.GetString("subject")
 	if strings.TrimSpace(subject) == "" {
 		return fmt.Errorf("缺少 subject 参数")
 	}
-	desc, _ := args["description"].(string)
+	desc := args.GetString("description")
 	if strings.TrimSpace(desc) == "" {
 		return fmt.Errorf("缺少 description 参数")
 	}
-	activeForm, _ := args["active_form"].(string)
-	meta, _ := args["metadata"].(map[string]any)
+	activeForm := args.GetString("active_form")
+	var meta map[string]any
+	if obj := args.GetObject("metadata"); obj != nil {
+		meta = obj.ToMap()
+	}
 
 	t.store.mu.Lock()
 	defer t.store.mu.Unlock()
@@ -204,7 +207,7 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 // Execute 实现 agent.ToolExecutor 接口：更新一个已有任务，结果写入 writer。
 func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	taskID, _ := args["task_id"].(string)
+	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
 		return fmt.Errorf("缺少 task_id 参数")
 	}
@@ -217,42 +220,40 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 		return fmt.Errorf("任务不存在: %s", taskID)
 	}
 
-	if v, ok := args["subject"].(string); ok && strings.TrimSpace(v) != "" {
+	if v := args.GetString("subject"); strings.TrimSpace(v) != "" {
 		task.Subject = strings.TrimSpace(v)
 	}
-	if v, ok := args["description"].(string); ok && strings.TrimSpace(v) != "" {
+	if v := args.GetString("description"); strings.TrimSpace(v) != "" {
 		task.Description = strings.TrimSpace(v)
 	}
-	if v, ok := args["active_form"].(string); ok {
+	if v := args.GetString("active_form"); v != "" {
 		task.ActiveForm = strings.TrimSpace(v)
 	}
-	if v, ok := args["owner"].(string); ok {
+	if v := args.GetString("owner"); v != "" {
 		task.Owner = strings.TrimSpace(v)
 	}
 
 	// --- 依赖：增量添加（双向同步） ---
-	if ids := toStringSlice(args["add_blocks"]); len(ids) > 0 {
+	if ids := args.GetArray("add_blocks").StringValues(); len(ids) > 0 {
 		t.store.addBlocks(task, ids)
 	}
-	if ids := toStringSlice(args["remove_blocks"]); len(ids) > 0 {
+	if ids := args.GetArray("remove_blocks").StringValues(); len(ids) > 0 {
 		t.store.removeBlocks(task, ids)
 	}
-	if ids := toStringSlice(args["add_blocked_by"]); len(ids) > 0 {
+	if ids := args.GetArray("add_blocked_by").StringValues(); len(ids) > 0 {
 		t.store.addBlockedBy(task, ids)
 	}
-	if ids := toStringSlice(args["remove_blocked_by"]); len(ids) > 0 {
+	if ids := args.GetArray("remove_blocked_by").StringValues(); len(ids) > 0 {
 		t.store.removeBlockedBy(task, ids)
 	}
 
 	// --- metadata 合并 ---
-	if raw, ok := args["metadata"]; ok {
-		if meta, ok := raw.(map[string]any); ok {
-			task.Metadata = mergeMetadata(task.Metadata, meta)
-		}
+	if obj := args.GetObject("metadata"); obj != nil {
+		task.Metadata = mergeMetadata(task.Metadata, obj.ToMap())
 	}
 
 	// --- 状态变更 ---
-	if status, ok := args["status"].(string); ok && status != "" {
+	if status := args.GetString("status"); status != "" {
 		if status == "in_progress" {
 			if err := t.store.checkDeps(task); err != nil {
 				return err
@@ -423,7 +424,7 @@ func (t *TaskGetTool) Definition() *chat.ToolFunction {
 // Execute 实现 agent.ToolExecutor 接口：获取一个任务的完整详情，结果写入 writer。
 func (t *TaskGetTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	taskID, _ := args["task_id"].(string)
+	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
 		return fmt.Errorf("缺少 task_id 参数")
 	}
@@ -506,25 +507,6 @@ func statusIcon(status string) string {
 }
 
 // ==================== 通用辅助函数 ====================
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	switch arr := v.(type) {
-	case []string:
-		return arr
-	case []any:
-		out := make([]string, 0, len(arr))
-		for _, item := range arr {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
-}
 
 func contains(slice []string, item string) bool {
 	for _, s := range slice {

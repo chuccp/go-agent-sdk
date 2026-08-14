@@ -299,7 +299,7 @@ func (t *ActivateFlowTool) Definition() *chat.ToolFunction {
 
 func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	flowId, _ := args["flow_id"].(string)
+	flowId := args.GetString("flow_id")
 	if flowId == "" {
 		return fmt.Errorf("缺少 flow_id 参数")
 	}
@@ -307,7 +307,10 @@ func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) 
 	if wf == nil {
 		return fmt.Errorf("未知 flow: %s", flowId)
 	}
-	input, _ := args["input"].(map[string]any)
+	var input map[string]any
+	if obj := args.GetObject("input"); obj != nil {
+		input = obj.ToMap()
+	}
 	sessionId := sessionIdOf(turn)
 
 	st, fresh := t.suite.store.Activate(sessionId, flowId, wf, input)
@@ -349,7 +352,7 @@ func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 
 func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	stepId, _ := args["step_id"].(string)
+	stepId := args.GetString("step_id")
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
 		return fmt.Errorf("当前没有激活的 flow")
@@ -446,7 +449,7 @@ func (t *FinishFlowTool) Definition() *chat.ToolFunction {
 
 func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	action, _ := args["action"].(string)
+	action := args.GetString("action")
 	sessionId := sessionIdOf(turn)
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
@@ -463,7 +466,7 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 			return fmt.Errorf("尚有步骤未完成: %s，请先完成后再收尾", strings.Join(missing, "、"))
 		}
 		t.suite.store.Remove(sessionId)
-		summary, _ := args["summary"].(string)
+		summary := args.GetString("summary")
 		text := "flow 已完成并清理。"
 		if summary != "" {
 			text += " 总结: " + summary

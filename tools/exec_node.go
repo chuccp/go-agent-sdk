@@ -43,7 +43,7 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 // 登记输出（重跑使下游失效）→ 标记完成。
 func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	stepId, _ := args["step_id"].(string)
+	stepId := args.GetString("step_id")
 	if stepId == "" {
 		return fmt.Errorf("缺少 step_id 参数")
 	}

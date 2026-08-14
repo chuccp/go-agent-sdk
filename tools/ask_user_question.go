@@ -6,6 +6,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 type Question struct {
@@ -134,35 +135,35 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *agent.BlockStrea
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。
-func parseQuestions(args map[string]any) ([]Question, error) {
-	raw, ok := args["questions"]
-	if !ok {
+func parseQuestions(args *value.Object) ([]Question, error) {
+	if !args.HasKey("questions") {
 		return nil, fmt.Errorf("缺少 questions 参数")
 	}
-
-	arr, ok := raw.([]any)
-	if !ok {
+	arr := args.GetArray("questions")
+	if arr == nil {
 		return nil, fmt.Errorf("questions 必须是数组")
 	}
 
-	if len(arr) == 0 {
+	n := arr.Len()
+	if n == 0 {
 		return nil, fmt.Errorf("至少需要 1 个问题")
 	}
-	if len(arr) > 4 {
-		return nil, fmt.Errorf("最多支持 4 个问题，收到 %d 个", len(arr))
+	if n > 4 {
+		return nil, fmt.Errorf("最多支持 4 个问题，收到 %d 个", n)
 	}
 
-	questions := make([]Question, 0, len(arr))
-	for i, item := range arr {
-		obj, ok := item.(map[string]any)
-		if !ok {
+	questions := make([]Question, 0, n)
+	for i := 0; i < n; i++ {
+		v := arr.Get(i)
+		if !v.IsObject() {
 			return nil, fmt.Errorf("questions[%d] 必须是对象", i)
 		}
+		obj := v.AsObject()
 
 		q := Question{
-			Question:    getString(obj, "question"),
-			Header:      getString(obj, "header"),
-			MultiSelect: getBool(obj, "multi_select"),
+			Question:    obj.GetString("question"),
+			Header:      obj.GetString("header"),
+			MultiSelect: obj.GetBool("multi_select"),
 		}
 
 		if q.Question == "" {
@@ -182,35 +183,35 @@ func parseQuestions(args map[string]any) ([]Question, error) {
 }
 
 // parseOptions 解析问题的选项列表。
-func parseOptions(obj map[string]any, qi int) ([]Option, error) {
-	raw, ok := obj["options"]
-	if !ok {
+func parseOptions(obj *value.Object, qi int) ([]Option, error) {
+	if !obj.HasKey("options") {
 		return nil, fmt.Errorf("questions[%d].options 缺失", qi)
 	}
-
-	arr, ok := raw.([]any)
-	if !ok {
+	arr := obj.GetArray("options")
+	if arr == nil {
 		return nil, fmt.Errorf("questions[%d].options 必须是数组", qi)
 	}
 
-	if len(arr) < 2 {
+	n := arr.Len()
+	if n < 2 {
 		return nil, fmt.Errorf("questions[%d].options 至少需要 2 个选项", qi)
 	}
-	if len(arr) > 4 {
+	if n > 4 {
 		return nil, fmt.Errorf("questions[%d].options 最多支持 4 个选项", qi)
 	}
 
-	opts := make([]Option, 0, len(arr))
-	for j, item := range arr {
-		optObj, ok := item.(map[string]any)
-		if !ok {
+	opts := make([]Option, 0, n)
+	for j := 0; j < n; j++ {
+		v := arr.Get(j)
+		if !v.IsObject() {
 			return nil, fmt.Errorf("questions[%d].options[%d] 必须是对象", qi, j)
 		}
+		optObj := v.AsObject()
 
 		opt := Option{
-			Label:       getString(optObj, "label"),
-			Description: getString(optObj, "description"),
-			Preview:     getString(optObj, "preview"),
+			Label:       optObj.GetString("label"),
+			Description: optObj.GetString("description"),
+			Preview:     optObj.GetString("preview"),
 		}
 		if opt.Label == "" {
 			return nil, fmt.Errorf("questions[%d].options[%d].label 不能为空", qi, j)
@@ -220,24 +221,4 @@ func parseOptions(obj map[string]any, qi int) ([]Option, error) {
 	}
 
 	return opts, nil
-}
-
-// ==================== 辅助函数 ====================
-
-func getString(obj map[string]any, key string) string {
-	if v, ok := obj[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func getBool(obj map[string]any, key string) bool {
-	if v, ok := obj[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return false
 }

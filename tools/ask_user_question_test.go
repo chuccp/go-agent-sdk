@@ -8,6 +8,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // ── parseQuestions ──
@@ -27,7 +28,7 @@ func TestParseQuestions_Valid(t *testing.T) {
 		},
 	}
 
-	qs, err := parseQuestions(args)
+	qs, err := parseQuestions(value.NewObjectFromMap(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestParseQuestions_MaxFourQuestions(t *testing.T) {
 		},
 	}
 
-	qs, err := parseQuestions(args)
+	qs, err := parseQuestions(value.NewObjectFromMap(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,46 +97,46 @@ func TestParseQuestions_MaxFourQuestions(t *testing.T) {
 		map[string]any{"question": "Q4", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
 		map[string]any{"question": "Q5", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
 	}}
-	_, err = parseQuestions(bad)
+	_, err = parseQuestions(value.NewObjectFromMap(bad))
 	if err == nil {
 		t.Error("expected error for 5 questions")
 	}
 }
 
 func TestParseQuestions_MissingQuestions(t *testing.T) {
-	_, err := parseQuestions(map[string]any{})
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{}))
 	if err == nil {
 		t.Error("expected error for missing questions")
 	}
 }
 
 func TestParseQuestions_EmptyArray(t *testing.T) {
-	_, err := parseQuestions(map[string]any{"questions": []any{}})
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{"questions": []any{}}))
 	if err == nil {
 		t.Error("expected error for empty questions")
 	}
 }
 
 func TestParseQuestions_NotArray(t *testing.T) {
-	_, err := parseQuestions(map[string]any{"questions": "not array"})
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{"questions": "not array"}))
 	if err == nil {
 		t.Error("expected error for non-array questions")
 	}
 }
 
 func TestParseQuestions_MissingOptions(t *testing.T) {
-	_, err := parseQuestions(map[string]any{
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
 		"questions": []any{
 			map[string]any{"question": "Q1", "header": "H1"},
 		},
-	})
+	}))
 	if err == nil {
 		t.Error("expected error for missing options")
 	}
 }
 
 func TestParseQuestions_TooFewOptions(t *testing.T) {
-	_, err := parseQuestions(map[string]any{
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
 		"questions": []any{
 			map[string]any{
 				"question": "Q1", "header": "H1",
@@ -144,14 +145,14 @@ func TestParseQuestions_TooFewOptions(t *testing.T) {
 				},
 			},
 		},
-	})
+	}))
 	if err == nil {
 		t.Error("expected error for <2 options")
 	}
 }
 
 func TestParseQuestions_MissingLabel(t *testing.T) {
-	_, err := parseQuestions(map[string]any{
+	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
 		"questions": []any{
 			map[string]any{
 				"question": "Q1", "header": "H1",
@@ -161,7 +162,7 @@ func TestParseQuestions_MissingLabel(t *testing.T) {
 				},
 			},
 		},
-	})
+	}))
 	if err == nil {
 		t.Error("expected error for missing label")
 	}
@@ -181,7 +182,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 		},
 	}
 
-	qs, err := parseQuestions(args)
+	qs, err := parseQuestions(value.NewObjectFromMap(args))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +198,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
-	err := tool.Execute(agent.NewTurn(map[string]any{}), agent.NewBlockStream(nil))
+	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error when SessionContext is not injected")
 	}
@@ -208,7 +209,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s1")
 
-	err := tool.Execute(agent.NewTurnWithContext(ctx, map[string]any{}), agent.NewBlockStream(nil))
+	err := tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), agent.NewBlockStream(nil))
 	if err == nil {
 		t.Error("expected error for missing questions")
 	}
@@ -242,7 +243,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	w := agent.NewBlockStream(nil)
 	done := make(chan error, 1)
 	go func() {
-		done <- tool.Execute(agent.NewTurnWithContext(ctx, args), w)
+		done <- tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), w)
 	}()
 
 	// 不依赖任何用户回答，Execute 必须立即返回

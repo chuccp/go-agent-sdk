@@ -41,7 +41,9 @@ func NewTurnWithContext(ctx *SessionContext, args *value.Object) *Turn {
 // toolArgsDisplay 生成工具入参的展示文本，与前端历史展示逻辑保持一致：
 // 优先使用 command 字段（如命令行工具），否则输出入参 JSON。
 func toolArgsDisplay(args *value.Object) string {
-
+	if args == nil {
+		return ""
+	}
 	if cmd := args.GetString("command"); cmd != "" {
 		return cmd
 	}

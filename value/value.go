@@ -105,6 +105,8 @@ func (t *Text) ToJSON() json.RawMessage {
 	return data
 }
 
+func (t *Text) MarshalJSON() ([]byte, error) { return t.ToJSON(), nil }
+
 func NewText() *Text {
 	return &Text{}
 }
@@ -124,6 +126,8 @@ func (n *Number) ToJSON() json.RawMessage {
 	data, _ := json.Marshal(n.f)
 	return data
 }
+
+func (n *Number) MarshalJSON() ([]byte, error) { return n.ToJSON(), nil }
 
 func NewNumber(f float64) *Number {
 	return &Number{
@@ -149,6 +153,8 @@ func (b *Bool) ToJSON() json.RawMessage {
 	return json.RawMessage("false")
 }
 
+func (b *Bool) MarshalJSON() ([]byte, error) { return b.ToJSON(), nil }
+
 func NewBool(b bool) *Bool {
 	return &Bool{b: b}
 }
@@ -162,6 +168,8 @@ func (n *Null) IsNull() bool { return true }
 func (n *Null) String() string { return "null" }
 
 func (n *Null) ToJSON() json.RawMessage { return json.RawMessage("null") }
+
+func (n *Null) MarshalJSON() ([]byte, error) { return n.ToJSON(), nil }
 
 // NullValue 空值单例。
 var NullValue = &Null{}

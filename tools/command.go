@@ -107,8 +107,8 @@ func needsStartPrefix(cmd string) bool {
 // （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）。
 func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
 	args := turn.Args()
-	cmd, ok := args["command"].(string)
-	if !ok || strings.TrimSpace(cmd) == "" {
+	cmd := args.GetString("command")
+	if strings.TrimSpace(cmd) == "" {
 		return fmt.Errorf("缺少 command 参数")
 	}
 	cmd = strings.TrimSpace(cmd)

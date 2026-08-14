@@ -10,6 +10,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/tools"
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -54,7 +55,7 @@ type iterFakeProvider struct {
 
 func (f *iterFakeProvider) script() []chat.Blocks {
 	toolUse := func(id, name string, input map[string]any) chat.Blocks {
-		return chat.Blocks{chat.NewToolUseBlock(id, name, input)}
+		return chat.Blocks{chat.NewToolUseBlock(id, name, value.NewObjectFromMap(input))}
 	}
 	return []chat.Blocks{
 		toolUse("t1", "activate_flow", map[string]any{

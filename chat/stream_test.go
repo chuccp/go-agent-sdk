@@ -19,7 +19,6 @@ func TestStreamWriter_Write_TextStream(t *testing.T) {
 	stream.Write(&TextBlockStart{})
 	stream.Write(&Delta{Content: "Hello "})
 	stream.Write(&Delta{Content: "World"})
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -35,7 +34,6 @@ func TestStreamWriter_Write_ThinkingStream(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.Write(&ThinkingBlockStart{})
 	stream.Write(&Delta{Content: "let me think..."})
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -53,7 +51,6 @@ func TestStreamWriter_Write_EmptyThinkingSkipped(t *testing.T) {
 	// 无增量：空 thinking block 应被跳过
 	stream.Write(&TextBlockStart{})
 	stream.Write(&Delta{Content: "text"})
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -68,7 +65,6 @@ func TestStreamWriter_Write_ToolUseStream(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.Write(&ToolUseBlockStart{Id: "tu_1", Name: "my_tool"})
 	stream.Write(&Delta{Content: `{"cmd":"ls"}`})
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -81,8 +77,7 @@ func TestStreamWriter_Write_ToolUseStream(t *testing.T) {
 	if tub.ID != "tu_1" || tub.Name != "my_tool" {
 		t.Errorf("id/name mismatch: %s/%s", tub.ID, tub.Name)
 	}
-	input, ok := tub.Input.(map[string]any)
-	if !ok || input["cmd"] != "ls" {
+	if tub.Input == nil || tub.Input.GetString("cmd") != "ls" {
 		t.Errorf("input JSON not parsed: %v", tub.Input)
 	}
 }
@@ -95,7 +90,6 @@ func TestStreamWriter_Write_MultipleBlocks(t *testing.T) {
 	stream.Write(&Delta{Content: "answer"})
 	stream.Write(&ToolUseBlockStart{Id: "tu_1", Name: "tool"})
 	stream.Write(&Delta{Content: `{}`})
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 3 {
@@ -114,7 +108,6 @@ func TestStreamWriter_StopReasonAndUsage(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.StopReason(StopReasonToolUse)
 	stream.Usage(&Usage{InputTokens: 10, OutputTokens: 20})
-	stream.Close()
 
 	if stream.GetStopReason() != StopReasonToolUse {
 		t.Errorf("expected tool_use, got %s", stream.GetStopReason())
@@ -130,9 +123,6 @@ func TestStreamWriter_Close_Idempotent(t *testing.T) {
 	stream := NewStreamWriter(nil)
 	stream.Write(&TextBlockStart{})
 	stream.Write(&Delta{Content: "x"})
-	stream.Close()
-	stream.Close() // 幂等
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -145,7 +135,6 @@ func TestStreamWriter_Close_FlushesActiveBlock(t *testing.T) {
 	stream.Write(&TextBlockStart{})
 	stream.Write(&Delta{Content: "pending text"})
 	// 无下一个 BlockStart，Close 应 flush 当前组装中的 block
-	stream.Close()
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -157,7 +146,6 @@ func TestStreamWriter_Close_FlushesActiveBlock(t *testing.T) {
 
 func TestStreamWriter_ReadBlock_Empty(t *testing.T) {
 	stream := NewStreamWriter(nil)
-	stream.Close()
 	blocks, _ := stream.ReadBlocks()
 	if len(blocks) != 0 {
 		t.Errorf("expected empty blocks, got %v", blocks)
@@ -179,7 +167,6 @@ func TestStreamWriter_EmitsChunkEvents(t *testing.T) {
 	stream := NewStreamWriter(recv)
 	stream.Write(&TextBlockStart{})
 	stream.Write(&Delta{Content: "hello"})
-	stream.Close()
 
 	if len(recv.events) == 0 {
 		t.Fatal("expected at least 1 event emitted")
@@ -195,7 +182,6 @@ func TestStreamWriter_EmitsThinkingEvents(t *testing.T) {
 	stream := NewStreamWriter(recv)
 	stream.Write(&ThinkingBlockStart{})
 	stream.Write(&Delta{Content: "hmm"})
-	stream.Close()
 
 	if len(recv.events) == 0 {
 		t.Fatal("expected thinking event")
@@ -211,7 +197,6 @@ func TestStreamWriter_ToolUseDeltaNotEmitted(t *testing.T) {
 	stream := NewStreamWriter(recv)
 	stream.Write(&ToolUseBlockStart{Id: "tu_1", Name: "tool"})
 	stream.Write(&Delta{Content: `{"a":1}`})
-	stream.Close()
 
 	if len(recv.events) != 0 {
 		t.Errorf("tool_use delta should not emit client events, got %d", len(recv.events))

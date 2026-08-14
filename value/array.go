@@ -26,12 +26,52 @@ func (a *Array) ToJSON() json.RawMessage {
 	return data
 }
 
+func (a *Array) MarshalJSON() ([]byte, error) { return a.ToJSON(), nil }
+
 func (a *Array) Add(value ...Value) {
 	a.data = append(a.data, value...)
 }
 func (a *Array) AddAny(value any) {
 	v := fromInterface(value)
 	a.data = append(a.data, v)
+}
+
+func (a *Array) Len() int {
+	if a == nil {
+		return 0
+	}
+	return len(a.data)
+}
+
+func (a *Array) Get(index int) Value {
+	if a == nil || index < 0 || index >= len(a.data) {
+		return NullValue
+	}
+	return a.data[index]
+}
+
+func (a *Array) ForEach(fn func(index int, value Value) bool) {
+	if a == nil {
+		return
+	}
+	for i, v := range a.data {
+		if !fn(i, v) {
+			break
+		}
+	}
+}
+
+func (a *Array) StringValues() []string {
+	if a == nil {
+		return nil
+	}
+	out := make([]string, 0, len(a.data))
+	for _, v := range a.data {
+		if v != nil && v.IsText() {
+			out = append(out, v.String())
+		}
+	}
+	return out
 }
 
 func NewArray(v ...Value) *Array {
