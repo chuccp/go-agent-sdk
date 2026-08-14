@@ -56,6 +56,18 @@ func (o *Object) GetBool(key string) bool {
 	return v.AsBool().b
 }
 
+func (o *Object) GetNumber(key string) float64 {
+	v := o.Get(key)
+	if v == nil || !v.IsNumber() {
+		return 0
+	}
+	return v.AsNumber().f
+}
+
+func (o *Object) GetInt(key string) int {
+	return int(o.GetNumber(key))
+}
+
 func (o *Object) GetObject(key string) *Object {
 	v := o.Get(key)
 	if v == nil || !v.IsObject() {
@@ -94,7 +106,7 @@ func (o *Object) ToJSON() json.RawMessage {
 	m := make(map[string]json.RawMessage, len(o.data))
 	for k, v := range o.data {
 		if v == nil {
-			m[k] = json.RawMessage("nil")
+			m[k] = json.RawMessage("null")
 		} else {
 			m[k] = v.ToJSON()
 		}
