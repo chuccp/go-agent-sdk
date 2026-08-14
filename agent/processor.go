@@ -184,7 +184,6 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 		}
 		stream := NewBlockStream(ctx)
 		p.runTool(ctx, tu, exec, stream)
-		stream.Close()
 		results = append(results, p.collectToolResult(ctx, tu, stream))
 	}
 	return results

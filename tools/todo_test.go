@@ -11,7 +11,6 @@ import (
 
 // drainText 关闭工具专用 BlockStream 并收集其中的文本内容。
 func drainText(w *agent.BlockStream) string {
-	w.Close()
 	var sb strings.Builder
 	blocks, _ := w.ReadBlocks()
 	for _, b := range blocks {

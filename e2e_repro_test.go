@@ -130,7 +130,6 @@ func runCommand(t *testing.T, cmd string) string {
 	if err != nil {
 		t.Fatalf("执行命令 %q 失败: %v", cmd, err)
 	}
-	writer.Close()
 	var sb strings.Builder
 	blocks, _ := writer.ReadBlocks()
 	for _, b := range blocks {

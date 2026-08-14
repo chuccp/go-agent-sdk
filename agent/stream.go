@@ -70,24 +70,16 @@ func (r *BlockStream) WriteError(err error) {
 	r.err = err
 }
 
-// Close 结束写入：输出未完成的拼接内容。幂等，多次调用安全。
-func (r *BlockStream) Close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
-		return
-	}
-	r.closed = true
-	r.flushPending()
-}
-
 // ReadBlocks 返回已收集的全部 Block 与错误（调用前应先 Close）。
 func (r *BlockStream) ReadBlocks() (chat.Blocks, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.closed {
+		r.closed = true
+		r.flushPending()
+	}
 	return r.blocks, r.err
 }
-
-// Err 返回执行过程中发生的错误。
-func (r *BlockStream) Err() error { return r.err }
 
 // flushPending 将累积的文本拼接结果作为一个 TextBlock 收集。要求调用方持有 mu。
 func (r *BlockStream) flushPending() {

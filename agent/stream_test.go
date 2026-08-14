@@ -84,7 +84,6 @@ func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.WriteBlock(chat.NewTextBlock("hello "))
 	stream.WriteBlock(chat.NewTextBlock("world"))
-	stream.Close()
 
 	var text string
 	count := 0
@@ -118,7 +117,6 @@ func TestBlockStream_WriteEvent_EmitsChunkAndCollects(t *testing.T) {
 	stream := NewBlockStream(recv)
 	stream.WriteEvent("line1\n")
 	stream.WriteEvent("line2\n")
-	stream.Close()
 
 	// 每段流式输出都实时推送了 chunk 事件
 	if len(recv.events) != 2 {
@@ -145,7 +143,6 @@ func TestBlockStream_WriteEvent_EmptyIgnored(t *testing.T) {
 	recv := &testReceiver{}
 	stream := NewBlockStream(recv)
 	stream.WriteEvent("")
-	stream.Close()
 
 	if len(recv.events) != 0 {
 		t.Errorf("empty content should not emit event, got %d", len(recv.events))
@@ -159,7 +156,6 @@ func TestBlockStream_WriteEvent_EmptyIgnored(t *testing.T) {
 func TestBlockStream_WriteEvent_NilReceiver(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.WriteEvent("no receiver") // 不应 panic
-	stream.Close()
 
 	blocks, _ := stream.ReadBlocks()
 	if len(blocks) != 1 {

@@ -122,7 +122,6 @@ func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) (stri
 	t.Helper()
 	w := agent.NewBlockStream(nil)
 	err := exec.Execute(turn, w)
-	w.Close()
 	var sb strings.Builder
 	blocks, _ := w.ReadBlocks()
 	for _, b := range blocks {

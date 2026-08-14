@@ -28,7 +28,6 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
-	w.Close()
 
 	// 实时收到了携带输出的 chunk 事件
 	found := false
@@ -68,7 +67,6 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
-	w.Close()
 
 	chunks := 0
 	var streamed string
