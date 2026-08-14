@@ -11,6 +11,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // ==================== TodoStore ====================
@@ -33,7 +34,7 @@ type TodoTask struct {
 	Blocks      []string       `json:"blocks,omitempty"`
 	BlockedBy   []string       `json:"blocked_by,omitempty"`
 	Owner       string         `json:"owner,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Metadata    *value.Object `json:"metadata,omitempty"`
 	CreatedAt   int64          `json:"created_at"`
 	UpdatedAt   int64          `json:"updated_at"`
 }
@@ -102,10 +103,7 @@ func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 		return fmt.Errorf("缺少 description 参数")
 	}
 	activeForm := args.GetString("active_form")
-	var meta map[string]any
-	if obj := args.GetObject("metadata"); obj != nil {
-		meta = obj.ToMap()
-	}
+	meta := args.GetObject("metadata")
 
 	t.store.mu.Lock()
 	defer t.store.mu.Unlock()
@@ -249,7 +247,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 
 	// --- metadata 合并 ---
 	if obj := args.GetObject("metadata"); obj != nil {
-		task.Metadata = mergeMetadata(task.Metadata, obj.ToMap())
+		task.Metadata = mergeMetadata(task.Metadata, obj)
 	}
 
 	// --- 状态变更 ---
@@ -484,7 +482,7 @@ func formatTaskDetail(task *TodoTask) string {
 	if len(task.Blocks) > 0 {
 		sb.WriteString(fmt.Sprintf("阻塞（等待本任务）: %s\n", strings.Join(task.Blocks, ", ")))
 	}
-	if len(task.Metadata) > 0 {
+	if task.Metadata != nil && !task.Metadata.IsEmpty() {
 		if b, err := json.Marshal(task.Metadata); err == nil {
 			sb.WriteString(fmt.Sprintf("元数据: %s\n", string(b)))
 		}
@@ -531,15 +529,18 @@ func removeItems(slice []string, ids []string) []string {
 	return out
 }
 
-func mergeMetadata(base, patch map[string]any) map[string]any {
+func mergeMetadata(base, patch *value.Object) *value.Object {
 	if base == nil {
-		base = make(map[string]any)
+		base = value.NewObject()
 	}
-	for k, v := range patch {
+	if patch == nil {
+		return base
+	}
+	for k, v := range patch.ToMap() {
 		if v == nil {
-			delete(base, k)
+			base.Delete(k)
 		} else {
-			base[k] = v
+			base.PutAny(k, v)
 		}
 	}
 	return base

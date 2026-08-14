@@ -204,9 +204,9 @@ func (s *FlowStore) PrepareExec(sessionId, stepName string) (map[string]any, err
 	if err := checkDeps(st, stepName); err != nil {
 		return nil, err
 	}
-	vars := make(map[string]any, len(st.Input)+len(st.Outputs))
-	for k, v := range st.Input {
-		vars[k] = v
+	vars := st.Input.ToMap()
+	if vars == nil {
+		vars = make(map[string]any)
 	}
 	for k, v := range st.Outputs {
 		vars[k] = v

@@ -8,6 +8,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
@@ -18,7 +19,7 @@ import (
 // 全部由工具层读写，主 LLM 不携带、不汇报（todo 式外部化状态）。
 type FlowState struct {
 	Workflow *exec.Workflow
-	Input    map[string]any
+	Input    *value.Object
 	Outputs  map[string]any            // step_id → 节点输出（迭代步骤为结果数组）
 	Status   map[string]exec.StepStatus
 	ItemDone map[string]map[int]bool   // 迭代步骤：已完成项（index 级跳过）
@@ -37,17 +38,17 @@ func NewFlowStore() *FlowStore {
 
 // Activate 激活（或幂等更新）会话的 flow。已激活且 flowId 相同时合并 input
 //（新键追加、同键覆盖）；不同 flowId 时覆盖旧状态。返回状态与"是否新激活"。
-func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input map[string]any) (*FlowState, bool) {
+func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input *value.Object) (*FlowState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if st, ok := s.states[sessionId]; ok && st.Workflow.Id == flowId {
-		mergeInput(st.Input, input)
+		st.Input.AddAll(input)
 		s.refreshDoneWhen(st)
 		return st, false
 	}
 	if input == nil {
-		input = make(map[string]any)
+		input = value.NewObject()
 	}
 	st := &FlowState{
 		Workflow: wf,
@@ -88,7 +89,7 @@ func (s *FlowStore) refreshDoneWhen(st *FlowState) {
 		}
 		done := true
 		for _, key := range step.DoneWhenKeys() {
-			if _, ok := st.Input[key]; !ok {
+			if !st.Input.HasKey(key) {
 				done = false
 				break
 			}
@@ -307,10 +308,7 @@ func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) 
 	if wf == nil {
 		return fmt.Errorf("未知 flow: %s", flowId)
 	}
-	var input map[string]any
-	if obj := args.GetObject("input"); obj != nil {
-		input = obj.ToMap()
-	}
+	input := args.GetObject("input")
 	sessionId := sessionIdOf(turn)
 
 	st, fresh := t.suite.store.Activate(sessionId, flowId, wf, input)
@@ -485,13 +483,6 @@ func sessionIdOf(turn *agent.Turn) string {
 		return ctx.ID()
 	}
 	return ""
-}
-
-// mergeInput 合并 input：新键追加、同键覆盖。
-func mergeInput(base, patch map[string]any) {
-	for k, v := range patch {
-		base[k] = v
-	}
 }
 
 // jsonEqual 以 JSON 序列化比较两个值是否相等。

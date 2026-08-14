@@ -3,6 +3,7 @@ package tools
 import (
 	"testing"
 
+	"github.com/chuccp/go-agent-sdk/value"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -22,7 +23,7 @@ func TestActivateIdempotentMerge(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
 
-	st, fresh := store.Activate("s1", "story003", wf, map[string]any{"topic": "太空"})
+	st, fresh := store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空"}))
 	if !fresh {
 		t.Fatal("首次激活应为 fresh")
 	}
@@ -32,11 +33,11 @@ func TestActivateIdempotentMerge(t *testing.T) {
 	}
 
 	// 幂等更新：合并 audience → confirm 自动完成（DoneWhen 声明式判定）
-	st2, fresh2 := store.Activate("s1", "story003", wf, map[string]any{"audience": "儿童"})
+	st2, fresh2 := store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"audience": "儿童"}))
 	if fresh2 {
 		t.Fatal("同 flow 再次激活应为幂等更新")
 	}
-	if st2.Input["topic"] != "太空" || st2.Input["audience"] != "儿童" {
+	if st2.Input.GetString("topic") != "太空" || st2.Input.GetString("audience") != "儿童" {
 		t.Fatalf("input 合并错误: %v", st2.Input)
 	}
 	if st2.Status["confirm"] != exec.StepCompleted {
@@ -47,7 +48,7 @@ func TestActivateIdempotentMerge(t *testing.T) {
 func TestCheckDepsAndProgress(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, map[string]any{"topic": "太空", "audience": "儿童"})
+	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 
 	st := store.Get("s1")
 	// confirm 已 done（DoneWhen），story 前置满足
@@ -73,7 +74,7 @@ func TestCheckDepsAndProgress(t *testing.T) {
 func TestRerunInvalidatesDownstream(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, map[string]any{"topic": "太空", "audience": "儿童"})
+	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	store.SetOutput("s1", "story", "初稿")
 	store.MarkStepDone("s1", "story")
 

@@ -84,6 +84,19 @@ func (o *Object) GetArray(key string) *Array {
 	return v.AsArray()
 }
 
+func (o *Object) AddAll(other *Object) {
+	if other == nil {
+		return
+	}
+	for k, v := range other.data {
+		o.data[k] = v
+	}
+}
+
+func (o *Object) Delete(key string) {
+	delete(o.data, key)
+}
+
 // ToMap 将对象转换为原生 map（递归转换嵌套的 Object/Array）。
 func (o *Object) ToMap() map[string]any {
 	if o == nil {
