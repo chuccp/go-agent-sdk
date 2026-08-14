@@ -1,9 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
@@ -71,100 +68,8 @@ type ToolResultBlock struct {
 
 func (b *ToolResultBlock) Type() ContentType { return ContentTypeToolResult }
 
-// ==================== JSON 序列化 ====================
-
-// blockEnvelope 用于 JSON 序列化时携带 type 字段
-type blockEnvelope struct {
-	Type      ContentType  `json:"type"`
-	Text      string       `json:"text,omitempty"`
-	Thinking  string       `json:"thinking,omitempty"`
-	Source    *ImageSource `json:"source,omitempty"`
-	ID        string       `json:"id,omitempty"`
-	Name      string       `json:"name,omitempty"`
-	Input     any          `json:"input,omitempty"`
-	ToolUseID string       `json:"tool_use_id,omitempty"`
-	Content   any          `json:"content,omitempty"`
-}
-
-// MarshalBlock 将 Block 序列化为 JSON（携带 type 字段）。
-func MarshalBlock(b Block) ([]byte, error) {
-	var env blockEnvelope
-	switch v := b.(type) {
-	case *TextBlock:
-		env = blockEnvelope{Type: ContentTypeText, Text: v.Text}
-	case *ThinkingBlock:
-		env = blockEnvelope{Type: ContentTypeThinking, Thinking: v.Thinking}
-	case *ImageBlock:
-		env = blockEnvelope{Type: ContentTypeImage, Source: v.Source}
-	case *ToolUseBlock:
-		env = blockEnvelope{Type: ContentTypeToolUse, ID: v.ID, Name: v.Name, Input: v.Input}
-	case *ToolResultBlock:
-		env = blockEnvelope{Type: ContentTypeToolResult, ToolUseID: v.ToolUseID, Content: v.Content}
-	default:
-		return nil, fmt.Errorf("unknown block type: %T", b)
-	}
-	return json.Marshal(env)
-}
-
-// UnmarshalBlock 从 JSON 反序列化为具体的 Block 类型。
-//func UnmarshalBlock(data []byte) (Block, error) {
-//	var env blockEnvelope
-//	if err := json.Unmarshal(data, &env); err != nil {
-//		return nil, err
-//	}
-//	switch env.Type {
-//	case ContentTypeText:
-//		return &TextBlock{Text: env.Text}, nil
-//	case ContentTypeThinking:
-//		return &ThinkingBlock{Thinking: env.Thinking}, nil
-//	case ContentTypeImage:
-//		return &ImageBlock{Source: env.Source}, nil
-//	case ContentTypeToolUse:
-//		return &ToolUseBlock{ID: env.ID, Name: env.Name, Input: env.Input}, nil
-//	case ContentTypeToolResult:
-//		return &ToolResultBlock{ToolUseID: env.ToolUseID, Content: env.Content}, nil
-//	default:
-//		return nil, fmt.Errorf("unknown content block type: %s", env.Type)
-//	}
-//}
-
 // Blocks 是 []Block 的别名，支持 JSON 序列化/反序列化。
 type Blocks []Block
-
-func (bs Blocks) Len() int { return len(bs) }
-func (bs Blocks) MarshalJSON() ([]byte, error) {
-	if bs == nil {
-		return []byte("null"), nil
-	}
-	raw := make([]json.RawMessage, 0, len(bs))
-	for _, b := range bs {
-		data, err := MarshalBlock(b)
-		if err != nil {
-			return nil, err
-		}
-		raw = append(raw, data)
-	}
-	return json.Marshal(raw)
-}
-
-//func (bs *Blocks) UnmarshalJSON(data []byte) error {
-//	var rawList []json.RawMessage
-//	if err := json.Unmarshal(data, &rawList); err != nil {
-//		return err
-//	}
-//	result := make(Blocks, 0, len(rawList))
-//	for _, raw := range rawList {
-//		b, err := UnmarshalBlock(raw)
-//		if err != nil {
-//			return err
-//		}
-//		result = append(result, b)
-//	}
-//	*bs = result
-//	return nil
-//}
-
-// ==================== 便捷构造 ====================
 
 func NewTextBlock(text string) *TextBlock {
 	return &TextBlock{Text: text}
