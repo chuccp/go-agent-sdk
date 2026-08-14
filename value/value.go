@@ -66,8 +66,8 @@ func (s *Stream) AsStream() *Stream {
 }
 
 // WriteString 向流中追加文本内容。
-func (s *Stream) WriteString(p string) (int, error) {
-	return s.text.WriteString(p)
+func (s *Stream) WriteString(p string) {
+	s.text.WriteString(p)
 }
 
 // Text 返回流中已累积的文本内容。
@@ -82,6 +82,9 @@ func (s *Stream) String() string {
 // Len 返回流中已累积的文本长度。
 func (s *Stream) Len() int {
 	return s.text.Len()
+}
+func (s *Stream) IsEmpty() bool {
+	return s.text.Len() == 0
 }
 
 // Reset 清空流中已累积的内容。

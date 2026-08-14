@@ -122,10 +122,7 @@ func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
 	streamValue := value.NewStream()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
-			_, err := streamValue.WriteString(tb.Text)
-			if err != nil {
-				return "", err
-			}
+			streamValue.WriteString(tb.Text)
 		}
 	}
 	return streamValue.Text(), nil

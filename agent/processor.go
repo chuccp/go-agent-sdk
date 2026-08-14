@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
@@ -209,7 +209,7 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 // collectToolResult 取回单个工具的全部输出：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
 func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
-	var text strings.Builder
+	text := value.NewStream()
 	var content chat.Blocks
 	blocks, err := stream.ReadBlocks()
 	for _, b := range blocks {
@@ -219,18 +219,18 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 		}
 		content = append(content, b)
 	}
-	resultText := text.String()
-	if err != nil {
-		if resultText != "" {
-			resultText += "\n"
-		}
-		resultText += fmt.Sprintf("错误: %v", err)
-	}
-	if resultText == "" {
-		resultText = "(无输出)"
-	}
-	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(tu.Input), resultText))
 
+	if err != nil {
+		if !text.IsEmpty() {
+			text.WriteString("\n")
+		}
+		text.WriteString(fmt.Sprintf("错误: %v", err))
+	}
+	if text.IsEmpty() {
+		text.WriteString("(无输出)")
+	}
+	resultText := text.String()
+	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(tu.Input), resultText))
 	content = append(chat.Blocks{chat.NewTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)
 }
