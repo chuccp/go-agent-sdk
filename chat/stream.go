@@ -139,11 +139,11 @@ func NewStreamWriter(receiver EventReceiver) *StreamWriter {
 // Write 写入一个 Stream 项：块开始事件开启新的组装（上一个 block 自动 flush 入队），
 // 增量追加到当前 block，并按当前 block 类型通过 receiver 向外推送客户端事件。
 // 状态变更加锁保护；emit 在锁外调用，避免持锁期间执行外部代码（AddEvent）。
-func (s *StreamWriter) Write(stream Stream) error {
+func (s *StreamWriter) Write(stream Stream) {
 	switch stream.Type() {
 	case StreamStartType:
 		// 消息开始，无状态需要处理
-		return nil
+		//return nil
 	case BlockStartType:
 		var id, name string
 		if tu, ok := stream.(*ToolUseBlockStart); ok {
@@ -167,13 +167,11 @@ func (s *StreamWriter) Write(stream Stream) error {
 			s.emit(NewThinkingEvent(content))
 		}
 	}
-	return nil
+	//return nil
 }
 
 // Close 结束写入：flush 未完成的 block。幂等，多次调用安全。
-func (s *StreamWriter) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *StreamWriter) flush() {
 	if s.closed {
 		return
 	}
@@ -201,6 +199,7 @@ func (s *StreamWriter) Usage(usage *Usage) {
 func (s *StreamWriter) ReadBlocks() (Blocks, StopReason) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.flush()
 	return s.blocks, s.stopReason
 }
 

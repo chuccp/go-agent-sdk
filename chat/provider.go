@@ -40,7 +40,6 @@ func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, 
 	if chatService == nil {
 		return errors.New("no such provider: " + provider)
 	}
-	defer stream.Close()
 	return chatService.ChatWithStream(ctx, chatMessages, stream)
 }
 

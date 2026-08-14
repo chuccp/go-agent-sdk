@@ -9,6 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
@@ -118,13 +119,16 @@ func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
 		return "", err
 	}
 	blocks, _ := stream.ReadBlocks()
-	var text string
+	streamValue := value.NewStream()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
-			text += tb.Text
+			_, err := streamValue.WriteString(tb.Text)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
-	return text, nil
+	return streamValue.Text(), nil
 }
 
 // Done 返回主循环上下文的取消通道，供长耗时工具（如 exec_node 的 LLM 调用）响应会话停止。
