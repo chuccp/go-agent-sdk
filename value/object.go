@@ -16,6 +16,9 @@ func (o *Object) PutAny(key string, value any) {
 func (o *Object) Get(key string) Value {
 	return o.data[key]
 }
+func (o *Object) IsEmpty() bool {
+	return len(o.data) == 0
+}
 func (o *Object) GetMustString(key string) string {
 	v := o.Get(key)
 	if v == nil {

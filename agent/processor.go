@@ -193,8 +193,8 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 // runTool 执行单个工具：输出内容块写入工具专用的 writer。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
 func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer *BlockStream) {
-	args, _ := tu.Input.(map[string]any)
-	turn := &Turn{ctx: ctx, args: args}
+
+	turn := &Turn{ctx: ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
 	execErr := exec.Execute(turn, writer)
@@ -229,8 +229,7 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	if resultText == "" {
 		resultText = "(无输出)"
 	}
-	args, _ := tu.Input.(map[string]any)
-	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(args), resultText))
+	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(tu.Input), resultText))
 
 	content = append(chat.Blocks{chat.NewTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)

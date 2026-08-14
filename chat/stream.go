@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	"log"
 	"sync"
 
@@ -86,9 +85,9 @@ func (a *blockAssembler) flush() Block {
 		}
 		return NewThinkingBlock(content)
 	case ToolUseBlockType:
-		var input any
+		input := value.NewObject()
 		if len(content) > 0 {
-			if err := json.Unmarshal([]byte(content), &input); err != nil {
+			if err := input.PutJson([]byte(content)); err != nil {
 				log.Printf("tool_use JSON 解析失败: %v, raw=%s", err, content)
 			}
 		}

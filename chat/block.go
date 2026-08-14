@@ -3,6 +3,8 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // ContentType 是 content block 的类型标识
@@ -54,9 +56,9 @@ type ImageSource struct {
 
 // ToolUseBlock 工具调用
 type ToolUseBlock struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Input any    `json:"input"`
+	ID    string
+	Name  string
+	Input *value.Object
 }
 
 func (b *ToolUseBlock) Type() ContentType { return ContentTypeToolUse }
@@ -105,26 +107,26 @@ func MarshalBlock(b Block) ([]byte, error) {
 }
 
 // UnmarshalBlock 从 JSON 反序列化为具体的 Block 类型。
-func UnmarshalBlock(data []byte) (Block, error) {
-	var env blockEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, err
-	}
-	switch env.Type {
-	case ContentTypeText:
-		return &TextBlock{Text: env.Text}, nil
-	case ContentTypeThinking:
-		return &ThinkingBlock{Thinking: env.Thinking}, nil
-	case ContentTypeImage:
-		return &ImageBlock{Source: env.Source}, nil
-	case ContentTypeToolUse:
-		return &ToolUseBlock{ID: env.ID, Name: env.Name, Input: env.Input}, nil
-	case ContentTypeToolResult:
-		return &ToolResultBlock{ToolUseID: env.ToolUseID, Content: env.Content}, nil
-	default:
-		return nil, fmt.Errorf("unknown content block type: %s", env.Type)
-	}
-}
+//func UnmarshalBlock(data []byte) (Block, error) {
+//	var env blockEnvelope
+//	if err := json.Unmarshal(data, &env); err != nil {
+//		return nil, err
+//	}
+//	switch env.Type {
+//	case ContentTypeText:
+//		return &TextBlock{Text: env.Text}, nil
+//	case ContentTypeThinking:
+//		return &ThinkingBlock{Thinking: env.Thinking}, nil
+//	case ContentTypeImage:
+//		return &ImageBlock{Source: env.Source}, nil
+//	case ContentTypeToolUse:
+//		return &ToolUseBlock{ID: env.ID, Name: env.Name, Input: env.Input}, nil
+//	case ContentTypeToolResult:
+//		return &ToolResultBlock{ToolUseID: env.ToolUseID, Content: env.Content}, nil
+//	default:
+//		return nil, fmt.Errorf("unknown content block type: %s", env.Type)
+//	}
+//}
 
 // Blocks 是 []Block 的别名，支持 JSON 序列化/反序列化。
 type Blocks []Block
@@ -145,22 +147,22 @@ func (bs Blocks) MarshalJSON() ([]byte, error) {
 	return json.Marshal(raw)
 }
 
-func (bs *Blocks) UnmarshalJSON(data []byte) error {
-	var rawList []json.RawMessage
-	if err := json.Unmarshal(data, &rawList); err != nil {
-		return err
-	}
-	result := make(Blocks, 0, len(rawList))
-	for _, raw := range rawList {
-		b, err := UnmarshalBlock(raw)
-		if err != nil {
-			return err
-		}
-		result = append(result, b)
-	}
-	*bs = result
-	return nil
-}
+//func (bs *Blocks) UnmarshalJSON(data []byte) error {
+//	var rawList []json.RawMessage
+//	if err := json.Unmarshal(data, &rawList); err != nil {
+//		return err
+//	}
+//	result := make(Blocks, 0, len(rawList))
+//	for _, raw := range rawList {
+//		b, err := UnmarshalBlock(raw)
+//		if err != nil {
+//			return err
+//		}
+//		result = append(result, b)
+//	}
+//	*bs = result
+//	return nil
+//}
 
 // ==================== 便捷构造 ====================
 
@@ -172,7 +174,7 @@ func NewThinkingBlock(thinking string) *ThinkingBlock {
 	return &ThinkingBlock{Thinking: thinking}
 }
 
-func NewToolUseBlock(id, name string, input any) *ToolUseBlock {
+func NewToolUseBlock(id, name string, input *value.Object) *ToolUseBlock {
 	return &ToolUseBlock{ID: id, Name: name, Input: input}
 }
 
