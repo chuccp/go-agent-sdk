@@ -3,10 +3,38 @@ package value
 import "strings"
 
 type Value interface {
+	IsObject() bool
+	IsArray() bool
+	IsText() bool
+	IsBool() bool
+	IsNumber() bool
+	IsNull() bool
+
+	AsObject() *Object
+	AsArray() *Array
+	AsText() *Text
+	AsBool() *Bool
+	AsNumber() *Number
 }
 
+// ValueBase 提供 Value 接口的默认实现，具体类型只需覆写自身对应的 IsXxx / AsXxx 方法。
+type ValueBase struct{}
+
+func (ValueBase) IsObject() bool { return false }
+func (ValueBase) IsArray() bool  { return false }
+func (ValueBase) IsText() bool   { return false }
+func (ValueBase) IsBool() bool   { return false }
+func (ValueBase) IsNumber() bool { return false }
+func (ValueBase) IsNull() bool   { return false }
+
+func (ValueBase) AsObject() *Object { panic("not an object") }
+func (ValueBase) AsArray() *Array   { panic("not an array") }
+func (ValueBase) AsText() *Text     { panic("not text") }
+func (ValueBase) AsBool() *Bool     { panic("not bool") }
+func (ValueBase) AsNumber() *Number { panic("not number") }
+
 type Stream struct {
-	Value
+	ValueBase
 	text *strings.Builder
 }
 
@@ -35,3 +63,61 @@ func (s *Stream) Len() int {
 func (s *Stream) Reset() {
 	s.text.Reset()
 }
+
+type Text struct {
+	ValueBase
+	text string
+}
+
+func (t *Text) IsText() bool { return true }
+
+func (t *Text) AsText() *Text { return t }
+
+func NewText() *Text {
+	return &Text{}
+}
+
+type Number struct {
+	ValueBase
+	f float64
+}
+
+func (n *Number) IsNumber() bool { return true }
+
+func (n *Number) AsNumber() *Number { return n }
+
+func NewNumber(f float64) *Number {
+	return &Number{
+		f: f,
+	}
+}
+
+type Bool struct {
+	ValueBase
+	b bool
+}
+
+func (b *Bool) IsBool() bool { return true }
+
+func (b *Bool) AsBool() *Bool { return b }
+
+func NewBool(b bool) *Bool {
+	return &Bool{b: b}
+}
+
+type Null struct {
+	ValueBase
+}
+
+func (n *Null) IsNull() bool { return true }
+
+// NullValue 空值单例。
+var NullValue = &Null{}
+
+// 确保各类型实现 Value 接口。
+var _ Value = (*Null)(nil)
+var _ Value = (*Text)(nil)
+var _ Value = (*Bool)(nil)
+var _ Value = (*Number)(nil)
+var _ Value = (*Object)(nil)
+var _ Value = (*Array)(nil)
