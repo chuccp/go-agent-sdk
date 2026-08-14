@@ -1,6 +1,10 @@
 package value
 
-import "strings"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 type Value interface {
 	IsObject() bool
@@ -15,6 +19,9 @@ type Value interface {
 	AsText() *Text
 	AsBool() *Bool
 	AsNumber() *Number
+
+	ToJSON() json.RawMessage
+	String() string
 }
 
 // ValueBase 提供 Value 接口的默认实现，具体类型只需覆写自身对应的 IsXxx / AsXxx 方法。
@@ -32,6 +39,9 @@ func (ValueBase) AsArray() *Array   { panic("not an array") }
 func (ValueBase) AsText() *Text     { panic("not text") }
 func (ValueBase) AsBool() *Bool     { panic("not bool") }
 func (ValueBase) AsNumber() *Number { panic("not number") }
+
+func (ValueBase) ToJSON() json.RawMessage { return json.RawMessage("null") }
+func (ValueBase) String() string          { return "null" }
 
 type Stream struct {
 	ValueBase
@@ -73,6 +83,13 @@ func (t *Text) IsText() bool { return true }
 
 func (t *Text) AsText() *Text { return t }
 
+func (t *Text) String() string { return t.text }
+
+func (t *Text) ToJSON() json.RawMessage {
+	data, _ := json.Marshal(t.text)
+	return data
+}
+
 func NewText() *Text {
 	return &Text{}
 }
@@ -85,6 +102,13 @@ type Number struct {
 func (n *Number) IsNumber() bool { return true }
 
 func (n *Number) AsNumber() *Number { return n }
+
+func (n *Number) String() string { return fmt.Sprintf("%v", n.f) }
+
+func (n *Number) ToJSON() json.RawMessage {
+	data, _ := json.Marshal(n.f)
+	return data
+}
 
 func NewNumber(f float64) *Number {
 	return &Number{
@@ -101,6 +125,15 @@ func (b *Bool) IsBool() bool { return true }
 
 func (b *Bool) AsBool() *Bool { return b }
 
+func (b *Bool) String() string { return fmt.Sprintf("%v", b.b) }
+
+func (b *Bool) ToJSON() json.RawMessage {
+	if b.b {
+		return json.RawMessage("true")
+	}
+	return json.RawMessage("false")
+}
+
 func NewBool(b bool) *Bool {
 	return &Bool{b: b}
 }
@@ -110,6 +143,10 @@ type Null struct {
 }
 
 func (n *Null) IsNull() bool { return true }
+
+func (n *Null) String() string { return "null" }
+
+func (n *Null) ToJSON() json.RawMessage { return json.RawMessage("null") }
 
 // NullValue 空值单例。
 var NullValue = &Null{}

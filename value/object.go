@@ -15,6 +15,21 @@ func (o *Object) IsObject() bool { return true }
 
 func (o *Object) AsObject() *Object { return o }
 
+func (o *Object) String() string { return string(o.ToJSON()) }
+
+func (o *Object) ToJSON() json.RawMessage {
+	m := make(map[string]json.RawMessage, len(o.data))
+	for k, v := range o.data {
+		if v == nil {
+			m[k] = json.RawMessage("null")
+		} else {
+			m[k] = v.ToJSON()
+		}
+	}
+	data, _ := json.Marshal(m)
+	return data
+}
+
 // PutJson 解析 JSON 并填充到对象中。
 func (o *Object) PutJson(dataJson []byte) error {
 	var m map[string]any
