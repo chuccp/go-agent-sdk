@@ -96,39 +96,13 @@ func (s *serviceImpl) applyDefaults(m *chat.Request) {
 
 // -------- SSE 解析 --------
 
-// sseEvent 表示 Anthropic 流式响应中的一条原始 SSE 事件。
-type sseEvent struct {
-	Type         string          `json:"type"`
-	Index        int             `json:"index"`
-	Delta        *sseDelta       `json:"delta"`
-	ContentBlock json.RawMessage `json:"content_block"`
-	Message      *sseMessage     `json:"message"`
-	Usage        *chat.Usage     `json:"usage"`
-}
-
-type sseDelta struct {
-	Type        string `json:"type"`
-	Text        string `json:"text"`
-	Thinking    string `json:"thinking"`
-	PartialJSON string `json:"partial_json"`
-	StopReason  string `json:"stop_reason"`
-}
-
-type sseMessage struct {
-	ID         string          `json:"id"`
-	Type       string          `json:"type"`
-	Role       string          `json:"role"`
-	Model      string          `json:"model"`
-	Usage      chat.Usage      `json:"usage"`
-	StopReason chat.StopReason `json:"stop_reason"`
-}
+// SSE 事件结构体（sseEvent/sseContentBlock/sseDelta/sseMessage）定义见 entity.go。
 
 // parseSSE 从 HTTP 响应体中读取 SSE 事件流，转换为简化的 Stream 项写入 response：
 // 块开始（BlockStart）→ 内容增量（Delta）→ 停止原因/用量，解析完成后关闭 response。
 // SSE 协议细节（index/message_start 等）在这里被消化，不外泄到流模型。
 // 读取失败时返回错误（由调用方 ChatWithStream 透传）。
 func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) error {
-	defer resp.Close()
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)
@@ -156,15 +130,11 @@ func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) erro
 			if raw.ContentBlock == nil {
 				continue
 			}
-			block, err := chat.UnmarshalBlock(raw.ContentBlock)
-			if err != nil {
-				continue
-			}
-			switch b := block.(type) {
-			case *chat.ThinkingBlock:
+			switch raw.ContentBlock.Type {
+			case "thinking":
 				resp.Write(&chat.ThinkingBlockStart{})
-			case *chat.ToolUseBlock:
-				resp.Write(&chat.ToolUseBlockStart{Id: b.ID, Name: b.Name})
+			case "tool_use":
+				resp.Write(&chat.ToolUseBlockStart{Id: raw.ContentBlock.ID, Name: raw.ContentBlock.Name})
 			default:
 				resp.Write(&chat.TextBlockStart{})
 			}
