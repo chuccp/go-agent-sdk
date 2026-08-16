@@ -187,6 +187,23 @@ func TestBlocks_RoundTripMetadata(t *testing.T) {
 	}
 }
 
+// TestBlocks_RoundTripErrorText 验证 TextBlock{IsError=true} 的序列化/反序列化往返。
+func TestBlocks_RoundTripErrorText(t *testing.T) {
+	orig := Blocks{NewErrorTextBlock("something broke")}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Blocks
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	tb, ok := back[0].(*TextBlock)
+	if !ok || tb.Text != "something broke" || !tb.IsError {
+		t.Errorf("error text round-trip mismatch: %#v", back[0])
+	}
+}
+
 // TestBlocks_ForContext 固化每种块的上下文声明（是否用于上下文由 block 自己决定）：
 // 对话内容块进入上下文，thinking（signature 约束）与内部元数据块不进入。
 func TestBlocks_ForContext(t *testing.T) {
@@ -195,6 +212,7 @@ func TestBlocks_ForContext(t *testing.T) {
 		want  bool
 	}{
 		{NewTextBlock("t"), true},
+		{NewErrorTextBlock("e"), true},
 		{&ImageBlock{Source: &ImageSource{SourceType: "base64"}}, true},
 		{NewToolUseBlock("tu_1", "tool", value.NewObject()), true},
 		{NewToolResultBlock("tu_1", "result"), true},

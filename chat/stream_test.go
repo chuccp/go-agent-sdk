@@ -214,8 +214,8 @@ func TestBlockStream_WriteEvent_NilReceiver(t *testing.T) {
 	}
 }
 
-// TestBlockStream_WriteErrorText 验证错误以普通文本写入（仅回传给模型）：
-// 与正文拼接（参与连续 TextBlock 合并）；nil 错误忽略。
+// TestBlockStream_WriteErrorText 验证错误以文本写入（IsError=true）：
+// 错误文本与正常文本不合并（先 flush 已有正常文本），nil 错误忽略。
 func TestBlockStream_WriteErrorText(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.WriteBlock(NewTextBlock("partial: "))
@@ -223,11 +223,50 @@ func TestBlockStream_WriteErrorText(t *testing.T) {
 	stream.WriteErrorText(nil) // nil 忽略
 
 	blocks := stream.ReadBlocks()
-	if len(blocks) != 1 {
-		t.Fatalf("expected 1 coalesced text block, got %d", len(blocks))
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks (normal + error), got %d", len(blocks))
 	}
-	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "partial: boom" {
-		t.Errorf("expected coalesced 'partial: boom', got %v", blocks[0])
+	// 正常文本先 flush
+	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "partial: " || tb.IsError {
+		t.Errorf("expected normal 'partial: ', got %v", blocks[0])
+	}
+	// 错误文本独立，IsError=true
+	if tb, ok := blocks[1].(*TextBlock); !ok || tb.Text != "boom" || !tb.IsError {
+		t.Errorf("expected error 'boom' with IsError=true, got %v", blocks[1])
+	}
+}
+
+// TestBlockStream_WriteErrorText_CoalescesErrors 连续错误文本合并为一个块。
+func TestBlockStream_WriteErrorText_CoalescesErrors(t *testing.T) {
+	stream := NewBlockStream(nil)
+	stream.WriteErrorText(errors.New("err1: "))
+	stream.WriteErrorText(errors.New("err2"))
+
+	blocks := stream.ReadBlocks()
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 coalesced error block, got %d", len(blocks))
+	}
+	tb, ok := blocks[0].(*TextBlock)
+	if !ok || tb.Text != "err1: err2" || !tb.IsError {
+		t.Errorf("expected coalesced error 'err1: err2' with IsError=true, got %v", blocks[0])
+	}
+}
+
+// TestBlockStream_WriteErrorText_NormalAfterError 正常文本在错误之后写入时独立成块。
+func TestBlockStream_WriteErrorText_NormalAfterError(t *testing.T) {
+	stream := NewBlockStream(nil)
+	stream.WriteErrorText(errors.New("boom"))
+	stream.WriteBlock(NewTextBlock("recovered"))
+
+	blocks := stream.ReadBlocks()
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(blocks))
+	}
+	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "boom" || !tb.IsError {
+		t.Errorf("expected error block 'boom', got %v", blocks[0])
+	}
+	if tb, ok := blocks[1].(*TextBlock); !ok || tb.Text != "recovered" || tb.IsError {
+		t.Errorf("expected normal block 'recovered', got %v", blocks[1])
 	}
 }
 

@@ -31,9 +31,10 @@ type Block interface {
 
 // ==================== 具体 Block 类型 ====================
 
-// TextBlock 纯文本内容
+// TextBlock 纯文本内容；IsError 标记该文本为错误信息（由 WriteErrorText 写入）。
 type TextBlock struct {
-	Text string `json:"text"`
+	Text    string `json:"text"`
+	IsError bool   `json:"is_error,omitempty"`
 }
 
 func (b *TextBlock) Type() BlockType { return BlockTypeText }
@@ -119,6 +120,7 @@ func (b *ToolResultBlock) ForContext() bool { return true }
 type blockEnvelope struct {
 	Type       BlockType    `json:"type"`
 	Text       string       `json:"text,omitempty"`
+	IsError    bool         `json:"is_error,omitempty"`
 	Thinking   string       `json:"thinking,omitempty"`
 	Source     *ImageSource `json:"source,omitempty"`
 	ID         string       `json:"id,omitempty"`
@@ -135,7 +137,7 @@ func MarshalBlock(b Block) ([]byte, error) {
 	var env blockEnvelope
 	switch v := b.(type) {
 	case *TextBlock:
-		env = blockEnvelope{Type: BlockTypeText, Text: v.Text}
+		env = blockEnvelope{Type: BlockTypeText, Text: v.Text, IsError: v.IsError}
 	case *ThinkingBlock:
 		env = blockEnvelope{Type: BlockTypeThinking, Thinking: v.Thinking}
 	case *ImageBlock:
@@ -181,6 +183,7 @@ func (bs Blocks) MarshalJSON() ([]byte, error) {
 type blockEnvelopeIn struct {
 	Type       BlockType       `json:"type"`
 	Text       string          `json:"text"`
+	IsError    bool            `json:"is_error"`
 	Thinking   string          `json:"thinking"`
 	Source     *ImageSource    `json:"source"`
 	ID         string          `json:"id"`
@@ -200,7 +203,7 @@ func UnmarshalBlock(data []byte) (Block, error) {
 	}
 	switch env.Type {
 	case BlockTypeText:
-		return &TextBlock{Text: env.Text}, nil
+		return &TextBlock{Text: env.Text, IsError: env.IsError}, nil
 	case BlockTypeThinking:
 		return &ThinkingBlock{Thinking: env.Thinking}, nil
 	case BlockTypeImage:
@@ -273,6 +276,10 @@ func (bs *Blocks) UnmarshalJSON(data []byte) error {
 
 func NewTextBlock(text string) *TextBlock {
 	return &TextBlock{Text: text}
+}
+
+func NewErrorTextBlock(text string) *TextBlock {
+	return &TextBlock{Text: text, IsError: true}
 }
 
 func NewThinkingBlock(thinking string) *ThinkingBlock {

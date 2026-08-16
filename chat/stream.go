@@ -111,12 +111,13 @@ type Usage struct {
 // 元数据经 GetStopReason/GetUsage 取回。
 // 写入方法（Write/WriteBlock/WriteEvent/WriteErrorText/StopReason/Usage）内部加锁，并发调用安全。
 type BlockStream struct {
-	mu         sync.Mutex
-	blocks     []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
-	pending    strings.Builder
-	hasPending bool // 连续 TextBlock 的拼接缓冲（仅工具路径产生）
-	receiver   EventReceiver
-	assembler  *blockAssembler
+	mu            sync.Mutex
+	blocks        []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
+	pending       strings.Builder
+	hasPending    bool // 连续 TextBlock 的拼接缓冲（仅工具路径产生）
+	pendingIsError bool // 当前拼接缓冲是否为错误文本
+	receiver      EventReceiver
+	assembler     *blockAssembler
 }
 
 // NewBlockStream 创建一个 BlockStream。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
@@ -192,22 +193,33 @@ func (s *BlockStream) WriteEvent(content string) {
 	s.writeBlockLocked(NewTextBlock(content))
 }
 
-// WriteErrorText 将错误以普通文本写入（错误仅回传给模型：与正文拼接后
-// 随 tool_result 返回给 LLM）。
+// WriteErrorText 将错误以文本写入（IsError=true），错误仅回传给模型：
+// 与正文不合并（先 flush 已有正常文本），连续错误文本会拼接为一个块。
 func (s *BlockStream) WriteErrorText(err error) {
 	if err == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.writeBlockLocked(NewTextBlock(err.Error()))
+	// 错误文本与正常文本不合并：先 flush 已有的正常文本缓冲
+	if s.hasPending && !s.pendingIsError {
+		s.flushPendingLocked()
+	}
+	s.pending.WriteString(err.Error())
+	s.hasPending = true
+	s.pendingIsError = true
 }
 
 // writeBlockLocked 要求调用方持有 mu。
 func (s *BlockStream) writeBlockLocked(block Block) {
 	if tb, ok := block.(*TextBlock); ok {
+		// 错误文本与正常文本不合并：类型不同时先 flush 已有缓冲
+		if s.hasPending && s.pendingIsError != tb.IsError {
+			s.flushPendingLocked()
+		}
 		s.pending.WriteString(tb.Text)
 		s.hasPending = true
+		s.pendingIsError = tb.IsError
 		return
 	}
 	s.flushPendingLocked()
@@ -220,7 +232,10 @@ func (s *BlockStream) flushPendingLocked() {
 		return
 	}
 	s.hasPending = false
-	s.blocks = append(s.blocks, NewTextBlock(s.pending.String()))
+	tb := NewTextBlock(s.pending.String())
+	tb.IsError = s.pendingIsError
+	s.pendingIsError = false
+	s.blocks = append(s.blocks, tb)
 	s.pending.Reset()
 }
 
