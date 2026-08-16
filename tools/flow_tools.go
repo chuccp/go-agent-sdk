@@ -299,15 +299,17 @@ func (t *ActivateFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	args := turn.Args()
 	flowId := args.GetString("flow_id")
 	if flowId == "" {
-		return fmt.Errorf("缺少 flow_id 参数")
+		writer.WriteBlock(chat.NewTextBlock("缺少 flow_id 参数"))
+		return
 	}
 	wf := t.suite.findWorkflow(flowId)
 	if wf == nil {
-		return fmt.Errorf("未知 flow: %s", flowId)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("未知 flow: %s", flowId)))
+		return
 	}
 	input := args.GetObject("input")
 	sessionId := sessionIdOf(turn)
@@ -317,11 +319,10 @@ func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) 
 	if fresh {
 		// 首次激活：完整卡片入场（todo 式：经 tool_result 进历史，不碰 System）
 		writer.WriteBlock(chat.NewTextBlock(wf.RenderCard(progress)))
-		return nil
+		return
 	}
 	writer.WriteBlock(chat.NewTextBlock(
 		"已补录 input，flow 继续。" + t.suite.footer(st)))
-	return nil
 }
 
 // ==================== FlowStepDoneTool ====================
@@ -351,24 +352,26 @@ func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
-		return fmt.Errorf("当前没有激活的 flow")
+		writer.WriteBlock(chat.NewTextBlock("当前没有激活的 flow"))
+		return
 	}
 	step := findStep(st.Workflow, stepId)
 	if step == nil {
-		return fmt.Errorf("不存在步骤: %s", stepId)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("不存在步骤: %s", stepId)))
+		return
 	}
 	if step.Kind() != exec.StepTalk {
-		return fmt.Errorf("步骤 %q 是执行步骤，请用 exec_node 执行", step.Title())
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("步骤 %q 是执行步骤，请用 exec_node 执行", step.Title())))
+		return
 	}
 	t.suite.store.MarkStepDone(sessionIdOf(turn), stepId)
 	writer.WriteBlock(chat.NewTextBlock(
 		fmt.Sprintf("步骤「%s」已标记完成。", step.Title()) + t.suite.footer(st)))
-	return nil
 }
 
 // ==================== FlowStatusTool ====================
@@ -391,11 +394,11 @@ func (t *FlowStatusTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
 		writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow）"))
-		return nil
+		return
 	}
 	t.suite.store.mu.Lock()
 	defer t.suite.store.mu.Unlock()
@@ -418,7 +421,6 @@ func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 		sb.WriteString("建议下一步: " + next)
 	}
 	writer.WriteBlock(chat.NewTextBlock(sb.String()))
-	return nil
 }
 
 // ==================== FinishFlowTool ====================
@@ -451,25 +453,25 @@ func (t *FinishFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	args := turn.Args()
 	action := args.GetString("action")
 	sessionId := sessionIdOf(turn)
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
 		writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow，无需收尾）"))
-		return nil
+		return
 	}
 
 	switch action {
 	case "abandon":
 		t.suite.store.Remove(sessionId)
 		writer.WriteBlock(chat.NewTextBlock("flow 已放弃并清理。"))
-		return nil
 	case "complete":
 		ok, missing := t.suite.store.AllDone(st)
 		if !ok {
-			return fmt.Errorf("尚有步骤未完成: %s，请先完成后再收尾", strings.Join(missing, "、"))
+			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("尚有步骤未完成: %s，请先完成后再收尾", strings.Join(missing, "、"))))
+			return
 		}
 		t.suite.store.Remove(sessionId)
 		summary := args.GetString("summary")
@@ -478,9 +480,8 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) er
 			text += " 总结: " + summary
 		}
 		writer.WriteBlock(chat.NewTextBlock(text))
-		return nil
 	default:
-		return fmt.Errorf("未知 action: %s（可选 complete/abandon）", action)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("未知 action: %s（可选 complete/abandon）", action)))
 	}
 }
 

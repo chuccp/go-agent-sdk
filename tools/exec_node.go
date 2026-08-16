@@ -41,34 +41,40 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 执行节点：依赖校验 → 组装变量 → 零上下文 LLM 调用（或逐项迭代）→
-// 登记输出（重跑使下游失效）→ 标记完成。
-func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+// 登记输出（重跑使下游失效）→ 标记完成；执行错误直接写入 writer。
+func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	if stepId == "" {
-		return fmt.Errorf("缺少 step_id 参数")
+		writer.WriteBlock(chat.NewTextBlock("缺少 step_id 参数"))
+		return
 	}
 	sctx := turn.Context()
 	if sctx == nil {
-		return fmt.Errorf("exec_node 需要会话上下文")
+		writer.WriteBlock(chat.NewTextBlock("exec_node 需要会话上下文"))
+		return
 	}
 	sessionId := sctx.ID()
 
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
-		return fmt.Errorf("当前没有激活的 flow，请先调用 activate_flow")
+		writer.WriteBlock(chat.NewTextBlock("当前没有激活的 flow，请先调用 activate_flow"))
+		return
 	}
 	step := findStep(st.Workflow, stepId)
 	if step == nil {
-		return fmt.Errorf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId)))
+		return
 	}
 	if step.Kind() != exec.StepExec || step.Node() == nil {
-		return fmt.Errorf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title())
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title())))
+		return
 	}
 
 	vars, err := t.suite.store.PrepareExec(sessionId, stepId)
 	if err != nil {
-		return err
+		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		return
 	}
 
 	t.emitProgress(sctx, st.Workflow.Id, stepId, "start", "")
@@ -82,7 +88,8 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) erro
 	}
 	if err != nil {
 		t.emitProgress(sctx, st.Workflow.Id, stepId, "error", err.Error())
-		return err
+		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		return
 	}
 
 	t.suite.store.SetOutput(sessionId, stepId, output)
@@ -103,7 +110,6 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) erro
 	}
 	resultText += t.suite.footer(t.suite.store.Get(sessionId))
 	writer.WriteBlock(chat.NewTextBlock(resultText))
-	return nil
 }
 
 // execSingle 单次执行：渲染模板 → 零上下文 LLM 调用。

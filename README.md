@@ -142,7 +142,7 @@ type ToolExecutor interface {
     Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
     Name() string                                       // 工具唯一名称
     UsagePrompt() string                                // 工具引导提示词（随每轮 System 注入）
-    Execute(turn *Turn, writer *BlockStream) error      // 执行逻辑
+    Execute(turn *Turn, writer *BlockStream)            // 执行逻辑（错误直接写入 writer）
 }
 ```
 

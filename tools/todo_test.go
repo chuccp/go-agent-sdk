@@ -12,7 +12,7 @@ import (
 // drainText 关闭工具专用 BlockStream 并收集其中的文本内容。
 func drainText(w *agent.BlockStream) string {
 	var sb strings.Builder
-	blocks, _ := w.ReadBlocks()
+	blocks := w.ReadBlocks()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)
@@ -24,10 +24,7 @@ func drainText(w *agent.BlockStream) string {
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
 	w := agent.NewBlockStream(nil)
-	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), w)
-	if err != nil {
-		t.Fatalf("Execute() error: %v", err)
-	}
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), w)
 	return drainText(w)
 }
 
@@ -62,11 +59,11 @@ func TestTaskCreate_MissingSubject(t *testing.T) {
 	store := NewTodoStore()
 	create := &TaskCreateTool{store}
 
-	err := create.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
+	output := execTool(t, create, map[string]any{
 		"description": "desc",
-	})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error for missing subject")
+	})
+	if !strings.Contains(output, "缺少 subject") {
+		t.Errorf("expected missing subject error in output, got %q", output)
 	}
 }
 
@@ -74,11 +71,11 @@ func TestTaskCreate_MissingDescription(t *testing.T) {
 	store := NewTodoStore()
 	create := &TaskCreateTool{store}
 
-	err := create.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
+	output := execTool(t, create, map[string]any{
 		"subject": "Fix bug",
-	})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error for missing description")
+	})
+	if !strings.Contains(output, "缺少 description") {
+		t.Errorf("expected missing description error in output, got %q", output)
 	}
 }
 
@@ -125,18 +122,18 @@ func TestTaskUpdate_BlockedTaskCannotStart(t *testing.T) {
 	// T1 blocked_by T2
 	execTool(t, update, map[string]any{"task_id": "1", "add_blocked_by": []string{"2"}})
 
-	// T1 不能直接 in_progress
-	err := update.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{
+	// T1 不能直接 in_progress（错误写入输出文本）
+	output := execTool(t, update, map[string]any{
 		"task_id": "1",
 		"status":  "in_progress",
-	})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error: blocked by incomplete task")
+	})
+	if !strings.Contains(output, "无法将任务") {
+		t.Errorf("expected blocked-by error in output, got %q", output)
 	}
 
 	// T2 完成后 T1 可以 in_progress
 	execTool(t, update, map[string]any{"task_id": "2", "status": "completed"})
-	output := execTool(t, update, map[string]any{"task_id": "1", "status": "in_progress"})
+	output = execTool(t, update, map[string]any{"task_id": "1", "status": "in_progress"})
 	if !strings.Contains(output, "[◐]") {
 		t.Errorf("expected in_progress after dependency satisfied, got %q", output)
 	}
@@ -365,9 +362,9 @@ func TestTaskGet_NotFound(t *testing.T) {
 	store := NewTodoStore()
 	get := &TaskGetTool{store}
 
-	err := get.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"task_id": "999"})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error for non-existent task")
+	output := execTool(t, get, map[string]any{"task_id": "999"})
+	if !strings.Contains(output, "任务不存在") {
+		t.Errorf("expected not-found error in output, got %q", output)
 	}
 }
 

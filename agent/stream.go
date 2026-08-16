@@ -17,7 +17,6 @@ type BlockStream struct {
 	blocks     []chat.Block
 	pending    strings.Builder // 连续 TextBlock 的拼接缓冲
 	hasPending bool
-	err        error
 	closed     bool
 	receiver   chat.EventReceiver
 }
@@ -65,20 +64,15 @@ func (r *BlockStream) writeBlockLocked(block chat.Block) {
 	r.blocks = append(r.blocks, block)
 }
 
-// WriteError 记录错误，ReadBlocks 返回时携带该错误。
-func (r *BlockStream) WriteError(err error) {
-	r.err = err
-}
-
-// ReadBlocks 返回已收集的全部 Block 与错误（调用前应先 Close）。
-func (r *BlockStream) ReadBlocks() (chat.Blocks, error) {
+// ReadBlocks 返回已收集的全部 Block（首次调用自动 flush 未完成的文本拼接）。
+func (r *BlockStream) ReadBlocks() chat.Blocks {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.closed {
 		r.closed = true
 		r.flushPending()
 	}
-	return r.blocks, r.err
+	return r.blocks
 }
 
 // flushPending 将累积的文本拼接结果作为一个 TextBlock 收集。要求调用方持有 mu。

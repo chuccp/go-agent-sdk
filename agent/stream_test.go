@@ -87,7 +87,7 @@ func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
 
 	var text string
 	count := 0
-	blocks, _ := stream.ReadBlocks()
+	blocks := stream.ReadBlocks()
 	for _, b := range blocks {
 		count++
 		if tb, ok := b.(*chat.TextBlock); ok {
@@ -130,7 +130,7 @@ func TestBlockStream_WriteEvent_EmitsChunkAndCollects(t *testing.T) {
 	}
 
 	// 同时进入 tool_result（连续文本拼接为一块）
-	blocks, _ := stream.ReadBlocks()
+	blocks := stream.ReadBlocks()
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 coalesced block, got %d", len(blocks))
 	}
@@ -147,7 +147,7 @@ func TestBlockStream_WriteEvent_EmptyIgnored(t *testing.T) {
 	if len(recv.events) != 0 {
 		t.Errorf("empty content should not emit event, got %d", len(recv.events))
 	}
-	blocks, _ := stream.ReadBlocks()
+	blocks := stream.ReadBlocks()
 	if len(blocks) != 0 {
 		t.Errorf("empty content should not collect block, got %d", len(blocks))
 	}
@@ -157,7 +157,7 @@ func TestBlockStream_WriteEvent_NilReceiver(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.WriteEvent("no receiver") // 不应 panic
 
-	blocks, _ := stream.ReadBlocks()
+	blocks := stream.ReadBlocks()
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block even without receiver, got %d", len(blocks))
 	}

@@ -24,10 +24,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	rec := &eventRecorder{}
 	w := agent.NewBlockStream(rec)
 	tool := NewCommandTool()
-	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), w)
-	if err != nil {
-		t.Fatalf("Execute() error: %v", err)
-	}
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), w)
 
 	// 实时收到了携带输出的 chunk 事件
 	found := false
@@ -42,7 +39,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	}
 
 	// 输出同时进入 tool_result
-	blocks, _ := w.ReadBlocks()
+	blocks := w.ReadBlocks()
 	var text string
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
@@ -63,10 +60,7 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 	w := agent.NewBlockStream(rec)
 	tool := NewCommandTool()
 	// printf 在 sh 与 cmd 下均可用；两行输出应产生至少 2 个 chunk 事件
-	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), w)
-	if err != nil {
-		t.Fatalf("Execute() error: %v", err)
-	}
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), w)
 
 	chunks := 0
 	var streamed string

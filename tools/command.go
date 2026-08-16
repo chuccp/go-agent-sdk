@@ -104,18 +104,20 @@ func needsStartPrefix(cmd string) bool {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出逐行流式写入 writer
-// （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）。
-func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+// （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）；
+// 执行错误直接写入 writer，不再向外返回。
+func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	args := turn.Args()
 	cmd := args.GetString("command")
 	if strings.TrimSpace(cmd) == "" {
-		return fmt.Errorf("缺少 command 参数")
+		writer.WriteBlock(chat.NewTextBlock("缺少 command 参数"))
+		return
 	}
 	cmd = strings.TrimSpace(cmd)
 
 	if err := validateCommand(cmd); err != nil {
 		writer.WriteBlock(chat.NewTextBlock(err.Error()))
-		return nil
+		return
 	}
 
 	// Windows 下对 GUI 程序自动加 start "" 前缀，防止阻塞
@@ -129,14 +131,17 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 	c := newShellCommand(ctx, cmd)
 	stdout, err := c.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("命令执行失败: %w", err)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		return
 	}
 	stderr, err := c.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("命令执行失败: %w", err)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		return
 	}
 	if err := c.Start(); err != nil {
-		return fmt.Errorf("命令执行失败: %w", err)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		return
 	}
 
 	// 流式排空 stdout/stderr：逐行实时推送（两个协程并发写入，BlockStream 内部已加锁）
@@ -160,21 +165,21 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error
 	err = c.Wait()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("命令执行超时（30s）: %s", cmd)
+			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行超时（30s）: %s", cmd)))
+			return
 		}
 		// 命令执行失败：已流式写入的输出保留，补充错误说明
 		if gotOutput.Load() {
 			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令退出码非零，错误: %v", err)))
-			return nil
+			return
 		}
-		return fmt.Errorf("命令执行失败: %w", err)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		return
 	}
 
 	if !gotOutput.Load() {
 		writer.WriteBlock(chat.NewTextBlock("(无输出)"))
-		return nil
 	}
-	return nil
 }
 
 func isWindows() bool {

@@ -110,29 +110,31 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
 // 后立即返回，不阻塞等待回答；同时写入简短提示作为 tool_result，
-// 告知 LLM 结束本轮、等待用户以普通消息形式回答。
-func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *agent.BlockStream) error {
+// 告知 LLM 结束本轮、等待用户以普通消息形式回答；错误直接写入 writer。
+func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	ctx := turn.Context()
 	if ctx == nil {
-		return fmt.Errorf("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）")
+		writer.WriteBlock(chat.NewTextBlock("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）"))
+		return
 	}
 
 	questions, err := parseQuestions(turn.Args())
 	if err != nil {
-		return err
+		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		return
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
-		return fmt.Errorf("序列化问题失败: %w", err)
+		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("序列化问题失败: %v", err)))
+		return
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))
 
 	// 2. 告知 LLM 问题已送达，等待用户下一条消息（不代为回答）
 	writer.WriteBlock(chat.NewTextBlock(
 		"问题已发送给用户。请结束本轮，等待用户的回答（回答将作为下一条消息到达），不要替用户回答。"))
-	return nil
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

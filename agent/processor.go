@@ -163,9 +163,9 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 }
 
 // executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks。
-// 每个工具的输出写入各自的 BlockStream（工具专用），同步执行完成后一次性取回；
-// 本方法消费每个工具的输出并组装为 tool_result，未命中任何工具的 tool_use 补错误结果
-// （避免下一轮请求缺 tool_result 报错）。
+// 每个工具的输出（含执行错误，工具自行写入）写入各自的 BlockStream，
+// 同步执行完成后一次性取回；本方法消费每个工具的输出并组装为 tool_result，
+// 未命中任何工具的 tool_use 补错误结果（避免下一轮请求缺 tool_result 报错）。
 // 锁协议：进入时持有 runLock；工具执行期间由 runTool 自行释放/重取，返回时保持持锁。
 func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks) chat.Blocks {
 	var results chat.Blocks
@@ -182,48 +182,38 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			))
 			continue
 		}
-		stream := NewBlockStream(ctx)
-		p.runTool(ctx, tu, exec, stream)
-		results = append(results, p.collectToolResult(ctx, tu, stream))
+
+		blocks := p.runTool(ctx, tu, exec)
+		results = append(results, p.collectToolResult(ctx, tu, blocks))
 	}
 	return results
 }
 
-// runTool 执行单个工具：输出内容块写入工具专用的 writer。
+// runTool 执行单个工具：输出内容块写入工具专用的 writer；
+// 执行错误由工具自行写入 writer（不中断会话），随输出一起组装为 tool_result。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor, writer *BlockStream) {
+func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) chat.Blocks {
 
 	turn := &Turn{ctx: ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
-	execErr := exec.Execute(turn, writer)
+	writer := NewBlockStream(ctx)
+	exec.Execute(turn, writer)
 	ctx.runLock.Lock()
-
-	if execErr != nil {
-		// 错误通过 BlockStream.Err() 传递给消费方组装进 tool_result
-		writer.WriteError(execErr)
-	}
+	return writer.ReadBlocks()
 }
 
 // collectToolResult 取回单个工具的全部输出：文本拼接为结果正文，
 // 其余 block 原样保留，组装为 tool_result block；同时发出 tool_execution 事件。
-func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, stream *BlockStream) *chat.ToolResultBlock {
+func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolUseBlock, blocks chat.Blocks) *chat.ToolResultBlock {
 	text := value.NewStream()
 	var content chat.Blocks
-	blocks, err := stream.ReadBlocks()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			text.WriteString(tb.Text)
 			continue
 		}
 		content = append(content, b)
-	}
-
-	if err != nil {
-		if !text.IsEmpty() {
-			text.WriteString("\n")
-		}
-		text.WriteString(fmt.Sprintf("错误: %v", err))
 	}
 	if text.IsEmpty() {
 		text.WriteString("(无输出)")

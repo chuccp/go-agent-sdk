@@ -117,19 +117,19 @@ func newStoryFlow() *exec.Workflow {
 
 // ==================== 辅助 ====================
 
-// execToolText 在工具专用 BlockStream 上执行工具并收集输出文本。
-func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) (string, error) {
+// execToolText 在工具专用 BlockStream 上执行工具并收集输出文本（含错误信息）。
+func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) string {
 	t.Helper()
 	w := agent.NewBlockStream(nil)
-	err := exec.Execute(turn, w)
+	exec.Execute(turn, w)
 	var sb strings.Builder
-	blocks, _ := w.ReadBlocks()
+	blocks := w.ReadBlocks()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)
 		}
 	}
-	return sb.String(), err
+	return sb.String()
 }
 
 // collectUntilDone 读事件直到 done。
@@ -228,10 +228,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	}
 	// ④ finish 已清理：flow_status 报告无激活 flow
 	statusTurn := agent.NewTurnWithContext(manager.SessionContext("flow-e2e"), nil)
-	out, err := execToolText(t, status, statusTurn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := execToolText(t, status, statusTurn)
 	if !strings.Contains(out, "无激活") {
 		t.Errorf("finish 后应无激活 flow: %s", out)
 	}
@@ -250,45 +247,36 @@ func TestFlowGuards(t *testing.T) {
 	turn := func(args map[string]any) *agent.Turn {
 		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))
 	}
-	run := func(exec agent.ToolExecutor, args map[string]any) (string, error) {
+	run := func(exec agent.ToolExecutor, args map[string]any) string {
 		return execToolText(t, exec, turn(args))
 	}
 
-	// ① 未激活时 exec_node 被拒
-	_, err := run(execNode, map[string]any{"step_id": "story"})
-	if err == nil || !strings.Contains(err.Error(), "activate_flow") {
-		t.Errorf("未激活 exec 应报错: %v", err)
+	// ① 未激活时 exec_node 被拒（错误写入输出文本）
+	out := run(execNode, map[string]any{"step_id": "story"})
+	if !strings.Contains(out, "activate_flow") {
+		t.Errorf("未激活 exec 应报错: %s", out)
 	}
 
 	// ② 激活（不登记 audience）→ confirm 未完成 → exec story 被依赖校验拒绝
-	out, err := run(activate, map[string]any{
+	out = run(activate, map[string]any{
 		"flow_id": "story003", "input": map[string]any{"topic": "太空"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !strings.Contains(out, "【执行守则】") || !strings.Contains(out, "【步骤】") {
 		t.Errorf("首次激活应返回完整卡片: %s", out)
 	}
-	_, err = run(execNode, map[string]any{"step_id": "story"})
-	if err == nil || !strings.Contains(err.Error(), "前置步骤") {
-		t.Errorf("跳步应被依赖校验拒绝: %v", err)
+	out = run(execNode, map[string]any{"step_id": "story"})
+	if !strings.Contains(out, "前置步骤") {
+		t.Errorf("跳步应被依赖校验拒绝: %s", out)
 	}
 
 	// ③ 补录 audience → DoneWhen 自动完成 confirm → exec 成功（零上下文调用）
-	out, err = run(activate, map[string]any{
+	out = run(activate, map[string]any{
 		"flow_id": "story003", "input": map[string]any{"audience": "儿童"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !strings.Contains(out, "已补录") {
 		t.Errorf("幂等更新应返回补录确认: %s", out)
 	}
-	out, err = run(execNode, map[string]any{"step_id": "story"})
-	if err != nil {
-		t.Fatalf("依赖满足后 exec 应成功: %v", err)
-	}
+	out = run(execNode, map[string]any{"step_id": "story"})
 	if !strings.Contains(out, "执行完成") || !strings.Contains(out, "【进度】") {
 		t.Errorf("exec 结果应含摘要与进度脚标: %s", out)
 	}
@@ -296,15 +284,16 @@ func TestFlowGuards(t *testing.T) {
 		t.Error("节点调用模板未正确渲染上游 input")
 	}
 
-	// ④ deliver 未完成 → finish(complete) 被验收拒绝
-	_, err = run(finish, map[string]any{"action": "complete"})
-	if err == nil || !strings.Contains(err.Error(), "未完成") {
-		t.Errorf("漏步 finish 应被拒: %v", err)
+	// ④ deliver 未完成 → finish(complete) 被验收拒绝（错误写入输出文本）
+	out = run(finish, map[string]any{"action": "complete"})
+	if !strings.Contains(out, "未完成") {
+		t.Errorf("漏步 finish 应被拒: %s", out)
 	}
 
 	// ⑤ abandon 成功清理
-	if _, err := run(finish, map[string]any{"action": "abandon"}); err != nil {
-		t.Errorf("abandon 应成功: %v", err)
+	out = run(finish, map[string]any{"action": "abandon"})
+	if !strings.Contains(out, "已放弃") {
+		t.Errorf("abandon 应成功: %s", out)
 	}
 }
 

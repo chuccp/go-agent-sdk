@@ -43,9 +43,8 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 }
 func (t *fakeTool) Name() string { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
-func (t *fakeTool) Execute(_ *agent.Turn, writer *agent.BlockStream) error {
+func (t *fakeTool) Execute(_ *agent.Turn, writer *agent.BlockStream) {
 	writer.WriteBlock(chat.NewTextBlock("fake tool output"))
-	return nil
 }
 
 // waitForDone 读到 done 返回 true；超时 dump 全部协程栈后 fail。
@@ -125,13 +124,10 @@ func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
 	writer := agent.NewBlockStream(nil)
-	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可
-	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), writer)
-	if err != nil {
-		t.Fatalf("执行命令 %q 失败: %v", cmd, err)
-	}
+	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可；执行错误会写入 writer
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), writer)
 	var sb strings.Builder
-	blocks, _ := writer.ReadBlocks()
+	blocks := writer.ReadBlocks()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			sb.WriteString(tb.Text)

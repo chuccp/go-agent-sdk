@@ -198,9 +198,10 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
-	err := tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error when SessionContext is not injected")
+	w := agent.NewBlockStream(nil)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), w)
+	if text := drainText(w); !strings.Contains(text, "不支持交互式提问") {
+		t.Errorf("expected unsupported error in output, got %q", text)
 	}
 }
 
@@ -209,9 +210,10 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s1")
 
-	err := tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), agent.NewBlockStream(nil))
-	if err == nil {
-		t.Error("expected error for missing questions")
+	w := agent.NewBlockStream(nil)
+	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), w)
+	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
+		t.Errorf("expected missing questions error in output, got %q", text)
 	}
 }
 
@@ -241,17 +243,15 @@ func TestExecute_NonBlocking(t *testing.T) {
 	}
 
 	w := agent.NewBlockStream(nil)
-	done := make(chan error, 1)
+	done := make(chan struct{}, 1)
 	go func() {
-		done <- tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), w)
+		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), w)
+		done <- struct{}{}
 	}()
 
 	// 不依赖任何用户回答，Execute 必须立即返回
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Execute() error: %v", err)
-		}
+	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Execute blocked: expected immediate return")
 	}

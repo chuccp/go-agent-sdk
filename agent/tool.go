@@ -13,7 +13,7 @@ type ToolExecutor interface {
 	Definition() *chat.ToolFunction
 	Name() string
 	UsagePrompt() string
-	Execute(turn *Turn, writer *BlockStream) error
+	Execute(turn *Turn, writer *BlockStream)
 }
 
 // Turn 一次工具执行的载体。
