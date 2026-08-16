@@ -3,6 +3,7 @@ package tools
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -105,18 +106,18 @@ func needsStartPrefix(cmd string) bool {
 
 // Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出逐行流式写入 writer
 // （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）；
-// 执行错误直接写入 writer，不再向外返回。
-func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// 执行错误经 WriteErrorText 以文本写入（回传给模型），不再向外返回。
+func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	cmd := args.GetString("command")
 	if strings.TrimSpace(cmd) == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 command 参数"))
+		writer.WriteErrorText(errors.New("缺少 command 参数"))
 		return
 	}
 	cmd = strings.TrimSpace(cmd)
 
 	if err := validateCommand(cmd); err != nil {
-		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		writer.WriteErrorText(err)
 		return
 	}
 
@@ -131,16 +132,16 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	c := newShellCommand(ctx, cmd)
 	stdout, err := c.StdoutPipe()
 	if err != nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 	stderr, err := c.StderrPipe()
 	if err != nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 	if err := c.Start(); err != nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 
@@ -165,15 +166,15 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	err = c.Wait()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行超时（30s）: %s", cmd)))
+			writer.WriteErrorText(fmt.Errorf("命令执行超时（30s）: %s", cmd))
 			return
 		}
 		// 命令执行失败：已流式写入的输出保留，补充错误说明
 		if gotOutput.Load() {
-			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令退出码非零，错误: %v", err)))
+			writer.WriteErrorText(fmt.Errorf("命令退出码非零，错误: %v", err))
 			return
 		}
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("命令执行失败: %v", err)))
+		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 

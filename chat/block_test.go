@@ -163,3 +163,26 @@ func TestBlocks_RoundTripImage(t *testing.T) {
 		t.Errorf("image round-trip mismatch: %#v", back[0])
 	}
 }
+
+func TestBlocks_RoundTripMetadata(t *testing.T) {
+	orig := Blocks{
+		NewUsageBlock(&Usage{InputTokens: 10, OutputTokens: 20}),
+		NewStopReasonBlock(StopReasonToolUse),
+	}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Blocks
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	ub, ok := back[0].(*UsageBlock)
+	if !ok || ub.Usage == nil || ub.Usage.InputTokens != 10 || ub.Usage.OutputTokens != 20 {
+		t.Errorf("usage round-trip mismatch: %#v", back[0])
+	}
+	sb, ok := back[1].(*StopReasonBlock)
+	if !ok || sb.Reason != StopReasonToolUse {
+		t.Errorf("stop_reason round-trip mismatch: %#v", back[1])
+	}
+}

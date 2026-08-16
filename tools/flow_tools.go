@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -299,16 +300,16 @@ func (t *ActivateFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	flowId := args.GetString("flow_id")
 	if flowId == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 flow_id 参数"))
+		writer.WriteErrorText(errors.New("缺少 flow_id 参数"))
 		return
 	}
 	wf := t.suite.findWorkflow(flowId)
 	if wf == nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("未知 flow: %s", flowId)))
+		writer.WriteErrorText(fmt.Errorf("未知 flow: %s", flowId))
 		return
 	}
 	input := args.GetObject("input")
@@ -352,21 +353,21 @@ func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
-		writer.WriteBlock(chat.NewTextBlock("当前没有激活的 flow"))
+		writer.WriteErrorText(errors.New("当前没有激活的 flow"))
 		return
 	}
 	step := findStep(st.Workflow, stepId)
 	if step == nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("不存在步骤: %s", stepId)))
+		writer.WriteErrorText(fmt.Errorf("不存在步骤: %s", stepId))
 		return
 	}
 	if step.Kind() != exec.StepTalk {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("步骤 %q 是执行步骤，请用 exec_node 执行", step.Title())))
+		writer.WriteErrorText(fmt.Errorf("步骤 %q 是执行步骤，请用 exec_node 执行", step.Title()))
 		return
 	}
 	t.suite.store.MarkStepDone(sessionIdOf(turn), stepId)
@@ -394,7 +395,7 @@ func (t *FlowStatusTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
 		writer.WriteBlock(chat.NewTextBlock("（当前无激活的 flow）"))
@@ -453,7 +454,7 @@ func (t *FinishFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	action := args.GetString("action")
 	sessionId := sessionIdOf(turn)
@@ -470,7 +471,7 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	case "complete":
 		ok, missing := t.suite.store.AllDone(st)
 		if !ok {
-			writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("尚有步骤未完成: %s，请先完成后再收尾", strings.Join(missing, "、"))))
+			writer.WriteErrorText(fmt.Errorf("尚有步骤未完成: %s，请先完成后再收尾", strings.Join(missing, "、")))
 			return
 		}
 		t.suite.store.Remove(sessionId)
@@ -481,7 +482,7 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 		}
 		writer.WriteBlock(chat.NewTextBlock(text))
 	default:
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("未知 action: %s（可选 complete/abandon）", action)))
+		writer.WriteErrorText(fmt.Errorf("未知 action: %s（可选 complete/abandon）", action))
 	}
 }
 

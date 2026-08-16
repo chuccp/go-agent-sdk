@@ -9,13 +9,16 @@ import (
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
-// drainText 关闭工具专用 BlockStream 并收集其中的文本内容。
-func drainText(w *agent.BlockStream) string {
+// drainText 取回工具输出 BlockStream 中的文本内容（含 ErrorBlock 错误信息）。
+func drainText(w *chat.BlockStream) string {
 	var sb strings.Builder
 	blocks := w.ReadBlocks()
 	for _, b := range blocks {
-		if tb, ok := b.(*chat.TextBlock); ok {
-			sb.WriteString(tb.Text)
+		switch v := b.(type) {
+		case *chat.TextBlock:
+			sb.WriteString(v.Text)
+		case *chat.ErrorBlock:
+			sb.WriteString(v.Message)
 		}
 	}
 	return sb.String()
@@ -23,7 +26,7 @@ func drainText(w *agent.BlockStream) string {
 
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
-	w := agent.NewBlockStream(nil)
+	w := chat.NewBlockStream(nil)
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), w)
 	return drainText(w)
 }

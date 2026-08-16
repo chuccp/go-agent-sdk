@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -91,17 +92,17 @@ func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	}
 }
 
-// Execute 实现 agent.ToolExecutor 接口：创建一个新任务，结果写入 writer；错误直接写入 writer。
-func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// Execute 实现 agent.ToolExecutor 接口：创建一个新任务，结果写入 writer；错误经 WriteError 写入。
+func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	subject := args.GetString("subject")
 	if strings.TrimSpace(subject) == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 subject 参数"))
+		writer.WriteErrorText(errors.New("缺少 subject 参数"))
 		return
 	}
 	desc := args.GetString("description")
 	if strings.TrimSpace(desc) == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 description 参数"))
+		writer.WriteErrorText(errors.New("缺少 description 参数"))
 		return
 	}
 	activeForm := args.GetString("active_form")
@@ -204,12 +205,12 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 	}
 }
 
-// Execute 实现 agent.ToolExecutor 接口：更新一个已有任务，结果写入 writer；错误直接写入 writer。
-func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// Execute 实现 agent.ToolExecutor 接口：更新一个已有任务，结果写入 writer；错误经 WriteError 写入。
+func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 task_id 参数"))
+		writer.WriteErrorText(errors.New("缺少 task_id 参数"))
 		return
 	}
 
@@ -218,7 +219,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 
 	task, ok := t.store.tasks[taskID]
 	if !ok {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务不存在: %s", taskID)))
+		writer.WriteErrorText(fmt.Errorf("任务不存在: %s", taskID))
 		return
 	}
 
@@ -258,7 +259,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	if status := args.GetString("status"); status != "" {
 		if status == "in_progress" {
 			if err := t.store.checkDeps(task); err != nil {
-				writer.WriteBlock(chat.NewTextBlock(err.Error()))
+				writer.WriteErrorText(err)
 				return
 			}
 		}
@@ -362,7 +363,7 @@ func (t *TaskListTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：列出所有活跃任务，结果写入 writer。
-func (t *TaskListTool) Execute(_ *agent.Turn, writer *agent.BlockStream) {
+func (t *TaskListTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
 	t.store.mu.RLock()
 	defer t.store.mu.RUnlock()
 
@@ -425,12 +426,12 @@ func (t *TaskGetTool) Definition() *chat.ToolFunction {
 	}
 }
 
-// Execute 实现 agent.ToolExecutor 接口：获取一个任务的完整详情，结果写入 writer；错误直接写入 writer。
-func (t *TaskGetTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// Execute 实现 agent.ToolExecutor 接口：获取一个任务的完整详情，结果写入 writer；错误经 WriteError 写入。
+func (t *TaskGetTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 task_id 参数"))
+		writer.WriteErrorText(errors.New("缺少 task_id 参数"))
 		return
 	}
 
@@ -439,7 +440,7 @@ func (t *TaskGetTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 
 	task, ok := t.store.tasks[taskID]
 	if !ok {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务不存在: %s", taskID)))
+		writer.WriteErrorText(fmt.Errorf("任务不存在: %s", taskID))
 		return
 	}
 	writer.WriteBlock(chat.NewTextBlock(formatTaskDetail(task)))

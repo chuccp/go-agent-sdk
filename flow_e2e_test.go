@@ -48,7 +48,7 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
+func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
 	if len(req.Tools) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
 		f.nodeCalls++
@@ -84,14 +84,14 @@ type fakeStoryNode struct {
 	last *chat.Request
 }
 
-func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
+func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
 	f.last = req
 	emitText(w, "这是一个关于海洋的故事。")
 	return nil
 }
 
 // emitText 以简化流项写出一段完整文本（end_turn）。
-func emitText(w *chat.StreamWriter, text string) {
+func emitText(w *chat.BlockStream, text string) {
 	w.Write(&chat.TextBlockStart{})
 	w.Write(&chat.Delta{Content: text})
 	w.StopReason(chat.StopReasonEndTurn)
@@ -117,16 +117,19 @@ func newStoryFlow() *exec.Workflow {
 
 // ==================== 辅助 ====================
 
-// execToolText 在工具专用 BlockStream 上执行工具并收集输出文本（含错误信息）。
+// execToolText 在统一 BlockStream 上执行工具并收集输出文本（含 ErrorBlock 错误信息）。
 func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) string {
 	t.Helper()
-	w := agent.NewBlockStream(nil)
+	w := chat.NewBlockStream(nil)
 	exec.Execute(turn, w)
 	var sb strings.Builder
 	blocks := w.ReadBlocks()
 	for _, b := range blocks {
-		if tb, ok := b.(*chat.TextBlock); ok {
-			sb.WriteString(tb.Text)
+		switch v := b.(type) {
+		case *chat.TextBlock:
+			sb.WriteString(v.Text)
+		case *chat.ErrorBlock:
+			sb.WriteString(v.Message)
 		}
 	}
 	return sb.String()

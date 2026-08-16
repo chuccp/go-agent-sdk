@@ -109,7 +109,7 @@ func TestBuildRequest_StripsThinkingFromHistory(t *testing.T) {
 	if len(assistantMsg.Content) != 1 {
 		t.Fatalf("expected 1 block after stripping thinking, got %d", len(assistantMsg.Content))
 	}
-	if assistantMsg.Content[0].Type() != chat.ContentTypeText {
+	if assistantMsg.Content[0].Type() != chat.BlockTypeText {
 		t.Errorf("expected text block, got %s", assistantMsg.Content[0].Type())
 	}
 }
@@ -130,6 +130,34 @@ func TestBuildRequest_AllThinkingSkipped(t *testing.T) {
 	// seed user + 纯thinking assistant(被跳过) + consumed user = 2 条
 	if len(req.Messages) != 2 {
 		t.Errorf("expected 2 messages (thinking-only skipped), got %d", len(req.Messages))
+	}
+}
+
+// TestBuildRequest_StripsInternalBlocks 验证白名单过滤：
+// usage/stop_reason/error 等 SDK 内部元数据块不属于对话内容，不回传给 LLM。
+func TestBuildRequest_StripsInternalBlocks(t *testing.T) {
+	ctx := newTestSessionContext()
+	seedHistory(ctx,
+		chat.Blocks{chat.NewTextBlock("hello")},
+		chat.Blocks{
+			chat.NewThinkingBlock("hmm..."),
+			chat.NewTextBlock("reply"),
+			chat.NewUsageBlock(&chat.Usage{InputTokens: 1, OutputTokens: 2}),
+			chat.NewStopReasonBlock(chat.StopReasonEndTurn),
+			chat.NewErrorBlock("boom"),
+		},
+	)
+	enqueue(ctx, "next")
+
+	req := ctx.buildRequest()
+	if req == nil {
+		t.Fatal("expected non-nil request")
+	}
+
+	// assistant 消息只应保留协议内容块（text）
+	assistantMsg := req.Messages[1]
+	if len(assistantMsg.Content) != 1 || assistantMsg.Content[0].Type() != chat.BlockTypeText {
+		t.Errorf("only protocol text block should remain, got %v", assistantMsg.Content)
 	}
 }
 

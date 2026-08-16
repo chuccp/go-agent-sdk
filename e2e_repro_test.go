@@ -21,7 +21,7 @@ type fakeProvider struct {
 	calls int
 }
 
-func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
+func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
 	f.calls++
 	if f.calls == 1 {
 		w.Write(&chat.ToolUseBlockStart{Id: "tu_1", Name: "fake_tool"})
@@ -43,7 +43,7 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 }
 func (t *fakeTool) Name() string { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
-func (t *fakeTool) Execute(_ *agent.Turn, writer *agent.BlockStream) {
+func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
 	writer.WriteBlock(chat.NewTextBlock("fake tool output"))
 }
 
@@ -119,18 +119,21 @@ func TestTwoRoundsWithTool(t *testing.T) {
 
 // ── CommandTool 中文输出编码测试（Windows）──
 
-// runCommand 用 CommandTool 执行命令并返回输出文本（工具专用 BlockStream 收集）。
+// runCommand 用 CommandTool 执行命令并返回输出文本（统一 BlockStream 收集，含错误信息）。
 func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
-	writer := agent.NewBlockStream(nil)
-	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可；执行错误会写入 writer
+	writer := chat.NewBlockStream(nil)
+	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可；执行错误以 ErrorBlock 写入
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), writer)
 	var sb strings.Builder
 	blocks := writer.ReadBlocks()
 	for _, b := range blocks {
-		if tb, ok := b.(*chat.TextBlock); ok {
-			sb.WriteString(tb.Text)
+		switch v := b.(type) {
+		case *chat.TextBlock:
+			sb.WriteString(v.Text)
+		case *chat.ErrorBlock:
+			sb.WriteString(v.Message)
 		}
 	}
 	return sb.String()

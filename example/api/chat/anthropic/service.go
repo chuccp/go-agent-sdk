@@ -44,8 +44,8 @@ func NewService(config *Config) Service {
 }
 
 // ChatWithStream 向 Anthropic Messages API 发送流式请求，
-// 将解析后的内容写入 response（独享 StreamWriter），完成后关闭。
-func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Request, response *chat.StreamWriter) error {
+// 将解析后的内容写入 response（独享 BlockStream），完成后关闭。
+func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Request, response *chat.BlockStream) error {
 	s.applyDefaults(chatMessages)
 	chatMessages.Stream = true
 
@@ -102,7 +102,7 @@ func (s *serviceImpl) applyDefaults(m *chat.Request) {
 // 块开始（BlockStart）→ 内容增量（Delta）→ 停止原因/用量，解析完成后关闭 response。
 // SSE 协议细节（index/message_start 等）在这里被消化，不外泄到流模型。
 // 读取失败时返回错误（由调用方 ChatWithStream 透传）。
-func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.StreamWriter) error {
+func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.BlockStream) error {
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)

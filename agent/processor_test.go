@@ -20,7 +20,7 @@ type singleResponseProvider struct {
 	toolUse    *chat.ToolUseBlock // 非 nil 时返回 tool_use
 }
 
-func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.StreamWriter) error {
+func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
 	w.Write(&chat.Start{})
 	if f.toolUse != nil {
 		w.Write(&chat.ToolUseBlockStart{Id: f.toolUse.ID, Name: f.toolUse.Name})
@@ -50,13 +50,13 @@ type orderedResponse struct {
 }
 
 type blockSpec struct {
-	blockType chat.ContentType
+	blockType chat.BlockType
 	text      string
 	toolID    string
 	toolName  string
 }
 
-func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.StreamWriter) error {
+func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
 	i := int(f.idx.Add(1)) - 1
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
@@ -75,11 +75,11 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *
 	} else {
 		for _, bs := range resp.blocks {
 			switch bs.blockType {
-			case chat.ContentTypeToolUse:
+			case chat.BlockTypeToolUse:
 				// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
 				w.Write(&chat.ToolUseBlockStart{Id: bs.toolID, Name: bs.toolName})
 				w.Write(&chat.Delta{Content: `{"command":"echo hi"}`})
-			case chat.ContentTypeThinking:
+			case chat.BlockTypeThinking:
 				w.Write(&chat.ThinkingBlockStart{})
 				if bs.text != "" {
 					w.Write(&chat.Delta{Content: bs.text})
@@ -106,7 +106,7 @@ func (t *echoTool) Definition() *chat.ToolFunction {
 }
 func (t *echoTool) Name() string { return "echo" }
 func (t *echoTool) UsagePrompt() string { return "" }
-func (t *echoTool) Execute(turn *agent.Turn, w *agent.BlockStream) {
+func (t *echoTool) Execute(turn *agent.Turn, w *chat.BlockStream) {
 	w.WriteBlock(chat.NewTextBlock("echo output"))
 }
 
@@ -200,7 +200,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	// 第一次返回 tool_use，第二次返回 end_turn
 	manager.RegisterChat("fake", &orderedProvider{
 		responses: []orderedResponse{
-			{blocks: []blockSpec{{blockType: chat.ContentTypeToolUse, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
+			{blocks: []blockSpec{{blockType: chat.BlockTypeToolUse, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
 			{text: "tool result processed", reason: chat.StopReasonEndTurn},
 		},
 	}, true)
@@ -225,7 +225,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	// → 第二轮 LLM → done
 	manager.RegisterChat("fake", &orderedProvider{
 		responses: []orderedResponse{
-			{blocks: []blockSpec{{blockType: chat.ContentTypeToolUse, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
+			{blocks: []blockSpec{{blockType: chat.BlockTypeToolUse, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
 			{text: "unknown tool handled", reason: chat.StopReasonEndTurn},
 		},
 	}, true)

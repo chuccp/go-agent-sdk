@@ -198,7 +198,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
-	w := agent.NewBlockStream(nil)
+	w := chat.NewBlockStream(nil)
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), w)
 	if text := drainText(w); !strings.Contains(text, "不支持交互式提问") {
 		t.Errorf("expected unsupported error in output, got %q", text)
@@ -210,7 +210,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s1")
 
-	w := agent.NewBlockStream(nil)
+	w := chat.NewBlockStream(nil)
 	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), w)
 	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
 		t.Errorf("expected missing questions error in output, got %q", text)
@@ -242,7 +242,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 		},
 	}
 
-	w := agent.NewBlockStream(nil)
+	w := chat.NewBlockStream(nil)
 	done := make(chan struct{}, 1)
 	go func() {
 		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), w)

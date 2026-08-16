@@ -142,7 +142,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	// ===== 释放锁：LLM 网络调用（耗时操作，不持锁） =====
 	ctx.runLock.Unlock()
 
-	// ChatWithStream 内部创建独享 StreamWriter（组装 Block、推送增量事件），
+	// ChatWithStream 内部创建独享 BlockStream（组装 Block、推送增量事件），
 	// 同步完成后一次性返回全部结果
 	blocks, stopReason, callErr := ctx.ChatWithStream(request)
 
@@ -189,15 +189,15 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 	return results
 }
 
-// runTool 执行单个工具：输出内容块写入工具专用的 writer；
-// 执行错误由工具自行写入 writer（不中断会话），随输出一起组装为 tool_result。
+// runTool 执行单个工具：输出内容块写入统一的 chat.BlockStream；
+// 执行错误由工具以文本写入（不中断会话），随输出一起组装为 tool_result。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
 func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) chat.Blocks {
 
 	turn := &Turn{ctx: ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
-	writer := NewBlockStream(ctx)
+	writer := chat.NewBlockStream(ctx)
 	exec.Execute(turn, writer)
 	ctx.runLock.Lock()
 	return writer.ReadBlocks()
@@ -209,11 +209,15 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	text := value.NewStream()
 	var content chat.Blocks
 	for _, b := range blocks {
-		if tb, ok := b.(*chat.TextBlock); ok {
-			text.WriteString(tb.Text)
-			continue
+		switch v := b.(type) {
+		case *chat.TextBlock:
+			text.WriteString(v.Text)
+		case *chat.ErrorBlock:
+			// 防御性兼容：工具错误通常已以文本写入，若出现 ErrorBlock 也并入正文让 LLM 可见
+			text.WriteString(v.Message)
+		default:
+			content = append(content, b)
 		}
-		content = append(content, b)
 	}
 	if text.IsEmpty() {
 		text.WriteString("(无输出)")

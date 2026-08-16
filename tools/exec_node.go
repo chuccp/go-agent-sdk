@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -41,39 +42,39 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 执行节点：依赖校验 → 组装变量 → 零上下文 LLM 调用（或逐项迭代）→
-// 登记输出（重跑使下游失效）→ 标记完成；执行错误直接写入 writer。
-func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// 登记输出（重跑使下游失效）→ 标记完成；执行错误经 WriteErrorText 以文本写入（回传给模型）。
+func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	if stepId == "" {
-		writer.WriteBlock(chat.NewTextBlock("缺少 step_id 参数"))
+		writer.WriteErrorText(errors.New("缺少 step_id 参数"))
 		return
 	}
 	sctx := turn.Context()
 	if sctx == nil {
-		writer.WriteBlock(chat.NewTextBlock("exec_node 需要会话上下文"))
+		writer.WriteErrorText(errors.New("exec_node 需要会话上下文"))
 		return
 	}
 	sessionId := sctx.ID()
 
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
-		writer.WriteBlock(chat.NewTextBlock("当前没有激活的 flow，请先调用 activate_flow"))
+		writer.WriteErrorText(errors.New("当前没有激活的 flow，请先调用 activate_flow"))
 		return
 	}
 	step := findStep(st.Workflow, stepId)
 	if step == nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId)))
+		writer.WriteErrorText(fmt.Errorf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId))
 		return
 	}
 	if step.Kind() != exec.StepExec || step.Node() == nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title())))
+		writer.WriteErrorText(fmt.Errorf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title()))
 		return
 	}
 
 	vars, err := t.suite.store.PrepareExec(sessionId, stepId)
 	if err != nil {
-		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		writer.WriteErrorText(err)
 		return
 	}
 
@@ -88,7 +89,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
 	}
 	if err != nil {
 		t.emitProgress(sctx, st.Workflow.Id, stepId, "error", err.Error())
-		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		writer.WriteErrorText(err)
 		return
 	}
 

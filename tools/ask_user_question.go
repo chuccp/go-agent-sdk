@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/agent"
@@ -110,24 +111,24 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
 // 后立即返回，不阻塞等待回答；同时写入简短提示作为 tool_result，
-// 告知 LLM 结束本轮、等待用户以普通消息形式回答；错误直接写入 writer。
-func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *agent.BlockStream) {
+// 告知 LLM 结束本轮、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
+func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	ctx := turn.Context()
 	if ctx == nil {
-		writer.WriteBlock(chat.NewTextBlock("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）"))
+		writer.WriteErrorText(errors.New("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）"))
 		return
 	}
 
 	questions, err := parseQuestions(turn.Args())
 	if err != nil {
-		writer.WriteBlock(chat.NewTextBlock(err.Error()))
+		writer.WriteErrorText(err)
 		return
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
-		writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("序列化问题失败: %v", err)))
+		writer.WriteErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))

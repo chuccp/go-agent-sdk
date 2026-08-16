@@ -1,7 +1,9 @@
 package chat
 
 import (
+	"errors"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/value"
@@ -18,29 +20,23 @@ const (
 )
 
 type StreamType string
-type BlockType string
 
 const (
 	StreamStartType StreamType = "Start"
 	BlockStartType  StreamType = "BlockStart"
 	DeltaType       StreamType = "Delta"
 )
-const (
-	TextBlockType    BlockType = "text"
-	ThinkBlockType   BlockType = "think"
-	ToolUseBlockType BlockType = "toolUse"
-)
 
-// -------- StreamWriter / EventReceiver --------
+// -------- BlockStream / EventReceiver --------
 
 // EventReceiver 事件接收方：流式过程中产生的客户端推送事件（文本/思考链增量等）
-// 通过它向外发送，典型实现是 SessionContext（传入其 AddEvent 接收）。
+// 通过它外发，典型实现是 SessionContext（传入其 AddEvent 接收）。
 type EventReceiver interface {
 	AddEvent(event *ClientEvent)
 }
 
-// blockAssembler 是独享的 block 组装器：每个 StreamWriter 持有自己的实例，
-// 在流式接收过程中累积构建一个 content block（start → delta… → 下一个 start/Close 时 flush）。
+// blockAssembler 是独享的 block 组装器：每个 BlockStream 持有自己的实例，
+// 在流式接收过程中累积构建一个 content block（start → delta… → 下一个 start/flush 时完成）。
 type blockAssembler struct {
 	blockType BlockType
 	stream    *value.Stream
@@ -76,15 +72,15 @@ func (a *blockAssembler) flush() Block {
 	defer a.stream.Reset()
 
 	switch a.blockType {
-	case TextBlockType:
+	case BlockTypeText:
 		return NewTextBlock(content)
-	case ThinkBlockType:
+	case BlockTypeThinking:
 		// 跳过空的 thinking block（避免产生 {"type":"thinking"} 脏数据）
 		if len(content) == 0 {
 			return nil
 		}
 		return NewThinkingBlock(content)
-	case ToolUseBlockType:
+	case BlockTypeToolUse:
 		input := value.NewObject()
 		if len(content) > 0 {
 			if err := input.PutJson([]byte(content)); err != nil {
@@ -103,121 +99,250 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-// StreamWriter 是单次请求独享的流式写入器，仅用于接收大模型的输出。
-// 生产方（LLM provider）通过 Write 写入 Stream 项（块开始/增量），
-// 内部的 blockAssembler 将增量组装为完整的 Block 收集到列表；
-// 调用方先 Close（flush 未完成的 block），再通过 ReadBlocks() 一次性取回全部 Block。
-// 每个 StreamWriter 独享自己的收集列表与组装器，不同请求之间互不干扰。
-// 写入方法（Write/WriteError/Close/StopReason/Usage）内部加锁，并发调用安全。
-type StreamWriter struct {
-	mu             sync.Mutex
-	blocks         []Block
-	receiver       EventReceiver
-	usage          *Usage
-	stopReason     StopReason
-	blockAssembler *blockAssembler
-	closed         bool
+// BlockStream 是统一的输出收集管道，LLM 流式输出与工具输出共用：
+// ─ LLM 场景：provider 通过 Write 写入简化流项（块开始/增量），内部 blockAssembler
+//
+//	组装为完整 Block；停止原因/token 消耗以 StopReasonBlock/UsageBlock 写入同一列表。
+//
+// ─ 工具场景：WriteBlock 写完整内容块（连续 TextBlock 拼接为一个），
+//
+//	WriteEvent 推送流式输出（chunk 事件实时回显），WriteError 以 ErrorBlock 写入执行错误。
+//
+// 调用方经 ReadBlocks() 一次性取回内容 Block（不含 usage/stop_reason 元数据块）；
+// 元数据经 GetStopReason/GetUsage 取回，错误经 GetError 取回。
+// 写入方法（Write/WriteBlock/WriteEvent/WriteError/StopReason/Usage）内部加锁，并发调用安全。
+type BlockStream struct {
+	mu         sync.Mutex
+	blocks     []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
+	pending    strings.Builder
+	hasPending bool // 连续 TextBlock 的拼接缓冲（仅工具路径产生）
+	receiver   EventReceiver
+	assembler  *blockAssembler
 }
 
-// NewStreamWriter 创建一个独享的 StreamWriter。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
-func NewStreamWriter(receiver EventReceiver) *StreamWriter {
-	return &StreamWriter{
+// NewBlockStream 创建一个 BlockStream。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。
+func NewBlockStream(receiver EventReceiver) *BlockStream {
+	return &BlockStream{
 		blocks:   make([]Block, 0),
 		receiver: receiver,
-		usage: &Usage{
-			InputTokens:  0,
-			OutputTokens: 0,
-		},
-		stopReason: StopReasonEndTurn,
-		blockAssembler: &blockAssembler{
+		assembler: &blockAssembler{
 			stream: value.NewStream(),
 		},
 	}
 }
 
-// Write 写入一个 Stream 项：块开始事件开启新的组装（上一个 block 自动 flush 入队），
-// 增量追加到当前 block，并按当前 block 类型通过 receiver 向外推送客户端事件。
+// Write 写入一个 Stream 项（LLM 流式路径）：块开始事件开启新的组装（上一个 block 自动
+// flush 入队），增量追加到当前 block，并按当前 block 类型通过 receiver 向外推送客户端事件。
 // 状态变更加锁保护；emit 在锁外调用，避免持锁期间执行外部代码（AddEvent）。
-func (s *StreamWriter) Write(stream Stream) {
+func (s *BlockStream) Write(stream Stream) {
 	switch stream.Type() {
 	case StreamStartType:
 		// 消息开始，无状态需要处理
-		//return nil
 	case BlockStartType:
 		var id, name string
-		if tu, ok := stream.(*ToolUseBlockStart); ok {
-			id, name = tu.Id, tu.Name
+		var blockType BlockType
+		switch v := stream.(type) {
+		case *TextBlockStart:
+			blockType = BlockTypeText
+		case *ThinkingBlockStart:
+			blockType = BlockTypeThinking
+		case *ToolUseBlockStart:
+			blockType = BlockTypeToolUse
+			id, name = v.Id, v.Name
 		}
 		s.mu.Lock()
-		if prev := s.blockAssembler.start(stream.(BlockStream).BlockType(), id, name); prev != nil {
-			s.blocks = append(s.blocks, prev)
+		if prev := s.assembler.start(blockType, id, name); prev != nil {
+			s.writeBlockLocked(prev)
 		}
 		s.mu.Unlock()
 	case DeltaType:
 		content := stream.(*Delta).Content
 		s.mu.Lock()
-		s.blockAssembler.append(content)
-		blockType := s.blockAssembler.blockType
+		s.assembler.append(content)
+		blockType := s.assembler.blockType
 		s.mu.Unlock()
 		switch blockType {
-		case TextBlockType:
+		case BlockTypeText:
 			s.emit(NewChunkEvent(content))
-		case ThinkBlockType:
+		case BlockTypeThinking:
 			s.emit(NewThinkingEvent(content))
 		}
 	}
-	//return nil
 }
 
-// Close 结束写入：flush 未完成的 block。幂等，多次调用安全。
-func (s *StreamWriter) flush() {
-	if s.closed {
+// WriteBlock 写入一个内容块（工具路径）：连续的 TextBlock 会被拼接为一个，
+// 遇到其他类型（或 ReadBlocks）时输出拼接结果，其余类型直接收集。
+func (s *BlockStream) WriteBlock(block Block) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeBlockLocked(block)
+}
+
+// WriteEvent 推送一段流式输出（工具路径）：经 receiver 向外发送 chunk 事件（实时回显），
+// 同时作为文本块收集，随 ReadBlocks 进入 tool_result。
+// 兼容长耗时命令等不是一次性出结果、而是流式输出的场景。
+func (s *BlockStream) WriteEvent(content string) {
+	if content == "" {
 		return
 	}
-	s.closed = true
-	if b := s.blockAssembler.flush(); b != nil {
-		s.blocks = append(s.blocks, b)
+	if s.receiver != nil {
+		s.receiver.AddEvent(NewChunkEvent(content))
 	}
-}
-
-// StopReason 设置模型停止生成的原因。
-func (s *StreamWriter) StopReason(stopReason StopReason) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.stopReason = stopReason
+	s.writeBlockLocked(NewTextBlock(content))
 }
 
-// Usage 设置本次请求的 token 消耗。
-func (s *StreamWriter) Usage(usage *Usage) {
+// WriteError 将错误以 ErrorBlock 写入（类型化错误：可被 GetError 识别，
+// 用于流级错误契约；仅回传给模型的错误用 WriteErrorText 当普通文本写入）。
+func (s *BlockStream) WriteError(err error) {
+	if err == nil {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.usage = usage
+	s.writeBlockLocked(NewErrorBlock(err.Error()))
 }
 
-// ReadBlocks 返回已组装完成的全部 Block、停止原因与流错误（调用前应先 Close）。
-func (s *StreamWriter) ReadBlocks() (Blocks, StopReason) {
+// WriteErrorText 将错误以普通文本写入（仅回传给模型的错误：与正文拼接后
+// 随 tool_result 返回给 LLM，不产生 ErrorBlock）。
+func (s *BlockStream) WriteErrorText(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeBlockLocked(NewTextBlock(err.Error()))
+}
+
+// writeBlockLocked 要求调用方持有 mu。
+func (s *BlockStream) writeBlockLocked(block Block) {
+	if tb, ok := block.(*TextBlock); ok {
+		s.pending.WriteString(tb.Text)
+		s.hasPending = true
+		return
+	}
+	s.flushPendingLocked()
+	s.blocks = append(s.blocks, block)
+}
+
+// flushPendingLocked 将累积的文本拼接结果作为一个 TextBlock 收集。要求调用方持有 mu。
+func (s *BlockStream) flushPendingLocked() {
+	if !s.hasPending {
+		return
+	}
+	s.hasPending = false
+	s.blocks = append(s.blocks, NewTextBlock(s.pending.String()))
+	s.pending.Reset()
+}
+
+// flush 将组装中的 block 与未完成的文本拼接收集入列表。幂等（assembler/拼接缓冲
+// 各自带状态守卫，读取方法可在写入间隙多次调用）。要求调用方持有 mu。
+func (s *BlockStream) flush() {
+	if b := s.assembler.flush(); b != nil {
+		s.writeBlockLocked(b)
+	}
+	s.flushPendingLocked()
+}
+
+// StopReason 设置模型停止生成的原因：以 StopReasonBlock 写入收集列表（重复设置覆盖）。
+func (s *BlockStream) StopReason(stopReason StopReason) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendMetaLocked(NewStopReasonBlock(stopReason))
+}
+
+// Usage 设置本次请求的 token 消耗：以 UsageBlock 写入收集列表（重复设置覆盖，
+// 兼容 Anthropic 在 message_start 与 message_delta 两次上报）。
+func (s *BlockStream) Usage(usage *Usage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendMetaLocked(NewUsageBlock(usage))
+}
+
+// appendMetaLocked 追加元数据 block：同类型已存在时原位覆盖（不产生重复）。要求调用方持有 mu。
+func (s *BlockStream) appendMetaLocked(b Block) {
+	for i, old := range s.blocks {
+		if old.Type() == b.Type() {
+			s.blocks[i] = b
+			return
+		}
+	}
+	s.blocks = append(s.blocks, b)
+}
+
+// snapshot flush 后返回全部已收集 block（含元数据块）的拷贝。
+func (s *BlockStream) snapshot() []Block {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flush()
-	return s.blocks, s.stopReason
+	blocks := make([]Block, len(s.blocks))
+	copy(blocks, s.blocks)
+	return blocks
 }
 
-// GetStopReason 返回模型停止生成的原因（流结束后有效）。
-func (s *StreamWriter) GetStopReason() StopReason {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.stopReason
+// ReadBlocks 返回已收集的内容 Block（自动 flush 未完成的组装/拼接）；
+// 元数据 block（usage/stop_reason）不进入内容列表，分别经 GetUsage/GetStopReason 取回；
+// ErrorBlock 作为内容保留（工具错误随 tool_result 回给 LLM）。
+func (s *BlockStream) ReadBlocks() Blocks {
+	content := make(Blocks, 0)
+	for _, b := range s.snapshot() {
+		switch b.(type) {
+		case *UsageBlock, *StopReasonBlock:
+			continue
+		}
+		content = append(content, b)
+	}
+	return content
 }
 
-// GetUsage 返回本次请求的 token 消耗。
-func (s *StreamWriter) GetUsage() *Usage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.usage
+// GetBlock 按类型取回全部匹配的 Block（含元数据块，自动 flush；无匹配返回空切片）。
+func (s *BlockStream) GetBlock(blockType BlockType) Blocks {
+	result := make(Blocks, 0)
+	for _, b := range s.snapshot() {
+		if b.Type() == blockType {
+			result = append(result, b)
+		}
+	}
+	return result
+}
+
+// GetFirstBlock 按类型取回第一个匹配的 Block（含元数据块，无匹配时返回 nil）。
+func (s *BlockStream) GetFirstBlock(blockType BlockType) Block {
+	for _, b := range s.snapshot() {
+		if b.Type() == blockType {
+			return b
+		}
+	}
+	return nil
+}
+
+// GetStopReason 返回模型停止生成的原因（GetFirstBlock 取 StopReasonBlock，未上报时默认 end_turn）。
+func (s *BlockStream) GetStopReason() StopReason {
+	if sb, ok := s.GetFirstBlock(BlockTypeStopReason).(*StopReasonBlock); ok {
+		return sb.Reason
+	}
+	return StopReasonEndTurn
+}
+
+// GetUsage 返回本次请求的 token 消耗（GetFirstBlock 取 UsageBlock，未上报时返回 nil）。
+func (s *BlockStream) GetUsage() *Usage {
+	if ub, ok := s.GetFirstBlock(BlockTypeUsage).(*UsageBlock); ok {
+		return ub.Usage
+	}
+	return nil
+}
+
+// GetError 返回已写入的第一个错误（GetFirstBlock 取 ErrorBlock，无错误时返回 nil）。
+func (s *BlockStream) GetError() error {
+	if eb, ok := s.GetFirstBlock(BlockTypeError).(*ErrorBlock); ok {
+		return errors.New(eb.Message)
+	}
+	return nil
 }
 
 // emit 通过 receiver 向外推送客户端事件。
-func (s *StreamWriter) emit(evt *ClientEvent) {
+func (s *BlockStream) emit(evt *ClientEvent) {
 	if s.receiver != nil {
 		s.receiver.AddEvent(evt)
 	}
@@ -226,9 +351,7 @@ func (s *StreamWriter) emit(evt *ClientEvent) {
 type Stream interface {
 	Type() StreamType
 }
-type BlockStream interface {
-	BlockType() BlockType
-}
+
 type Start struct {
 	Stream
 }
@@ -239,40 +362,28 @@ func (s *Start) Type() StreamType {
 
 type TextBlockStart struct {
 	Stream
-	BlockStream
 }
 
 func (s *TextBlockStart) Type() StreamType {
 	return BlockStartType
 }
-func (s *TextBlockStart) BlockType() BlockType {
-	return TextBlockType
-}
 
 type ThinkingBlockStart struct {
 	Stream
-	BlockStream
 }
 
 func (s *ThinkingBlockStart) Type() StreamType {
 	return BlockStartType
 }
-func (s *ThinkingBlockStart) BlockType() BlockType {
-	return ThinkBlockType
-}
 
 type ToolUseBlockStart struct {
 	Stream
-	BlockStream
 	Id   string
 	Name string
 }
 
 func (s *ToolUseBlockStart) Type() StreamType {
 	return BlockStartType
-}
-func (s *ToolUseBlockStart) BlockType() BlockType {
-	return ToolUseBlockType
 }
 
 // -------- 增量 Stream 项 --------

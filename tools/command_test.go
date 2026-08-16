@@ -22,7 +22,7 @@ func (r *eventRecorder) AddEvent(evt *chat.ClientEvent) {
 // 执行过程中实时推送 chunk 事件，结束后完整输出也被收集进 tool_result。
 func TestCommand_StreamingOutput(t *testing.T) {
 	rec := &eventRecorder{}
-	w := agent.NewBlockStream(rec)
+	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), w)
 
@@ -57,7 +57,7 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 		t.Skip("printf 非 Windows cmd 内建命令，仅 POSIX 平台验证")
 	}
 	rec := &eventRecorder{}
-	w := agent.NewBlockStream(rec)
+	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
 	// printf 在 sh 与 cmd 下均可用；两行输出应产生至少 2 个 chunk 事件
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), w)

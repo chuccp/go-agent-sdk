@@ -20,7 +20,7 @@ type askUserProvider struct {
 	lastReq atomic.Pointer[chat.Request]
 }
 
-func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.StreamWriter) error {
+func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
 	f.lastReq.Store(req)
 	n := f.calls.Add(1)
 	switch n {
