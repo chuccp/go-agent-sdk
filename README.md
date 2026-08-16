@@ -148,7 +148,7 @@ type ToolExecutor interface {
 
 `Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`SessionContext`）。
 执行结果通过 `writer`（统一的 `chat.BlockStream`）写出，支持逐块输出内容；
-LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量/错误统一为 Block 收集）。
+LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统一为 Block 收集，错误经 WriteErrorText 以文本写入）。
 
 ### 内置工具
 

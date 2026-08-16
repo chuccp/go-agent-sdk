@@ -209,15 +209,11 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 	text := value.NewStream()
 	var content chat.Blocks
 	for _, b := range blocks {
-		switch v := b.(type) {
-		case *chat.TextBlock:
-			text.WriteString(v.Text)
-		case *chat.ErrorBlock:
-			// 防御性兼容：工具错误通常已以文本写入，若出现 ErrorBlock 也并入正文让 LLM 可见
-			text.WriteString(v.Message)
-		default:
-			content = append(content, b)
+		if tb, ok := b.(*chat.TextBlock); ok {
+			text.WriteString(tb.Text)
+			continue
 		}
+		content = append(content, b)
 	}
 	if text.IsEmpty() {
 		text.WriteString("(无输出)")

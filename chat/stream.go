@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -106,11 +105,11 @@ type Usage struct {
 //
 // ─ 工具场景：WriteBlock 写完整内容块（连续 TextBlock 拼接为一个），
 //
-//	WriteEvent 推送流式输出（chunk 事件实时回显），WriteError 以 ErrorBlock 写入执行错误。
+//	WriteEvent 推送流式输出（chunk 事件实时回显），WriteErrorText 以文本写入执行错误。
 //
 // 调用方经 ReadBlocks() 一次性取回内容 Block（不含 usage/stop_reason 元数据块）；
-// 元数据经 GetStopReason/GetUsage 取回，错误经 GetError 取回。
-// 写入方法（Write/WriteBlock/WriteEvent/WriteError/StopReason/Usage）内部加锁，并发调用安全。
+// 元数据经 GetStopReason/GetUsage 取回。
+// 写入方法（Write/WriteBlock/WriteEvent/WriteErrorText/StopReason/Usage）内部加锁，并发调用安全。
 type BlockStream struct {
 	mu         sync.Mutex
 	blocks     []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
@@ -193,19 +192,8 @@ func (s *BlockStream) WriteEvent(content string) {
 	s.writeBlockLocked(NewTextBlock(content))
 }
 
-// WriteError 将错误以 ErrorBlock 写入（类型化错误：可被 GetError 识别，
-// 用于流级错误契约；仅回传给模型的错误用 WriteErrorText 当普通文本写入）。
-func (s *BlockStream) WriteError(err error) {
-	if err == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.writeBlockLocked(NewErrorBlock(err.Error()))
-}
-
-// WriteErrorText 将错误以普通文本写入（仅回传给模型的错误：与正文拼接后
-// 随 tool_result 返回给 LLM，不产生 ErrorBlock）。
+// WriteErrorText 将错误以普通文本写入（错误仅回传给模型：与正文拼接后
+// 随 tool_result 返回给 LLM）。
 func (s *BlockStream) WriteErrorText(err error) {
 	if err == nil {
 		return
@@ -282,8 +270,7 @@ func (s *BlockStream) snapshot() []Block {
 }
 
 // ReadBlocks 返回已收集的内容 Block（自动 flush 未完成的组装/拼接）；
-// 元数据 block（usage/stop_reason）不进入内容列表，分别经 GetUsage/GetStopReason 取回；
-// ErrorBlock 作为内容保留（工具错误随 tool_result 回给 LLM）。
+// 元数据 block（usage/stop_reason）不进入内容列表，分别经 GetUsage/GetStopReason 取回。
 func (s *BlockStream) ReadBlocks() Blocks {
 	content := make(Blocks, 0)
 	for _, b := range s.snapshot() {
@@ -329,14 +316,6 @@ func (s *BlockStream) GetStopReason() StopReason {
 func (s *BlockStream) GetUsage() *Usage {
 	if ub, ok := s.GetFirstBlock(BlockTypeUsage).(*UsageBlock); ok {
 		return ub.Usage
-	}
-	return nil
-}
-
-// GetError 返回已写入的第一个错误（GetFirstBlock 取 ErrorBlock，无错误时返回 nil）。
-func (s *BlockStream) GetError() error {
-	if eb, ok := s.GetFirstBlock(BlockTypeError).(*ErrorBlock); ok {
-		return errors.New(eb.Message)
 	}
 	return nil
 }

@@ -134,7 +134,7 @@ func TestBuildRequest_AllThinkingSkipped(t *testing.T) {
 }
 
 // TestBuildRequest_StripsInternalBlocks 验证白名单过滤：
-// usage/stop_reason/error 等 SDK 内部元数据块不属于对话内容，不回传给 LLM。
+// usage/stop_reason 等 SDK 内部元数据块不属于对话内容，不回传给 LLM。
 func TestBuildRequest_StripsInternalBlocks(t *testing.T) {
 	ctx := newTestSessionContext()
 	seedHistory(ctx,
@@ -144,7 +144,6 @@ func TestBuildRequest_StripsInternalBlocks(t *testing.T) {
 			chat.NewTextBlock("reply"),
 			chat.NewUsageBlock(&chat.Usage{InputTokens: 1, OutputTokens: 2}),
 			chat.NewStopReasonBlock(chat.StopReasonEndTurn),
-			chat.NewErrorBlock("boom"),
 		},
 	)
 	enqueue(ctx, "next")

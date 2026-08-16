@@ -98,16 +98,12 @@ func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 
 // ChatWithStream 使用默认 provider 发起流式对话请求，返回组装完成的全部 Block 与 stop_reason。
 // 内部创建独享 BlockStream 并以本上下文作为事件接收方（AddEvent），
-// 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送；
-// 错误统一处理：provider 返回的 error 与流内写入的 ErrorBlock（GetError）走同一路径。
+// 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
 func (c *SessionContext) ChatWithStream(messages *chat.Request) (chat.Blocks, chat.StopReason, error) {
 	stream := chat.NewBlockStream(c)
 	provider := c.registry.DefaultProvider()
 	err := c.registry.ChatWithStream(c.runCtx, provider, messages, stream)
 	if err != nil {
-		return nil, "", err
-	}
-	if err := stream.GetError(); err != nil {
 		return nil, "", err
 	}
 	return stream.ReadBlocks(), stream.GetStopReason(), nil
@@ -119,9 +115,6 @@ func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
 	stream := chat.NewBlockStream(nil)
 	provider := c.registry.DefaultProvider()
 	if err := c.registry.ChatWithStream(c.runCtx, provider, request, stream); err != nil {
-		return "", err
-	}
-	if err := stream.GetError(); err != nil {
 		return "", err
 	}
 	blocks := stream.ReadBlocks()
@@ -197,7 +190,7 @@ func (c *SessionContext) buildRequest() *chat.Request {
 	}
 	for _, m := range history {
 		msg := *m
-		msg.Content = blocksForLLM(m.Content)
+		msg.Content = blocksForContext(m.Content)
 		// 剥离后内容为空的消息不发送（避免空 content 报错）
 		if len(msg.Content) == 0 {
 			continue
@@ -277,17 +270,14 @@ func (c *SessionContext) saveAndReset() {
 	c.events.Reset()
 }
 
-// blocksForLLM 白名单过滤出可回传给 LLM 的协议内容块（text/image/tool_use/tool_result）：
-// ─ thinking 被剥离：Anthropic 要求历史中的 thinking block 必须携带 signature 字段原样
-//   传回，否则报 400；且空 thinking 会因 omitempty 序列化为 {"type":"thinking"} 缺字段。
-//   思考链仍保留在 history/DB 中供展示，仅不回传给模型；
-// ─ usage/stop_reason/error 等 SDK 内部元数据块不属于对话内容，一并剥离；
-//   白名单方式保证未来新增的内部块不会意外泄漏给 LLM。
-func blocksForLLM(blocks chat.Blocks) chat.Blocks {
+// blocksForContext 过滤出用于上下文的块：是否进入上下文由每个 block 自己声明（ForContext）——
+// thinking 因 signature 约束不进入，usage/stop_reason 等内部元数据不属于对话内容，
+// 均在各 block 的 ForContext 中声明；新增块类型只需声明自身去向，接口强制实现，
+// 无需回这里维护名单。
+func blocksForContext(blocks chat.Blocks) chat.Blocks {
 	result := make(chat.Blocks, 0, len(blocks))
 	for _, b := range blocks {
-		switch b.Type() {
-		case chat.BlockTypeText, chat.BlockTypeImage, chat.BlockTypeToolUse, chat.BlockTypeToolResult:
+		if b.ForContext() {
 			result = append(result, b)
 		}
 	}

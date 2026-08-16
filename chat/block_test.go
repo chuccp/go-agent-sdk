@@ -186,3 +186,25 @@ func TestBlocks_RoundTripMetadata(t *testing.T) {
 		t.Errorf("stop_reason round-trip mismatch: %#v", back[1])
 	}
 }
+
+// TestBlocks_ForContext 固化每种块的上下文声明（是否用于上下文由 block 自己决定）：
+// 对话内容块进入上下文，thinking（signature 约束）与内部元数据块不进入。
+func TestBlocks_ForContext(t *testing.T) {
+	cases := []struct {
+		block Block
+		want  bool
+	}{
+		{NewTextBlock("t"), true},
+		{&ImageBlock{Source: &ImageSource{SourceType: "base64"}}, true},
+		{NewToolUseBlock("tu_1", "tool", value.NewObject()), true},
+		{NewToolResultBlock("tu_1", "result"), true},
+		{NewThinkingBlock("hmm"), false},
+		{NewUsageBlock(&Usage{InputTokens: 1}), false},
+		{NewStopReasonBlock(StopReasonEndTurn), false},
+	}
+	for _, c := range cases {
+		if got := c.block.ForContext(); got != c.want {
+			t.Errorf("%T.ForContext() = %v, want %v", c.block, got, c.want)
+		}
+	}
+}

@@ -19,13 +19,14 @@ const (
 	BlockTypeToolResult BlockType = "tool_result"
 	BlockTypeUsage      BlockType = "usage"
 	BlockTypeStopReason BlockType = "stop_reason"
-	BlockTypeError      BlockType = "error"
 )
 
 // Block 是所有 block 的统一接口。
-// 每种 block 类型只携带自身相关字段，通过 Type() 标识类型。
+// 每种 block 类型只携带自身相关字段，通过 Type() 标识类型；
+// ForContext() 声明自身是否用于上下文（随历史回传给模型）——是否过滤由 block 自己决定。
 type Block interface {
 	Type() BlockType
+	ForContext() bool
 }
 
 // ==================== 具体 Block 类型 ====================
@@ -37,12 +38,18 @@ type TextBlock struct {
 
 func (b *TextBlock) Type() BlockType { return BlockTypeText }
 
+// ForContext 文本是对话内容，进入上下文。
+func (b *TextBlock) ForContext() bool { return true }
+
 // UsageBlock 记录本次请求的 token 消耗（流元数据块，非 LLM 内容）。
 type UsageBlock struct {
 	Usage *Usage `json:"usage"`
 }
 
 func (b *UsageBlock) Type() BlockType { return BlockTypeUsage }
+
+// ForContext 用量是 SDK 内部元数据，不进入上下文。
+func (b *UsageBlock) ForContext() bool { return false }
 
 // StopReasonBlock 记录模型停止生成的原因（流元数据块，非 LLM 内容）。
 type StopReasonBlock struct {
@@ -51,13 +58,8 @@ type StopReasonBlock struct {
 
 func (b *StopReasonBlock) Type() BlockType { return BlockTypeStopReason }
 
-// ErrorBlock 记录执行错误（统一错误载体：工具执行错误、流错误均以此块写入，
-// 不再通过 error 返回值向外传递）。
-type ErrorBlock struct {
-	Message string `json:"error"`
-}
-
-func (b *ErrorBlock) Type() BlockType { return BlockTypeError }
+// ForContext 停止原因是 SDK 内部元数据，不进入上下文。
+func (b *StopReasonBlock) ForContext() bool { return false }
 
 // ThinkingBlock 思考链内容
 type ThinkingBlock struct {
@@ -66,12 +68,19 @@ type ThinkingBlock struct {
 
 func (b *ThinkingBlock) Type() BlockType { return BlockTypeThinking }
 
+// ForContext 思考链不进入上下文：Anthropic 要求历史中的 thinking 必须携带 signature
+// 原样传回（否则 400），且空 thinking 序列化缺字段；思考链保留在历史/DB 仅供展示。
+func (b *ThinkingBlock) ForContext() bool { return false }
+
 // ImageBlock 图片内容（base64 内联）
 type ImageBlock struct {
 	Source *ImageSource `json:"source"`
 }
 
 func (b *ImageBlock) Type() BlockType { return BlockTypeImage }
+
+// ForContext 图片是对话内容，进入上下文。
+func (b *ImageBlock) ForContext() bool { return true }
 
 // ImageSource 描述图片内容
 type ImageSource struct {
@@ -89,6 +98,9 @@ type ToolUseBlock struct {
 
 func (b *ToolUseBlock) Type() BlockType { return BlockTypeToolUse }
 
+// ForContext 工具调用是对话内容，进入上下文。
+func (b *ToolUseBlock) ForContext() bool { return true }
+
 // ToolResultBlock 工具执行结果
 type ToolResultBlock struct {
 	ToolUseID string `json:"tool_use_id"`
@@ -96,6 +108,9 @@ type ToolResultBlock struct {
 }
 
 func (b *ToolResultBlock) Type() BlockType { return BlockTypeToolResult }
+
+// ForContext 工具结果是对话内容，进入上下文。
+func (b *ToolResultBlock) ForContext() bool { return true }
 
 // ==================== JSON 序列化 ====================
 
@@ -113,7 +128,6 @@ type blockEnvelope struct {
 	Content    any          `json:"content,omitempty"`
 	Usage      *Usage       `json:"usage,omitempty"`
 	StopReason StopReason   `json:"reason,omitempty"`
-	Error      string       `json:"error,omitempty"`
 }
 
 // MarshalBlock 将 Block 序列化为 JSON（携带 type 字段）。
@@ -134,8 +148,6 @@ func MarshalBlock(b Block) ([]byte, error) {
 		env = blockEnvelope{Type: BlockTypeUsage, Usage: v.Usage}
 	case *StopReasonBlock:
 		env = blockEnvelope{Type: BlockTypeStopReason, StopReason: v.Reason}
-	case *ErrorBlock:
-		env = blockEnvelope{Type: BlockTypeError, Error: v.Message}
 	default:
 		return nil, fmt.Errorf("unknown block type: %T", b)
 	}
@@ -178,7 +190,6 @@ type blockEnvelopeIn struct {
 	Content    json.RawMessage `json:"content"`
 	Usage      *Usage          `json:"usage"`
 	StopReason StopReason      `json:"reason"`
-	Error      string          `json:"error"`
 }
 
 // UnmarshalBlock 从 JSON 反序列化为具体的 Block 类型。
@@ -212,8 +223,6 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return &UsageBlock{Usage: env.Usage}, nil
 	case BlockTypeStopReason:
 		return &StopReasonBlock{Reason: env.StopReason}, nil
-	case BlockTypeError:
-		return &ErrorBlock{Message: env.Error}, nil
 	default:
 		return nil, fmt.Errorf("unknown content block type: %s", env.Type)
 	}
@@ -284,8 +293,4 @@ func NewUsageBlock(usage *Usage) *UsageBlock {
 
 func NewStopReasonBlock(reason StopReason) *StopReasonBlock {
 	return &StopReasonBlock{Reason: reason}
-}
-
-func NewErrorBlock(message string) *ErrorBlock {
-	return &ErrorBlock{Message: message}
 }

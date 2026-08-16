@@ -149,7 +149,7 @@ func TestBlockStream_MetadataDefaults(t *testing.T) {
 	}
 }
 
-// ── 工具路径：WriteBlock 文本拼接 / WriteEvent 流式回显 / WriteError 统一错误 ──
+// ── 工具路径：WriteBlock 文本拼接 / WriteEvent 流式回显 / WriteErrorText 错误文本 ──
 
 func TestBlockStream_WriteBlock_TextCoalescing(t *testing.T) {
 	stream := NewBlockStream(nil)
@@ -214,37 +214,8 @@ func TestBlockStream_WriteEvent_NilReceiver(t *testing.T) {
 	}
 }
 
-// TestBlockStream_WriteError 验证错误统一以 ErrorBlock 写入：
-// 作为内容随 ReadBlocks 返回，并可经 GetError 取回；nil 错误忽略。
-func TestBlockStream_WriteError(t *testing.T) {
-	stream := NewBlockStream(nil)
-	stream.WriteBlock(NewTextBlock("partial output"))
-	stream.WriteError(errors.New("boom"))
-	stream.WriteError(nil) // nil 忽略
-
-	blocks := stream.ReadBlocks()
-	if len(blocks) != 2 {
-		t.Fatalf("expected 2 blocks (text + error), got %d", len(blocks))
-	}
-	eb, ok := blocks[1].(*ErrorBlock)
-	if !ok || eb.Message != "boom" {
-		t.Errorf("expected ErrorBlock{boom}, got %#v", blocks[1])
-	}
-	if err := stream.GetError(); err == nil || err.Error() != "boom" {
-		t.Errorf("GetError mismatch: %v", err)
-	}
-}
-
-func TestBlockStream_GetError_NilWhenNoError(t *testing.T) {
-	stream := NewBlockStream(nil)
-	stream.WriteBlock(NewTextBlock("ok"))
-	if err := stream.GetError(); err != nil {
-		t.Errorf("expected nil error, got %v", err)
-	}
-}
-
-// TestBlockStream_WriteErrorText 验证仅回传给模型的错误以普通文本写入：
-// 与正文拼接（参与连续 TextBlock 合并），不产生 ErrorBlock（GetError 不可见）。
+// TestBlockStream_WriteErrorText 验证错误以普通文本写入（仅回传给模型）：
+// 与正文拼接（参与连续 TextBlock 合并）；nil 错误忽略。
 func TestBlockStream_WriteErrorText(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.WriteBlock(NewTextBlock("partial: "))
@@ -258,9 +229,6 @@ func TestBlockStream_WriteErrorText(t *testing.T) {
 	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "partial: boom" {
 		t.Errorf("expected coalesced 'partial: boom', got %v", blocks[0])
 	}
-	if err := stream.GetError(); err != nil {
-		t.Errorf("WriteErrorText should not produce ErrorBlock, got %v", err)
-	}
 }
 
 // ── GetBlock / GetFirstBlock：按类型取回 ──
@@ -272,8 +240,7 @@ func TestBlockStream_GetBlock_ByType(t *testing.T) {
 	stream.Write(&Delta{Content: "answer"})
 	stream.Write(&ToolUseBlockStart{Id: "tu_1", Name: "tool"})
 	stream.Write(&Delta{Content: `{}`})
-	// 工具路径：错误块；另上报元数据（GetBlock 可按类型取回，但 ReadBlocks 不含）
-	stream.WriteError(errors.New("boom"))
+	// 另上报元数据（GetBlock 可按类型取回，但 ReadBlocks 不含）
 	stream.StopReason(StopReasonToolUse)
 	stream.Usage(&Usage{InputTokens: 1, OutputTokens: 2})
 
@@ -286,9 +253,6 @@ func TestBlockStream_GetBlock_ByType(t *testing.T) {
 	}
 	if toolUses := stream.GetBlock(BlockTypeToolUse); len(toolUses) != 1 {
 		t.Errorf("expected 1 tool_use block, got %d", len(toolUses))
-	}
-	if errs := stream.GetBlock(BlockTypeError); len(errs) != 1 {
-		t.Errorf("expected 1 error block, got %d", len(errs))
 	}
 	// 元数据块可按类型取回（与 GetUsage/GetStopReason 同源）
 	if got := stream.GetBlock(BlockTypeUsage); len(got) != 1 {

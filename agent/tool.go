@@ -8,8 +8,7 @@ import (
 // ToolExecutor 工具执行器接口：定义工具的元数据（发给 LLM）和执行逻辑。
 // 执行时入参从 turn.Args() 获取（由 executeTools 按命中的 tool_use 设置），
 // 会话上下文从 turn.Context() 获取；输出内容块写入统一的 chat.BlockStream；
-// 错误不向外返回：仅回传给模型的错误经 writer.WriteErrorText 以文本写入，
-// 需要被 GetError 识别的类型化错误用 writer.WriteError（ErrorBlock）。
+// 错误不向外返回，经 writer.WriteErrorText 以文本写入（随 tool_result 回传给模型）。
 type ToolExecutor interface {
 	Definition() *chat.ToolFunction
 	Name() string

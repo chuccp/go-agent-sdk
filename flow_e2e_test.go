@@ -117,7 +117,7 @@ func newStoryFlow() *exec.Workflow {
 
 // ==================== 辅助 ====================
 
-// execToolText 在统一 BlockStream 上执行工具并收集输出文本（含 ErrorBlock 错误信息）。
+// execToolText 在统一 BlockStream 上执行工具并收集输出文本（错误已以文本写入）。
 func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) string {
 	t.Helper()
 	w := chat.NewBlockStream(nil)
@@ -125,11 +125,8 @@ func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) strin
 	var sb strings.Builder
 	blocks := w.ReadBlocks()
 	for _, b := range blocks {
-		switch v := b.(type) {
-		case *chat.TextBlock:
-			sb.WriteString(v.Text)
-		case *chat.ErrorBlock:
-			sb.WriteString(v.Message)
+		if tb, ok := b.(*chat.TextBlock); ok {
+			sb.WriteString(tb.Text)
 		}
 	}
 	return sb.String()
