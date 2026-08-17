@@ -56,7 +56,6 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 		return err
 	}
 	if !ctx.running {
-		ctx.runCtx, ctx.cancel = context.WithCancel(context.Background())
 		ctx.running = true
 		ctx.AddEvent(chat.NewMessageSentEvent(qm.id, qm.msg))
 		util.GoWithRecover(func() {
@@ -74,9 +73,10 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 }
 
 // doLoop 会话主循环：执行单轮 LLM 交互（executeRound：构建请求、流式调用）与
-// 工具执行（executeTools），轮次返回后根据 stopReason 完成收尾，
-// 直到会话停止（running=false）、被取消（runCtx.Done）或轮次返回错误
-// （executeRound 已完成清理与 error 事件）。
+// 工具执行（executeTools），轮次返回后根据 stopReason 完成收尾。
+// 停止语义：每轮持有独立的可取消上下文，Stop() 只中止当前轮——
+// 被停轮的结果丢弃（不入历史、不报错误），inbox 中的后续消息继续处理，
+// 无后续消息则结束循环等待下一条用户消息（与主流 agent 一致）。
 // 锁协议：循环全程持有 runLock；executeRound / executeTools 内部在
 // LLM 调用与工具执行期间自行释放/重取。
 func (p *messageProcessor) doLoop() {
@@ -84,17 +84,20 @@ func (p *messageProcessor) doLoop() {
 	ctx.runLock.Lock()
 	defer ctx.runLock.Unlock()
 	for ctx.running {
-		// 检查取消
-		select {
-		case <-ctx.runCtx.Done():
-			ctx.drainInbox()
-			ctx.saveAndReset()
-			ctx.running = false
-			return
-		default:
+		// 每轮独立的可取消上下文：Stop 只对单轮生效；
+		// 进入新轮前先取消上一轮的上下文（释放 provider 侧监听协程，防泄漏）
+		if ctx.cancel != nil {
+			ctx.cancel()
 		}
+		ctx.runCtx, ctx.cancel = context.WithCancel(context.Background())
 
 		blocks, stopReason, err := p.executeRound()
+
+		if p.roundStopped(ctx) {
+			ctx.AddEvent(chat.NewDoneEvent())
+			p.finishStoppedRound(ctx)
+			continue
+		}
 		if err != nil {
 			log.Printf("[chatSession] turn ended with error: %v", err)
 			return
@@ -109,6 +112,15 @@ func (p *messageProcessor) doLoop() {
 			ctx.appendAssistantMessage(blocks)
 			// tool_result 作为 user 消息入历史；未命中工具的 tool_use 已在 executeTools 补错误结果
 			results, toolStop := p.executeTools(ctx, blocks)
+			if p.roundStopped(ctx) {
+				// 轮次在工具阶段被停止：已产出的 tool_result 仍须入历史，
+				// 否则历史以无 tool_result 的 tool_use 结尾，下次请求会被 LLM API 拒绝；
+				// done 在历史写入前发出，被其 Offset 覆盖，重连不重放
+				ctx.AddEvent(chat.NewDoneEvent())
+				ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
+				p.finishStoppedRound(ctx)
+				continue
+			}
 			if toolStop == chat.StopReasonUserWait {
 				// 工具请求暂停（如 ask_user_question 等待用户回答）：本轮到此结束。
 				// done 在 tool_result 历史写入前发出，被其 Offset 覆盖，
@@ -132,6 +144,29 @@ func (p *messageProcessor) doLoop() {
 		if ctx.inbox.IsEmpty() {
 			ctx.running = false
 		}
+	}
+	// 循环结束：取消最后一轮的上下文（释放 provider 侧监听协程）
+	if ctx.cancel != nil {
+		ctx.cancel()
+	}
+}
+
+// roundStopped 当前轮是否被 Stop() 取消（runCtx 仅由 Stop 取消）。调用方持有 runLock。
+func (p *messageProcessor) roundStopped(ctx *SessionContext) bool {
+	select {
+	case <-ctx.runCtx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// finishStoppedRound 被停轮的统一收尾：保存历史；inbox 有后续消息则继续循环处理，
+// 否则结束循环等待下一条用户消息（done 事件由调用方在合适时机发出）。调用方持有 runLock。
+func (p *messageProcessor) finishStoppedRound(ctx *SessionContext) {
+	ctx.saveAndReset()
+	if ctx.inbox.IsEmpty() {
+		ctx.running = false
 	}
 }
 
@@ -158,7 +193,10 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	ctx.runLock.Lock()
 
 	if callErr != nil {
-		ctx.drainInbox()
+		if ctx.runCtx.Err() != nil {
+			// 本轮被 Stop() 中止：不当作错误（不发 error 事件），交由 doLoop 按停止收尾
+			return nil, "", callErr
+		}
 		ctx.saveAndReset()
 		ctx.running = false
 
@@ -184,6 +222,15 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 	for _, block := range blocks {
 		tu, ok := block.(*chat.ToolUseBlock)
 		if !ok {
+			continue
+		}
+		if p.roundStopped(ctx) {
+			// 轮次已被 Stop：剩余工具不再执行，补停止说明作为 tool_result
+			// （tool_use 必须有配对的 tool_result，否则下次请求会被 LLM API 拒绝）
+			results = append(results, chat.NewToolResultBlock(
+				tu.ID,
+				chat.Blocks{chat.NewTextBlock("（该工具的执行已被用户停止）")},
+			))
 			continue
 		}
 		exec := p.findExecutor(tu.Name)
@@ -251,7 +298,8 @@ func (p *messageProcessor) findExecutor(name string) ToolExecutor {
 	return nil
 }
 
-// Stop 取消当前正在运行的会话主循环。
+// Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，
+// LLM 调用与监听会话停止的工具会尽快中止；后续用户消息不受影响。
 func (p *messageProcessor) Stop() {
 	ctx := p.ctx
 	ctx.runLock.Lock()

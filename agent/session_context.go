@@ -64,8 +64,13 @@ func (c *SessionContext) Flush() {
 func (c *SessionContext) History() []*chat.Message {
 	return c.events.History()
 }
+// Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，后续用户消息不受影响。
 func (c *SessionContext) Stop() {
-	c.cancel()
+	c.runLock.Lock()
+	defer c.runLock.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+	}
 }
 
 func (c *SessionContext) ReadEvent(position *Position) *chat.ClientEvent {
@@ -239,19 +244,6 @@ func (c *SessionContext) composeSystem() string {
 		system += strings.Join(prompts, "\n\n")
 	}
 	return system
-}
-
-// drainInbox 排干 inbox 中所有剩余消息，将它们写入历史（不丢失）。
-// 调用方必须持有 runLock。
-func (c *SessionContext) drainInbox() {
-	for {
-		qm, err := c.inbox.Read()
-		if err != nil {
-			break
-		}
-		c.ConsumeMessage(qm)
-	}
-	c.inbox.Reset()
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。

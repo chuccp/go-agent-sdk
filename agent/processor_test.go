@@ -290,6 +290,65 @@ func TestStopGeneration(t *testing.T) {
 	}
 }
 
+// blockingProvider 首次调用阻塞到 ctx 被取消（模拟长耗时生成），后续调用立即返回文本。
+type blockingProvider struct {
+	calls   atomic.Int32
+	entered chan struct{}
+}
+
+func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Request, w *chat.BlockStream) error {
+	if p.calls.Add(1) == 1 {
+		close(p.entered) // 通知首轮生成已开始
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	w.Write(&chat.TextBlockStart{})
+	w.Write(&chat.Delta{Content: "正常回复"})
+	w.StopReason(chat.StopReasonEndTurn)
+	return nil
+}
+
+// TestStopOnlyAffectsCurrentRound 验证单轮停止语义：
+// Stop 中止正在生成的当前轮（以 done 结束而非 error 事件），
+// 后续新消息照常触发新一轮（停止只对单轮生效）。
+func TestStopOnlyAffectsCurrentRound(t *testing.T) {
+	manager := agent.NewAgent()
+	provider := &blockingProvider{entered: make(chan struct{})}
+	manager.RegisterChat("fake", provider, true)
+
+	client, err := manager.GetClient("stop-round", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendText("开始长耗时生成"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 等首轮生成确实开始后再停止
+	select {
+	case <-provider.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("等待生成开始超时")
+	}
+	client.Stop()
+
+	// 被停轮应以 done 结束（而非 error 事件）
+	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
+		t.Fatal("expected done event for the stopped round")
+	}
+
+	// 后续新消息正常触发新一轮
+	if err := client.SendText("下一条消息"); err != nil {
+		t.Fatal(err)
+	}
+	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
+		t.Fatal("expected done event after stop")
+	}
+	if provider.calls.Load() != 2 {
+		t.Errorf("expected 2 provider calls, got %d", provider.calls.Load())
+	}
+}
+
 func TestTwoClientsSameSession(t *testing.T) {
 	manager := agent.NewAgent()
 	manager.RegisterChat("fake", &singleResponseProvider{

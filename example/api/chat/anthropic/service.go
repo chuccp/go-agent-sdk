@@ -70,7 +70,7 @@ func (s *serviceImpl) ChatWithStream(ctx context.Context, chatMessages *chat.Req
 		return fmt.Errorf("API error (%d): %s", r.StatusCode(), string(body))
 	}
 
-	return s.parseSSE(r.RawResponse.Body, response)
+	return s.parseSSE(ctx, r.RawResponse.Body, response)
 }
 
 // applyDefaults 将 Config 中的默认值填入请求。
@@ -101,9 +101,15 @@ func (s *serviceImpl) applyDefaults(m *chat.Request) {
 // parseSSE 从 HTTP 响应体中读取 SSE 事件流，转换为简化的 Stream 项写入 response：
 // 块开始（BlockStart）→ 内容增量（Delta）→ 停止原因/用量，解析完成后关闭 response。
 // SSE 协议细节（index/message_start 等）在这里被消化，不外泄到流模型。
-// 读取失败时返回错误（由调用方 ChatWithStream 透传）。
-func (s *serviceImpl) parseSSE(body io.ReadCloser, resp *chat.BlockStream) error {
+// 请求上下文取消时主动关闭响应体中断流读取（Go 的 http 客户端在响应头已接收后
+// 不会因 ctx 取消中断 Body 读取，必须显式关闭），读取失败时返回错误（由调用方透传）。
+func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.BlockStream) error {
 	defer body.Close()
+	// 停止支持：ctx 取消时关闭 body，scanner 读取将立即报错返回
+	go func() {
+		<-ctx.Done()
+		body.Close()
+	}()
 
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {

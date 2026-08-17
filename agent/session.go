@@ -49,7 +49,7 @@ func (s *session) DeleteClient(client *Client) {
 	s.sessionContext.DeleteClient(client)
 }
 
-// Stop 取消当前正在运行的会话主循环。
+// Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。
 func (s *session) Stop() {
 	s.processor.Stop()
 }

@@ -314,22 +314,10 @@ func TestSessionContext_Done_NilWhenNotRunning(t *testing.T) {
 	}
 }
 
-// ── drainInbox ──
-
-func TestDrainInbox_ConsumesAllMessages(t *testing.T) {
+func TestSessionContext_Stop_SafeWhenIdle(t *testing.T) {
 	ctx := newTestSessionContext()
-	enqueue(ctx, "msg1")
-	enqueue(ctx, "msg2")
-
-	ctx.drainInbox()
-	// drain 后 inbox 应为空
-	if !ctx.inbox.IsEmpty() {
-		t.Error("expected empty inbox after drain")
-	}
-	// 两条消息应被追加到 history
-	if ctx.events.HistoryLen() != 2 {
-		t.Errorf("expected 2 history entries, got %d", ctx.events.HistoryLen())
-	}
+	// 无运行中的轮次（cancel 为 nil），Stop 不应 panic
+	ctx.Stop()
 }
 
 // ── consumeMessage ──
