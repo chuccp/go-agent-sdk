@@ -103,7 +103,7 @@ func TestStore_MultiplePositions(t *testing.T) {
 	}
 }
 
-// ── Store: Reset ──
+// ── Store: ResetAndSave ──
 
 func TestStore_Reset_CleansReadEvents(t *testing.T) {
 	s := NewStore("s1", nil)
@@ -115,7 +115,7 @@ func TestStore_Reset_CleansReadEvents(t *testing.T) {
 	s.ReadFrom(pos) // 读 a, pos→1
 	s.ReadFrom(pos) // 读 b, pos→2
 
-	s.Reset() // minPosition=2, 应清理 seq 0,1
+	s.ResetAndSave() // minPosition=2, 应清理 seq 0,1
 
 	// pos 仍从 2 开始读 c
 	evt := s.ReadFrom(pos)
@@ -129,7 +129,7 @@ func TestStore_Reset_NoPositions(t *testing.T) {
 	s.Add(chat.NewChunkEvent("a"))
 	s.Add(chat.NewChunkEvent("b"))
 
-	s.Reset() // minPosition=0, firstSeq=0, 不清理
+	s.ResetAndSave() // minPosition=0, firstSeq=0, 不清理
 
 	pos := s.GetPosition(0)
 	evt := s.ReadFrom(pos)
@@ -150,7 +150,7 @@ func TestStore_Reset_PreservesLastEvent(t *testing.T) {
 		s.ReadFrom(pos)
 	}
 
-	s.Reset() // minPosition=5, 所有事件应被清理
+	s.ResetAndSave() // minPosition=5, 所有事件应被清理
 
 	// 新事件从 seq=5 开始分配
 	s.Add(chat.NewChunkEvent("new"))
@@ -275,7 +275,7 @@ func TestStore_NoHistoryStore(t *testing.T) {
 	}
 }
 
-// ── Store: SaveHistory ──
+// ── Store: ResetAndSave（保存历史） ──
 
 type recordingHistoryStore struct {
 	appended [][]chat.Message // 记录每次 AppendMessages 的调用
@@ -291,8 +291,8 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	rec := &recordingHistoryStore{}
 	s := NewStore("s1", rec)
 
-	// 无历史，SaveHistory 应跳过
-	if err := s.SaveHistory(); err != nil {
+	// 无历史，ResetAndSave 应跳过保存
+	if err := s.ResetAndSave(); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.appended) != 0 {
@@ -303,7 +303,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	msg := chat.Message{Role: chat.RoleUser, Content: chat.Blocks{chat.NewTextBlock("hello")}}
 	s.AppendHistory(&msg)
 
-	if err := s.SaveHistory(); err != nil {
+	if err := s.ResetAndSave(); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.appended) != 1 {
@@ -317,7 +317,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	}
 
 	// 再次 Save 无新消息
-	if err := s.SaveHistory(); err != nil {
+	if err := s.ResetAndSave(); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.appended) != 1 {
@@ -358,7 +358,7 @@ func TestStore_Reset_AfterRemovePosition(t *testing.T) {
 	s.RemovePosition(pos2)
 
 	// minPosition 应为 1（只剩 pos1）
-	s.Reset() // 清理 seq 0
+	s.ResetAndSave() // 清理 seq 0
 
 	evt := s.ReadFrom(pos1)
 	if evt == nil || evt.Content != "b" {
@@ -378,7 +378,7 @@ func TestStore_SeqNeverResets(t *testing.T) {
 	pos := s.GetPosition(0)
 	s.ReadFrom(pos) // a
 	s.ReadFrom(pos) // b
-	s.Reset()       // 清理所有
+	s.ResetAndSave()       // 清理所有
 
 	// 第二组：seq 继续递增
 	s.Add(chat.NewChunkEvent("c"))
