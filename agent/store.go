@@ -119,28 +119,6 @@ func (l *Store) minPosition() uint {
 	}
 	return m
 }
-
-// // Reset 清理所有客户端均已读取的事件条目，保留未读部分。
-// // 以所有 position 中 Start 最小的为准，只清理该偏移之前的条目。
-//
-//	func (l *Store) Reset() {
-//		l.mu.Lock()
-//		defer l.mu.Unlock()
-//		defer func() { l.pending = 0 }()
-//		if l.entries.IsEmpty() {
-//			return
-//		}
-//		firstSeq := l.entries.Get(0).Seq
-//		minPos := l.minPosition()
-//		if minPos <= firstSeq {
-//			return
-//		}
-//		removeCount := int(minPos - firstSeq)
-//		if removeCount > l.entries.Len() {
-//			removeCount = l.entries.Len()
-//		}
-//		l.entries.RemoveFront(removeCount)
-//	}
 func (l *Store) ResetAndSave() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -229,28 +207,3 @@ func (l *Store) HistoryLen() int {
 	defer l.mu.RUnlock()
 	return l.history0.Len() + l.tempHistory.Len()
 }
-
-//// SaveHistory 将自上次保存以来新增的消息持久化到存储。
-//func (l *Store) SaveHistory() error {
-//	l.mu.Lock()
-//	defer l.mu.Unlock()
-//	if l.historyStore == nil {
-//		return nil
-//	}
-//	allTemp := l.tempHistory.Slice()
-//
-//	if len(allTemp) == 0 {
-//		return nil
-//	}
-//	msgs := make([]chat.Message, len(allTemp))
-//	for i, m := range allTemp {
-//		msgs[i] = *m
-//		l.history0.Append(m)
-//	}
-//	l.tempHistory.Reset()
-//	err := l.historyStore.AppendMessages(l.sessionId, msgs)
-//	if err != nil {
-//		return err
-//	}
-//	return err
-//}

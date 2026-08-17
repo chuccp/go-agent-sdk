@@ -151,17 +151,15 @@ func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
 // 调用方必须持有 runLock。
 func (c *SessionContext) buildRequest() *chat.Request {
 	var turnOpts []chat.Option
-	for {
-		qm, err := c.inbox.Read()
-		if err != nil {
-			break
-		}
-		if opts := c.ConsumeMessage(qm); len(opts) > 0 {
-			turnOpts = opts
+
+	values, fa := c.inbox.ReadAll()
+	if fa {
+		for _, qm := range values {
+			if opts := c.ConsumeMessage(qm); len(opts) > 0 {
+				turnOpts = opts
+			}
 		}
 	}
-	c.inbox.Reset()
-
 	// 注入历史上下文
 	history := c.events.History()
 	if len(history) == 0 {

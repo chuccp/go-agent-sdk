@@ -134,3 +134,24 @@ func (q *SliceQueue[T]) Read() (T, error) {
 	q.count--
 	return c, nil
 }
+
+// ReadAll dequeues all elements and returns them in order.
+// The queue is emptied after the call.
+func (q *SliceQueue[T]) ReadAll() ([]T, bool) {
+	if q.empty() {
+		return nil, false
+	}
+	result := make([]T, q.count)
+	first := q.read
+	end := q.read + q.count
+	if end <= q.cap() {
+		copy(result, q.buf[first:end])
+	} else {
+		n := copy(result, q.buf[first:])
+		copy(result[n:], q.buf[:end-q.cap()])
+	}
+	q.read = 0
+	q.write = 0
+	q.count = 0
+	return result, true
+}
