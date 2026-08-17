@@ -140,7 +140,7 @@ func (l *Store) Reset() {
 	}
 	l.entries.RemoveFront(removeCount)
 }
-func (l *Store) ResetAndSave() {
+func (l *Store) ResetAndSave() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !l.entries.IsEmpty() {
@@ -151,6 +151,23 @@ func (l *Store) ResetAndSave() {
 			l.entries.RemoveFront(removeCount)
 		}
 	}
+	if l.historyStore != nil {
+		allTemp := l.tempHistory.Slice()
+		if len(allTemp) > 0 {
+			msgs := make([]chat.Message, len(allTemp))
+			for i, m := range allTemp {
+				msgs[i] = *m
+				l.history0.Append(m)
+			}
+			l.tempHistory.Reset()
+			err := l.historyStore.AppendMessages(l.sessionId, msgs)
+			if err != nil {
+				return err
+			}
+			return err
+		}
+	}
+	return nil
 
 }
 

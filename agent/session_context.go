@@ -264,10 +264,9 @@ func (c *SessionContext) appendAssistantMessage(blocks chat.Blocks) {
 
 // saveAndReset 持久化自上次保存以来新增的消息，并清理 client 已读取的事件条目。
 func (c *SessionContext) saveAndReset() {
-	if err := c.events.SaveHistory(); err != nil {
+	if err := c.events.ResetAndSave(); err != nil {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
-	c.events.Reset()
 }
 
 // blocksForContext 过滤出用于上下文的块：是否进入上下文由每个 block 自己声明（ForContext）——
