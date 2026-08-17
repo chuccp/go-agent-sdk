@@ -23,13 +23,15 @@ type Position struct {
 }
 
 type Store struct {
-	sessionId    string
-	history      *util.SliceArray[*chat.Message]
+	sessionId string
+	history0  *util.SliceArray[*chat.Message]
+
+	tempHistory *util.SliceArray[*chat.Message]
+
 	historyStore HistoryStore
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*chat.ClientEvent]
 	seq          uint // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
-	savedLen     int  // 上次 SaveHistory 时的 history 长度
 	pending      int  // 自上次 AppendHistory 以来新增的事件数
 	positions    *util.SliceArray[*Position]
 }
@@ -39,7 +41,8 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 		entries:      new(util.SliceArray[*chat.ClientEvent]),
 		historyStore: historyStore,
 		sessionId:    sessionId,
-		history:      new(util.SliceArray[*chat.Message]),
+		history0:     new(util.SliceArray[*chat.Message]),
+		tempHistory:  new(util.SliceArray[*chat.Message]),
 		positions:    new(util.SliceArray[*Position]),
 	}
 }
@@ -63,10 +66,7 @@ func (l *Store) ReadFrom(position *Position) *chat.ClientEvent {
 		return nil
 	}
 	firstSeq := l.entries.Get(0).Seq
-	start := position.start
-	if start < firstSeq {
-		start = firstSeq
-	}
+	start := max(position.start, firstSeq)
 	idx := int(start - firstSeq)
 	if idx >= l.entries.Len() {
 		return nil
@@ -140,6 +140,19 @@ func (l *Store) Reset() {
 	}
 	l.entries.RemoveFront(removeCount)
 }
+func (l *Store) ResetAndSave() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.entries.IsEmpty() {
+		firstSeq := l.entries.Get(0).Seq
+		minStart := l.minPosition()
+		if minStart > firstSeq {
+			removeCount := min(int(minStart-firstSeq), l.entries.Len())
+			l.entries.RemoveFront(removeCount)
+		}
+	}
+
+}
 
 func (l *Store) LoadHistory() error {
 	l.mu.Lock()
@@ -147,14 +160,14 @@ func (l *Store) LoadHistory() error {
 	if l.historyStore == nil {
 		return nil
 	}
-	if l.history.IsEmpty() {
+	if l.history0.IsEmpty() {
 		msgs, err := l.historyStore.LoadHistory(l.sessionId)
 		if err != nil {
 			return err
 		}
 		var head uint
 		for i := range msgs {
-			l.history.Append(&msgs[i])
+			l.history0.Append(&msgs[i])
 			// 取所有消息 start+offset 的最大值作为事件流偏移恢复点
 			if end := msgs[i].Start + msgs[i].Offset; end > head {
 				head = end
@@ -165,7 +178,6 @@ func (l *Store) LoadHistory() error {
 		if l.entries.IsEmpty() && head > l.seq {
 			l.seq = head
 		}
-		l.savedLen = l.history.Len()
 	}
 	return nil
 }
@@ -174,8 +186,9 @@ func (l *Store) LoadHistory() error {
 func (l *Store) History() []*chat.Message {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	result := make([]*chat.Message, l.history.Len())
-	copy(result, l.history.Slice())
+	result := make([]*chat.Message, l.history0.Len()+l.tempHistory.Len())
+	copy(result, l.history0.Slice())
+	copy(result[l.history0.Len():], l.tempHistory.Slice())
 	return result
 }
 
@@ -189,14 +202,14 @@ func (l *Store) AppendHistory(msg *chat.Message) {
 		msg.Start = l.seq - uint(l.pending)
 	}
 	l.pending = 0
-	l.history.Append(msg)
+	l.tempHistory.Append(msg)
 }
 
 // HistoryLen 返回当前历史消息数量。
 func (l *Store) HistoryLen() int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.history.Len()
+	return l.history0.Len() + l.tempHistory.Len()
 }
 
 // SaveHistory 将自上次保存以来新增的消息持久化到存储。
@@ -206,19 +219,20 @@ func (l *Store) SaveHistory() error {
 	if l.historyStore == nil {
 		return nil
 	}
-	all := l.history.Slice()
-	newCount := len(all) - l.savedLen
-	if newCount <= 0 {
+	allTemp := l.tempHistory.Slice()
+
+	if len(allTemp) == 0 {
 		return nil
 	}
-	batch := all[l.savedLen:]
-	msgs := make([]chat.Message, len(batch))
-	for i, m := range batch {
+	msgs := make([]chat.Message, len(allTemp))
+	for i, m := range allTemp {
 		msgs[i] = *m
+		l.history0.Append(m)
 	}
+	l.tempHistory.Reset()
 	err := l.historyStore.AppendMessages(l.sessionId, msgs)
-	if err == nil {
-		l.savedLen = len(all)
+	if err != nil {
+		return err
 	}
 	return err
 }
