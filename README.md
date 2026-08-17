@@ -30,7 +30,8 @@
 │                       │    │    └── executeTools (tool_result)│
 │                       ├── Store                               │
 │                       │    ├── entries (活跃事件缓冲区)              │
-│                       │    ├── history (全量消息, 持久化)            │
+│                       │    ├── history0 + tempHistory          │
+│                       │    │   (全量消息: 已持久化 + 待保存)          │
 │                       │    ├── positions (客户端读取位置列表)          │
 │                       │    └── seq (事件序号, 单调递增)               │
 │                       └── Client[] (轻量订阅句柄)                   │
@@ -120,7 +121,7 @@ func main() {
 type Block interface { Type() ContentType }
 
 // 具体类型
-TextBlock       { Text string }
+TextBlock       { Text string; IsError bool }   // IsError 标记错误文本，与正常文本不合并
 ThinkingBlock   { Thinking string }
 ImageBlock      { Source *ImageSource }
 ToolUseBlock    { ID, Name string; Input any }
@@ -129,7 +130,7 @@ ToolResultBlock { ToolUseID string; Content any }
 
 ### 事件流与断线续传
 
-每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `Reset` 裁掉，`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
+每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `ResetAndSave` 裁掉（同时把待保存历史迁入持久层），`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
 
 多个 Client 同时订阅时，每个 Client 通过 Position 独立推进读取进度，互不阻塞。
 
@@ -156,7 +157,7 @@ LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统
 |------|------|------|
 | `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + GUI 程序自动 `start` + 30s 超时。`command_unix.go` / `command_windows.go` 提供平台适配 |
 | `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持 pending/in_progress/completed 状态，通过 `TodoStore` 跨会话共享 |
-| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题：推送 `ask_user` 事件（问题列表 JSON）后立即返回（不阻塞），用户回答作为下一条普通消息进入会话；是否阻塞等待由前端自行控制 |
+| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题：推送 `ask_user` 事件（问题列表 JSON）并置 `user_wait` 停止原因后立即返回（不阻塞）；主循环据此结束本轮（跳过携带 tool_result 的 LLM 收尾调用），用户的回答作为下一条普通消息进入会话触发新一轮 |
 
 ## HistoryStore 接口
 
