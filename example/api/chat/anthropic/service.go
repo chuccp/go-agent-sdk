@@ -106,13 +106,15 @@ func (s *serviceImpl) applyDefaults(m *chat.Request) {
 func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.BlockStream) error {
 	defer body.Close()
 	// 停止支持：ctx 取消时关闭 body，scanner 读取将立即报错返回
-	go func() {
-		<-ctx.Done()
-		body.Close()
-	}()
 
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue
