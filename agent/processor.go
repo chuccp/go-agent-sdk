@@ -103,26 +103,34 @@ func (p *messageProcessor) doLoop() {
 			// inbox 为空，executeRound 已将 running 置 false
 			continue
 		}
-		// ── 轮次收尾（持 runLock）──
-		switch stopReason {
-		case chat.StopReasonToolUse:
+
+		if stopReason == chat.StopReasonToolUse {
 			// assistant 消息入历史
 			ctx.appendAssistantMessage(blocks)
 			// tool_result 作为 user 消息入历史；未命中工具的 tool_use 已在 executeTools 补错误结果
-			results := p.executeTools(ctx, blocks)
+			results, toolStop := p.executeTools(ctx, blocks)
+			if toolStop == chat.StopReasonUserWait {
+				// 工具请求暂停（如 ask_user_question 等待用户回答）：本轮到此结束。
+				// done 在 tool_result 历史写入前发出，被其 Offset 覆盖，
+				// 前端根据历史计算的 start 落在 done 之后，重连时不重放残留的 done
+				ctx.AddEvent(chat.NewDoneEvent())
+			}
 			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
-			// 继续循环：携带 tool_result 再次调用 LLM
-
-		default: // end_turn
+			if toolStop != chat.StopReasonUserWait {
+				// 继续循环：携带 tool_result 再次调用 LLM
+				continue
+			}
+		} else {
 			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
-			// 前端根据历史计算的 start 会落在 done 之后，重连时不会重放残留的 done
+			// 前端根据历史计算的 start 会落在 done 之后，重连时不重放残留的 done
 			ctx.AddEvent(chat.NewDoneEvent())
 			ctx.appendAssistantMessage(blocks)
-			ctx.saveAndReset()
-			// inbox 还有消息则继续循环，否则退出
-			if ctx.inbox.IsEmpty() {
-				ctx.running = false
-			}
+		}
+
+		// 收尾（end_turn / 工具暂停）：保存历史；inbox 还有消息则继续循环，否则退出
+		ctx.saveAndReset()
+		if ctx.inbox.IsEmpty() {
+			ctx.running = false
 		}
 	}
 }
@@ -162,13 +170,17 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 	return blocks, stopReason, nil
 }
 
-// executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks。
+// executeTools 逐个执行本轮 tool_use 命中的工具，返回 tool_result blocks 及工具轮次的停止原因
+// （默认 StopReasonToolResult；任一工具置 StopReasonUserWait 则返回 UserWait，通知 doLoop 本轮暂停）。
 // 每个工具的输出（含执行错误，工具自行写入）写入各自的 BlockStream，
 // 同步执行完成后一次性取回；本方法消费每个工具的输出并组装为 tool_result，
 // 未命中任何工具的 tool_use 补错误结果（避免下一轮请求缺 tool_result 报错）。
 // 锁协议：进入时持有 runLock；工具执行期间由 runTool 自行释放/重取，返回时保持持锁。
-func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks) chat.Blocks {
+func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks) (chat.Blocks, chat.StopReason) {
 	var results chat.Blocks
+	// 本轮工具执行的停止原因：默认 ToolResult（继续携带 tool_result 调用 LLM），
+	// 若任一工具置 UserWait（如 ask_user_question 等待用户回答），则本轮暂停
+	stopReason := chat.StopReasonToolResult
 	for _, block := range blocks {
 		tu, ok := block.(*chat.ToolUseBlock)
 		if !ok {
@@ -182,25 +194,30 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			))
 			continue
 		}
-
-		blocks := p.runTool(ctx, tu, exec)
+		blocks, toolStop := p.runTool(ctx, tu, exec)
 		results = append(results, p.collectToolResult(ctx, tu, blocks))
+		if toolStop == chat.StopReasonUserWait {
+			stopReason = chat.StopReasonUserWait
+		}
 	}
-	return results
+	return results, stopReason
 }
 
 // runTool 执行单个工具：输出内容块写入统一的 chat.BlockStream；
 // 执行错误由工具以文本写入（不中断会话），随输出一起组装为 tool_result。
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
-func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) chat.Blocks {
+func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) (chat.Blocks, chat.StopReason) {
 
 	turn := &Turn{ctx: ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
 	writer := chat.NewBlockStream(ctx)
+	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
+	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
+	writer.StopReason(chat.StopReasonToolResult)
 	exec.Execute(turn, writer)
 	ctx.runLock.Lock()
-	return writer.ReadBlocks()
+	return writer.ReadBlocks(), writer.GetStopReason()
 }
 
 // collectToolResult 取回单个工具的全部输出：文本拼接为结果正文，

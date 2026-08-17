@@ -25,8 +25,9 @@ type Option struct {
 }
 
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
-// 实现 agent.ToolExecutor 接口：执行时向前端推送 ask_user 事件后立即返回（不阻塞），
-// 是否阻塞等待回答由前端自行控制；用户的回答作为下一条普通消息进入会话。
+// 实现 agent.ToolExecutor 接口：执行时向前端推送 ask_user 事件并置 user_wait
+// 停止原因后立即返回（不阻塞）。user_wait 使会话主循环跳过本轮的 LLM 收尾调用、
+// 直接结束本轮；用户的回答作为下一条普通消息进入会话，触发新一轮。
 type AskUserQuestionTool struct{}
 
 // Name 返回工具名称。
@@ -110,8 +111,8 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
-// 后立即返回，不阻塞等待回答；同时写入简短提示作为 tool_result，
-// 告知 LLM 结束本轮、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
+// 并置 user_wait 停止原因后立即返回，不阻塞等待回答；tool_result 文本作为历史上下文，
+// 告知后续轮次的 LLM 已提问、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
 func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	ctx := turn.Context()
 	if ctx == nil {
@@ -133,9 +134,13 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream
 	}
 	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))
 
-	// 2. 告知 LLM 问题已送达，等待用户下一条消息（不代为回答）
+	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
+	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮
+	writer.StopReason(chat.StopReasonUserWait)
+
+	// 3. tool_result 文本作为历史上下文（下一轮 LLM 可见）：陈述已提问并等待回答
 	writer.WriteBlock(chat.NewTextBlock(
-		"问题已发送给用户。请结束本轮，等待用户的回答（回答将作为下一条消息到达），不要替用户回答。"))
+		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。"))
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

@@ -12,10 +12,14 @@ import (
 type StopReason string
 
 const (
-	StopReasonEndTurn   StopReason = "end_turn"      // 自然结束
-	StopReasonMaxTokens StopReason = "max_tokens"    // 达到 max_tokens 上限
-	StopReasonToolUse   StopReason = "tool_use"      // 需要调用工具
-	StopReasonStopSeq   StopReason = "stop_sequence" // 命中停止序列
+	StopReasonEndTurn    StopReason = "end_turn"      // 自然结束
+	StopReasonMaxTokens  StopReason = "max_tokens"    // 达到 max_tokens 上限
+	StopReasonToolUse    StopReason = "tool_use"      // 需要调用工具
+	StopReasonStopSeq    StopReason = "stop_sequence" // 命中停止序列
+	StopReasonToolResult StopReason = "tool_result"   // 工具轮次的默认停止原因：已产出 tool_result，继续携带结果调用 LLM
+	// StopReasonUserWait 工具请求暂停：结束本轮（不再携带 tool_result 回调 LLM），
+	// 等待用户下一条普通消息（如 ask_user_question 提问）。仅工具路径设置。
+	StopReasonUserWait StopReason = "user_wait"
 )
 
 type StreamType string
@@ -111,13 +115,13 @@ type Usage struct {
 // 元数据经 GetStopReason/GetUsage 取回。
 // 写入方法（Write/WriteBlock/WriteEvent/WriteErrorText/StopReason/Usage）内部加锁，并发调用安全。
 type BlockStream struct {
-	mu            sync.Mutex
-	blocks        []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
-	pending       strings.Builder
-	hasPending    bool // 连续 TextBlock 的拼接缓冲（仅工具路径产生）
+	mu             sync.Mutex
+	blocks         []Block // 内容 block 与元数据 block（usage/stop_reason）统一存放
+	pending        strings.Builder
+	hasPending     bool // 连续 TextBlock 的拼接缓冲（仅工具路径产生）
 	pendingIsError bool // 当前拼接缓冲是否为错误文本
-	receiver      EventReceiver
-	assembler     *blockAssembler
+	receiver       EventReceiver
+	assembler      *blockAssembler
 }
 
 // NewBlockStream 创建一个 BlockStream。receiver 为事件接收方（如 SessionContext），nil 表示不外发事件。

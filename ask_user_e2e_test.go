@@ -11,9 +11,9 @@ import (
 	"github.com/chuccp/go-agent-sdk/tools"
 )
 
-// askUserProvider 模拟 LLM 三轮响应：
-// 第 1 次 → tool_use(ask_user_question)；第 2 次 → 文本 end_turn（提问轮结束）；
-// 第 3 次 → 文本 end_turn（收到用户回答后的最终回复）。
+// askUserProvider 模拟 LLM 两轮响应：
+// 第 1 次 → tool_use(ask_user_question)；第 2 次 → 文本 end_turn（收到用户回答后的最终回复）。
+// 提问轮不再有 LLM 收尾调用：ask_user_question 置 user_wait 后 doLoop 直接结束本轮。
 type askUserProvider struct {
 	calls atomic.Int32
 	// lastRequest 记录最近一次请求，用于验证用户回答作为普通消息进入历史
@@ -31,12 +31,8 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 			`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`})
 		w.StopReason(chat.StopReasonToolUse)
 	default:
-		text := "等待用户回答"
-		if n > 2 {
-			text = "已收到用户回答"
-		}
 		w.Write(&chat.TextBlockStart{})
-		w.Write(&chat.Delta{Content: text})
+		w.Write(&chat.Delta{Content: "已收到用户回答"})
 		w.StopReason(chat.StopReasonEndTurn)
 	}
 	return nil
@@ -119,8 +115,8 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 		t.Errorf("回答轮请求中未包含用户回答 'Red'，最后一条消息: %+v", last.Content)
 	}
 
-	// LLM 共被调用 3 次：tool_use 轮 + 提问收尾轮 + 回答轮
-	if got := provider.calls.Load(); got != 3 {
-		t.Errorf("期望 LLM 调用 3 次，实际 %d 次", got)
+	// LLM 共被调用 2 次：tool_use 轮（提问）+ 回答轮；提问轮不再有 LLM 收尾调用
+	if got := provider.calls.Load(); got != 2 {
+		t.Errorf("期望 LLM 调用 2 次，实际 %d 次", got)
 	}
 }

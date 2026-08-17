@@ -218,7 +218,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 }
 
 // TestExecute_NonBlocking 验证 Execute 推送 ask_user 事件后立即返回：
-// 事件内容为问题列表 JSON，且 tool_result 文本提示 LLM 等待用户回答。
+// 事件内容为问题列表 JSON，tool_result 文本陈述已提问等待回答，且停止原因置 user_wait。
 func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	manager := agent.NewAgent()
@@ -256,9 +256,14 @@ func TestExecute_NonBlocking(t *testing.T) {
 		t.Fatal("Execute blocked: expected immediate return")
 	}
 
-	// tool_result 文本提示 LLM 等待用户回答
-	if text := drainText(w); !strings.Contains(text, "问题已发送给用户") {
-		t.Errorf("expected tool_result guidance text, got %q", text)
+	// tool_result 文本陈述已提问、等待用户回答（作为历史上下文）
+	if text := drainText(w); !strings.Contains(text, "已向用户提出问题") {
+		t.Errorf("expected tool_result context text, got %q", text)
+	}
+
+	// 工具置 user_wait：会话主循环据此跳过 LLM 收尾调用、直接结束本轮
+	if got := w.GetStopReason(); got != chat.StopReasonUserWait {
+		t.Errorf("expected StopReasonUserWait, got %q", got)
 	}
 
 	// 前端收到 ask_user 事件，content 为问题列表 JSON
