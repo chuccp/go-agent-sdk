@@ -76,13 +76,20 @@ export function setAskUserHandler(cb: (questionsJson: string) => void): void {
 
 /**
  * triggerStream 触发适配器开始处理流事件。
- * 由 ChatRuntimeProvider 在收到 message_consumed 后调用。
+ * 由 ChatRuntimeProvider 在收到 User block (sent/consume) 后调用。
+ * 立即安装桥接分发，保证后续事件进入 pendingBuffer（由 adapter run 排空）。
  */
 export function triggerStream(): void {
   console.log('[adapter] triggerStream called')
   // 丢弃触发前缓冲的终结性事件（上一轮残留的 done/error：
   // 当前轮在 message_consumed 之前不可能产生本轮的终结事件）
   pendingBuffer = pendingBuffer.filter(e => e.kind !== 'done' && e.kind !== 'error')
+  // 立即安装桥接分发：后续事件进入 pendingBuffer，由 adapter run 排空并接管
+  if (!directDispatch) {
+    directDispatch = (evt: StreamEvent) => {
+      pendingBuffer.push(evt)
+    }
+  }
   if (triggerResolve) {
     triggerResolve()
     triggerResolve = null

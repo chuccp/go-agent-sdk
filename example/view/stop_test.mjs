@@ -20,8 +20,8 @@ console.log(`[session] id=${session.id}`)
 const ws = new WebSocket(WS_URL)
 let phase = 'generating' // generating → second
 let gotError = false
-let chunks = 0
-let chunksAfterStop = 0
+let deltas = 0
+let deltasAfterStop = 0
 let stopped = false
 let stoppedByTimer = false
 
@@ -34,6 +34,7 @@ ws.onopen = () => ws.send(JSON.stringify({ type: 'create', session_id: session.i
 
 ws.onmessage = async (evt) => {
   const msg = JSON.parse(evt.data)
+  // created 回执仍是顶层 {type: "created", ...}
   if (msg.type === 'created') {
     ws.send(JSON.stringify({ type: 'chat', message: '请直接写一篇 800 字左右的、关于大海的童话故事正文，不要提问、不要使用任何工具，慢慢写' }))
     // 3 秒后停止（此时应仍在流式生成中）
@@ -41,36 +42,41 @@ ws.onmessage = async (evt) => {
       if (phase === 'generating' && !stopped) {
         stopped = true
         stoppedByTimer = true
-        console.log(`[stop] 已收到 ${chunks} 个 chunk，发送 stop`)
+        console.log(`[stop] 已收到 ${deltas} 个 delta，发送 stop`)
         ws.send(JSON.stringify({ type: 'stop' }))
       }
     }, 3000)
     return
   }
-  if (msg.type === 'error') {
+  // 事件格式：{seq, block: {type, ...}}
+  const block = msg.block
+  if (!block) return
+  const blockType = block.type
+
+  if (blockType === 'error') {
     gotError = true
-    console.error('[FAIL] 收到 error 事件:', msg.message)
+    console.error('[FAIL] 收到 error 事件:', block.message)
   }
-  if (msg.type === 'chunk') {
-    chunks++
-    if (stopped) chunksAfterStop++
+  if (blockType === 'delta') {
+    deltas++
+    if (stopped) deltasAfterStop++
   }
-  if (msg.type === 'done') {
+  if (blockType === 'done') {
     if (phase === 'generating') {
       if (!stoppedByTimer) {
         // 生成在 stop 前就已结束，本次未验证到停止，直接判失败（重试）
         console.error('[FAIL] 生成在 stop 之前已完成，未验证到停止语义')
         process.exit(1)
       }
-      console.log(`[ok] 被停轮以 done 结束（stop 后残留 chunk: ${chunksAfterStop}）`)
+      console.log(`[ok] 被停轮以 done 结束（stop 后残留 delta: ${deltasAfterStop}）`)
       phase = 'second'
-      chunks = 0
+      deltas = 0
       ws.send(JSON.stringify({ type: 'chat', message: '用一句话回答：1+1 等于几？' }))
       return
     }
     if (phase === 'second') {
       clearTimeout(timeout)
-      console.log(`[ok] stop 后的新一轮正常完成（${chunks} 个 chunk）`)
+      console.log(`[ok] stop 后的新一轮正常完成（${deltas} 个 delta）`)
       ws.close()
       await verifyHistory()
       process.exit(0)

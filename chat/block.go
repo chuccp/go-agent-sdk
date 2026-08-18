@@ -44,7 +44,6 @@ func NewErrorBlock(text string) *ErrorBlock {
 }
 
 type UseDeltaBlock interface {
-	Block
 	ParesStream(stream *value.Stream)
 }
 
@@ -107,7 +106,6 @@ func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
 }
 
 type UsageBlock struct {
-	Block
 	usage *Usage
 }
 
@@ -144,7 +142,6 @@ type ImageSource struct {
 }
 
 type ImageBlock struct {
-	Block
 	Source *ImageSource `json:"source,omitempty"`
 	Type   BlockType    `json:"type"`
 }
@@ -175,7 +172,6 @@ func NewToolUseBlock(id string, name string) *ToolUseBlock {
 }
 
 type ToolExecutionBlock struct {
-	Block
 	ToolName string    `json:"tool_name"`
 	Args     string    `json:"args"`
 	Output   string    `json:"output"`

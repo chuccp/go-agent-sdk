@@ -337,40 +337,37 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       ws.onmessage = (evt: MessageEvent) => {
         try {
           const msg = JSON.parse(evt.data)
-          switch (msg.type) {
-            case 'created':
-              // 会话就绪回执：补发暂存的聊天消息，之后可直接发送
-              createdRef.current = true
-              for (const payload of pendingChatRef.current) {
-                ws!.send(payload)
-              }
-              pendingChatRef.current = []
-              break
-            case 'message_sent':
-              // 消息已被立即处理，更新状态栏
-              setQueuedMessages(prev => [...prev, { id: msg.message_id, status: 'consumed' as const }])
-              setTimeout(() => {
-                setQueuedMessages(prev => prev.filter(m => m.id !== msg.message_id))
-              }, 600)
-              break
-            case 'message_queued':
+          // created 回执仍是顶层 {type: "created", ...}
+          if (msg.type === 'created') {
+            // 会话就绪回执：补发暂存的聊天消息，之后可直接发送
+            createdRef.current = true
+            for (const payload of pendingChatRef.current) {
+              ws!.send(payload)
+            }
+            pendingChatRef.current = []
+            return
+          }
+          // 事件格式：{seq, block: {type, ...}}
+          const block = msg.block
+          if (!block) return
+          if (block.type === 'User') {
+            // 用户消息状态变更（替代旧的 message_sent/queued/consumed）
+            const content = block.content?.[0]?.text || ''
+            const msgId = msg.seq ?? 0
+            if (block.block_user_type === 'queued') {
               // 消息进入等待队列
-              setQueuedMessages(prev => [...prev, { id: msg.message_id, status: 'queued' as const }])
-              break
-            case 'message_consumed':
-              console.log('[ws] message_consumed:', msg.message_id, 'content:', msg.content?.substring(0, 30))
-              // 后端确认消费 → 将用户消息加入对话框 + 触发流
-              setQueuedMessages(prev =>
-                prev.map(m => m.id === msg.message_id ? { ...m, status: 'consumed' as const } : m)
-              )
+              setQueuedMessages(prev => [...prev, { id: msgId, status: 'queued' as const }])
+            } else {
+              // sent / consume：消息已被处理 → 触发流
+              console.log('[ws] User block (sent/consume):', content.substring(0, 30))
+              setQueuedMessages(prev => [...prev, { id: msgId, status: 'consumed' as const }])
               setTimeout(() => {
-                setQueuedMessages(prev => prev.filter(m => m.id !== msg.message_id))
+                setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
               }, 600)
-              // 核心：用户消息显示 + 启动助手响应
-              if (msg.content) {
-                consumeMessageRef.current(msg.content)
+              if (content) {
+                consumeMessageRef.current(content)
               }
-              break
+            }
           }
         } catch { /* ignore */ }
       }

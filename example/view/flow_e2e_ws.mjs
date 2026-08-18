@@ -1,7 +1,7 @@
 // flow 全链路冒烟测试（真实 LLM）：
 // 验证 story003 剧本：activate_flow（零提问直通）→ exec_node（零上下文执行）
 // → flow_progress 事件 → 交付收尾
-// 用法: node /tmp/flow_e2e_ws.mjs
+// 用法: node flow_e2e_ws.mjs
 
 const BASE = 'http://localhost:19009'
 const WS_URL = 'ws://localhost:19009/ws/chat'
@@ -33,19 +33,26 @@ ws.onopen = () => {
 
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data)
+  // created 回执仍是顶层 {type: "created", ...}
   if (msg.type === 'created') {
     // 原话已含主题+受众 → 期望零提问直通
     ws.send(JSON.stringify({ type: 'chat', message: '给我 5 岁孩子写一个关于太空的故事，短一点，100字以内' }))
     return
   }
-  if (msg.type === 'error') {
-    console.error('[FAIL] error 事件:', msg.message)
+  // 事件格式：{seq, block: {type, ...}}
+  const block = msg.block
+  if (!block) return
+  const blockType = block.type
+
+  if (blockType === 'error') {
+    console.error('[FAIL] error 事件:', block.message)
     process.exit(1)
   }
-  if (msg.type === 'tool_execution') toolExecs.push({ name: msg.message, output: msg.content })
-  if (msg.type === 'flow_progress') flowProgress.push(JSON.parse(msg.content))
-  if (msg.type === 'chunk') process.stdout.write(msg.content)
-  if (msg.type === 'done') {
+  if (blockType === 'tool_execution') toolExecs.push({ name: block.tool_name, output: block.output })
+  // flow_progress 是 TextBlock with text_type="flow_progress"
+  if (blockType === 'text' && block.text_type === 'flow_progress') flowProgress.push(JSON.parse(block.text))
+  if (blockType === 'delta') process.stdout.write(block.content || '')
+  if (blockType === 'done') {
     sawDone = true
     clearTimeout(timeout)
     verify()

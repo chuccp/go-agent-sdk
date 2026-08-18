@@ -17,7 +17,7 @@ let done = false
 
 const timeout = setTimeout(() => {
   console.error('[FAIL] 90s 超时未收到 done')
-  console.log('[events]', events.map(e => `${e.seq}:${e.type}`).join(', '))
+  console.log('[events]', events.map(e => `${e.seq}:${e.block?.type}`).join(', '))
   process.exit(1)
 }, 90000)
 
@@ -28,20 +28,25 @@ ws.onopen = () => {
 
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data)
+  // created 回执仍是顶层 {type: "created", ...}
   if (msg.type === 'created') {
     ws.send(JSON.stringify({ type: 'chat', message: '请使用 execute_command 工具执行命令 go version，然后根据工具返回的结果告诉我版本号' }))
     return
   }
+  // 事件格式：{seq, block: {type, ...}}
+  const block = msg.block
+  if (!block) return
+  const blockType = block.type
   events.push(msg)
-  if (msg.type === 'chunk') process.stdout.write(msg.content)
-  if (msg.type === 'tool_execution') {
-    console.log(`\n[tool_execution] ${msg.message} | args=${msg.args} | output=${(msg.content || '').slice(0, 120)}`)
+  if (blockType === 'delta') process.stdout.write(block.content || '')
+  if (blockType === 'tool_execution') {
+    console.log(`\n[tool_execution] ${block.tool_name} | args=${block.args} | output=${(block.output || '').slice(0, 120)}`)
   }
-  if (msg.type === 'error') {
-    console.error('[FAIL] error 事件:', msg.message)
+  if (blockType === 'error') {
+    console.error('[FAIL] error 事件:', block.message)
     process.exit(1)
   }
-  if (msg.type === 'done') {
+  if (blockType === 'done') {
     done = true
     clearTimeout(timeout)
     verify()
@@ -58,18 +63,19 @@ function verify() {
   let pass = true
   const fail = (m) => { pass = false; console.error('[FAIL]', m) }
 
-  const types = events.map(e => e.type)
+  const types = events.map(e => e.block?.type)
   if (!types.includes('tool_execution')) fail('缺少 tool_execution 事件（工具执行流程未生效）')
-  if (!types.includes('chunk')) fail('缺少 chunk（第二轮 LLM 流式输出未到达）')
+  if (!types.includes('delta')) fail('缺少 delta（第二轮 LLM 流式输出未到达）')
   if (!done) fail('未收到 done')
 
-  // tool_execution 必须出现在 done 之前，且其后仍有 chunk（第二轮 LLM 调用）
+  // tool_execution 必须出现在 done 之前，且其后仍有 delta（第二轮 LLM 调用）
   const teIdx = types.indexOf('tool_execution')
   if (teIdx >= 0) {
-    const chunkAfterTool = types.slice(teIdx + 1).includes('chunk')
-    if (!chunkAfterTool) fail('tool_execution 之后没有第二轮 chunk（tool_result 未回传 LLM）')
+    const deltaAfterTool = types.slice(teIdx + 1).includes('delta')
+    if (!deltaAfterTool) fail('tool_execution 之后没有第二轮 delta（tool_result 未回传 LLM）')
     const te = events[teIdx]
-    if (!te.content || !te.content.includes('go version')) console.warn('[WARN] tool_execution 输出未包含命令输出:', te.content)
+    const output = te.block.output || ''
+    if (!output.includes('go version')) console.warn('[WARN] tool_execution 输出未包含命令输出:', output)
     else console.log('[ok] tool_execution 携带了命令输出')
   }
 

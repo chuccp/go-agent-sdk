@@ -22,7 +22,7 @@ const events = []
 let gotCreated = false
 const timeout = setTimeout(() => {
   console.error('[FAIL] 60s 超时未收到 done')
-  console.log('[events]', JSON.stringify(events.map(e => `${e.seq}:${e.type}`), null, 0))
+  console.log('[events]', JSON.stringify(events.map(e => `${e.seq}:${e.block?.type}`), null, 0))
   process.exit(1)
 }, 60000)
 
@@ -33,19 +33,20 @@ ws.onopen = () => {
 
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data)
+  // created 回执仍是顶层 {type: "created", ...}
   if (msg.type === 'created') {
     gotCreated = true
     console.log(`[ws] 收到 created 回执 (session_id=${msg.session_id})，发送 chat`)
     ws.send(JSON.stringify({ type: 'chat', message: '用一句话介绍你自己' }))
     return
   }
-  if (msg.type === 'error') {
-    console.error('[FAIL] 收到 error 事件:', msg.message)
-    process.exit(1)
-  }
+  // 事件格式：{seq, block: {type, ...}}
+  const block = msg.block
+  if (!block) return
+  const blockType = block.type
   events.push(msg)
-  if (msg.type === 'chunk') process.stdout.write(msg.content)
-  if (msg.type === 'done') {
+  if (blockType === 'delta') process.stdout.write(block.content || '')
+  if (blockType === 'done') {
     clearTimeout(timeout)
     console.log('\n[ws] 收到 done, seq=' + msg.seq)
     verify()
@@ -72,15 +73,18 @@ async function verify() {
     if (seqs[i] !== seqs[i - 1] + 1) fail(`seq 不连续: ${seqs[i - 1]} -> ${seqs[i]}`)
   }
 
-  // 事件序列结构
-  const types = events.map(e => e.type)
-  if (!types.includes('message_sent')) fail('缺少 message_sent')
-  if (!types.includes('message_consumed')) fail('缺少 message_consumed')
-  if (!types.some(t => t === 'chunk')) fail('缺少 chunk')
+  // 事件序列结构（block.type）
+  const types = events.map(e => e.block?.type)
+  // User block (用户消息入队/消费)
+  if (!types.includes('User')) fail('缺少 User block')
+  // 有 delta（流式文本增量）
+  if (!types.some(t => t === 'delta')) fail('缺少 delta')
+  // 最后一个事件是 done
   if (types[types.length - 1] !== 'done') fail('最后一个事件不是 done')
 
-  // done 之后不应再有事件（重放检测在下一轮订阅体现）
-  console.log(`[events] 共 ${events.length} 个: ${types.filter((t, i) => types.indexOf(t) === i).join(', ')}`)
+  // 去重后的类型列表
+  const uniqueTypes = [...new Set(types)]
+  console.log(`[events] 共 ${events.length} 个: ${uniqueTypes.join(', ')}`)
 
   // done 归属校验：最后一条 assistant 历史消息的 start+offset 应 = done.seq + 1
   const res2 = await fetch(`${BASE}/api/chat/sessions/${SESSION_ID}/messages`)
