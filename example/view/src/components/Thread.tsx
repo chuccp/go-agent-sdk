@@ -8,6 +8,8 @@ import {
   useMessage,
 } from '@assistant-ui/react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown'
 import { useMessageQueue } from './ChatRuntimeProvider'
 
 export function Thread() {
@@ -283,7 +285,7 @@ function AssistantMessage() {
           {hasMarkers ? (
             segments.map((seg, i) =>
               seg.type === 'text' ? (
-                <Markdown key={i}>{seg.content}</Markdown>
+                <Markdown key={i} remarkPlugins={[remarkGfm]}>{seg.content}</Markdown>
               ) : (
                 <div key={i} style={segmentStyles[seg.type]}>
                   {seg.type === 'think' ? '💭 ' : seg.type === 'tool' ? '🔧 ' : '↳ '}
@@ -292,7 +294,9 @@ function AssistantMessage() {
               )
             )
           ) : (
-            <MessagePrimitive.Content />
+            <MessagePrimitive.Content
+              components={{ Text: () => <MarkdownTextPrimitive remarkPlugins={[remarkGfm]} /> }}
+            />
           )}
         </div>
       </div>

@@ -413,6 +413,47 @@ html, body, #root { height: 100%; font-family: -apple-system, BlinkMacSystemFont
   border-radius: 2px;
 }
 
+/* Table: rounded card + striped rows; wide tables scroll horizontally */
+.aui-assistant-message table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 12px 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.aui-assistant-message th {
+  padding: 8px 14px;
+  text-align: left;
+  background: #fafbfc;
+  border-bottom: 1px solid #e8eaed;
+  color: #5f6368;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.aui-assistant-message td {
+  padding: 8px 14px;
+  border-bottom: 1px solid #f1f3f4;
+  color: #202124;
+}
+.aui-assistant-message tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+.aui-assistant-message tbody tr:last-child td {
+  border-bottom: none;
+}
+.aui-assistant-message table::-webkit-scrollbar {
+  height: 4px;
+}
+.aui-assistant-message table::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 2px;
+}
+
 /* Inline code: subtle */
 .aui-assistant-message code {
   padding: 1px 5px;
