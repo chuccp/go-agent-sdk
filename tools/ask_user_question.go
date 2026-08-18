@@ -33,12 +33,6 @@ type AskUserBlock struct {
 func (a *AskUserBlock) ForContext() bool {
 	return false
 }
-func (a *AskUserBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}{Type: string(AskUserBlockType), Text: a.Text})
-}
 func NewAskUserBlock(Text string) *AskUserBlock {
 	return &AskUserBlock{
 		Text: Text,

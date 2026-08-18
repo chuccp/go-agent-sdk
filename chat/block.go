@@ -6,13 +6,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
-// textBlockMarshal 用于 JSON 序列化时排除嵌入的 UseDeltaBlock 接口字段。
-type textBlockMarshal struct {
-	Type     BlockType `json:"type"`
-	Text     string    `json:"text"`
-	TextType TextType  `json:"text_type,omitempty"`
-}
-
 type BlockType string
 
 const (
@@ -70,7 +63,6 @@ const (
 )
 
 type TextBlock struct {
-	UseDeltaBlock
 	Text     string    `json:"text"`
 	Type     BlockType `json:"type"`
 	TextType TextType  `json:"text_type"`
@@ -78,9 +70,6 @@ type TextBlock struct {
 
 func (b *TextBlock) ForContext() bool {
 	return true
-}
-func (b *TextBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(textBlockMarshal{Type: b.Type, Text: b.Text, TextType: b.TextType})
 }
 func (b *TextBlock) ParesStream(stream *value.Stream) {
 	b.Text = stream.String()
@@ -132,19 +121,12 @@ func NewUsageBlock(usage *Usage) *UsageBlock {
 }
 
 type ThinkingBlock struct {
-	UseDeltaBlock
 	Thinking string    `json:"thinking,omitempty"`
 	Type     BlockType `json:"type"`
 }
 
 func (b *ThinkingBlock) ForContext() bool {
 	return false
-}
-func (b *ThinkingBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Thinking string    `json:"thinking,omitempty"`
-		Type     BlockType `json:"type"`
-	}{Thinking: b.Thinking, Type: b.Type})
 }
 func (b *ThinkingBlock) ParesStream(stream *value.Stream) {
 	b.Thinking = stream.String()
@@ -170,15 +152,8 @@ type ImageBlock struct {
 func (b *ImageBlock) ForContext() bool {
 	return true
 }
-func (b *ImageBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Source *ImageSource `json:"source,omitempty"`
-		Type   BlockType    `json:"type"`
-	}{Source: b.Source, Type: b.Type})
-}
 
 type ToolUseBlock struct {
-	UseDeltaBlock
 	ID    string        `json:"id"`
 	Name  string        `json:"name"`
 	Input *value.Object `json:"input,omitempty"`
@@ -187,14 +162,6 @@ type ToolUseBlock struct {
 
 func (b *ToolUseBlock) ForContext() bool {
 	return true
-}
-func (b *ToolUseBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		ID    string        `json:"id"`
-		Name  string        `json:"name"`
-		Input *value.Object `json:"input,omitempty"`
-		Type  BlockType     `json:"type"`
-	}{ID: b.ID, Name: b.Name, Input: b.Input, Type: b.Type})
 }
 func (b *ToolUseBlock) ParesStream(stream *value.Stream) {
 	b.Input, _ = value.NewObjectFromJson(stream.ToJSON())
