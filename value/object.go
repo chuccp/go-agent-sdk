@@ -169,6 +169,14 @@ func NewObjectFromMap(m map[string]any) *Object {
 	}
 	return obj
 }
+func NewObjectFromJson(dataJson json.RawMessage) (*Object, error) {
+	var m map[string]any
+	err := json.Unmarshal(dataJson, &m)
+	if err != nil {
+		return NewObject(), err
+	}
+	return NewObjectFromMap(m), nil
+}
 
 // fromInterface 将 JSON 反序列化得到的原生值转换为对应的 Value 类型。
 func fromInterface(v any) Value {

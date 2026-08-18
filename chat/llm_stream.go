@@ -23,6 +23,7 @@ func (a *assemblerBlock) start(block Block2) {
 }
 func (a *assemblerBlock) flush() (Block2, bool) {
 	if a.active {
+		a.block.ParesStream(a.stream)
 		a.stream.Reset()
 		a.active = false
 		return a.block, true

@@ -15,10 +15,9 @@ const (
 	UsageBlockType      BlockType = "usage"
 )
 
-type BlockStartType string
-
 type Block2 interface {
 	ForContext() bool
+	ParesStream(stream *value.Stream)
 }
 
 type Block2s []Block2
@@ -32,6 +31,9 @@ type TextBlock2 struct {
 
 func (b *TextBlock2) ForContext() bool {
 	return true
+}
+func (b *TextBlock2) ParesStream(stream *value.Stream) {
+	b.Text = stream.String()
 }
 func NewTextBlock2() *TextBlock2 {
 	return &TextBlock2{
@@ -75,6 +77,9 @@ type ThinkingBlock2 struct {
 func (b *ThinkingBlock2) ForContext() bool {
 	return false
 }
+func (b *ThinkingBlock2) ParesStream(stream *value.Stream) {
+	b.Thinking = stream.String()
+}
 func NewThinkingBlock2() *ThinkingBlock2 {
 	return &ThinkingBlock2{
 		Type: ThinkingBlockType,
@@ -101,6 +106,9 @@ type ToolUseBlock2 struct {
 
 func (b *ToolUseBlock2) ForContext() bool {
 	return true
+}
+func (b *ToolUseBlock2) ParesStream(stream *value.Stream) {
+	b.Input, _ = value.NewObjectFromJson(stream.ToJSON())
 }
 func NewToolUseBlock2(id string, name string) *ToolUseBlock2 {
 	return &ToolUseBlock2{

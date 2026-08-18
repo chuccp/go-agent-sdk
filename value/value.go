@@ -69,6 +69,9 @@ func (s *Stream) AsStream() *Stream {
 func (s *Stream) WriteString(p string) {
 	s.text.WriteString(p)
 }
+func (s *Stream) ToJSON() json.RawMessage {
+	return json.RawMessage(s.text.String())
+}
 
 // Text 返回流中已累积的文本内容。
 func (s *Stream) Text() string {
