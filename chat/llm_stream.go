@@ -12,11 +12,11 @@ type BlockReceiver interface {
 
 type assemblerBlock struct {
 	stream *value.Stream
-	block  Block2
+	block  UseDeltaBlock
 	active bool
 }
 
-func (a *assemblerBlock) start(block Block2) {
+func (a *assemblerBlock) start(block UseDeltaBlock) {
 	a.block = block
 	a.active = true
 	a.stream.Reset()
@@ -55,7 +55,7 @@ func NewLLMStream(receiver BlockReceiver) *LLMStream {
 		},
 	}
 }
-func (s *LLMStream) BlockStart(block Block2) {
+func (s *LLMStream) BlockStart(block UseDeltaBlock) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flushAndStart(block)
@@ -108,12 +108,13 @@ func (s *LLMStream) flushAndAdd(block Block2) {
 	}
 	s.assemblerBlock.flush()
 }
-func (s *LLMStream) flushAndStart(block Block2) {
+func (s *LLMStream) flushAndStart(block UseDeltaBlock) {
 	if s.receiver != nil {
 		s.receiver.AddBlock(NewStartBlock2(block))
 	}
 	s.assemblerBlock.flush()
 	s.assemblerBlock.start(block)
+
 }
 func (s *LLMStream) flush() {
 	block, fa := s.assemblerBlock.flush()

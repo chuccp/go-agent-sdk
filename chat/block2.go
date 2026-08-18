@@ -15,15 +15,19 @@ const (
 	UsageBlockType      BlockType = "usage"
 )
 
+type UseDeltaBlock interface {
+	Block2
+	ParesStream(stream *value.Stream)
+}
+
 type Block2 interface {
 	ForContext() bool
-	ParesStream(stream *value.Stream)
 }
 
 type Block2s []Block2
 
 type TextBlock2 struct {
-	Block2
+	UseDeltaBlock
 	Text    string    `json:"text"`
 	IsError bool      `json:"is_error,omitempty"`
 	Type    BlockType `json:"type"`
@@ -69,7 +73,7 @@ func NewUsageBlock2(usage *Usage) *UsageBlock2 {
 }
 
 type ThinkingBlock2 struct {
-	Block2
+	UseDeltaBlock
 	Thinking string    `json:"thinking,omitempty"`
 	Type     BlockType `json:"type"`
 }
@@ -97,7 +101,7 @@ func (b *ImageBlock2) ForContext() bool {
 }
 
 type ToolUseBlock2 struct {
-	Block2
+	UseDeltaBlock
 	ID    string        `json:"id"`
 	Name  string        `json:"name"`
 	Input *value.Object `json:"input,omitempty"`
