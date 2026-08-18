@@ -44,13 +44,26 @@ func NewErrorTextBlock2() *TextBlock2 {
 		IsError: true,
 	}
 }
+func NewErrorFullTextBlock2(text string) *TextBlock2 {
+	return &TextBlock2{
+		Type:    TextBlockType,
+		IsError: true,
+		Text:    text,
+	}
+}
 
 type UsageBlock2 struct {
 	Block2
+	usage *Usage
 }
 
 func (b *UsageBlock2) ForContext() bool {
 	return false
+}
+func NewUsageBlock2(usage *Usage) *UsageBlock2 {
+	return &UsageBlock2{
+		usage: usage,
+	}
 }
 
 type ThinkingBlock2 struct {
@@ -61,6 +74,11 @@ type ThinkingBlock2 struct {
 
 func (b *ThinkingBlock2) ForContext() bool {
 	return false
+}
+func NewThinkingBlock2() *ThinkingBlock2 {
+	return &ThinkingBlock2{
+		Type: ThinkingBlockType,
+	}
 }
 
 type ImageBlock2 struct {
@@ -83,6 +101,13 @@ type ToolUseBlock2 struct {
 
 func (b *ToolUseBlock2) ForContext() bool {
 	return true
+}
+func NewToolUseBlock2(id string, name string) *ToolUseBlock2 {
+	return &ToolUseBlock2{
+		ID:   id,
+		Name: name,
+		Type: ToolUseBlockType,
+	}
 }
 
 type ToolResultBlock2 struct {
@@ -120,4 +145,10 @@ type DeltaBlock2 struct {
 
 func (b *DeltaBlock2) ForContext() bool {
 	return false
+}
+func NewDeltaBlock2(content string) *DeltaBlock2 {
+	return &DeltaBlock2{
+		Type:    DeltaBlockType,
+		Content: content,
+	}
 }
