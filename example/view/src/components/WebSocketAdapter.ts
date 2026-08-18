@@ -57,6 +57,9 @@ let directDispatch: ((evt: StreamEvent) => void) | null = null
 let stopCallback: (() => void) | null = null
 let askUserHandler: ((questionsJson: string) => void) | null = null
 
+// 当前流式块类型（由 StartBlock 设置，Delta 据此路由）
+let currentStreamBlockType: string | null = null
+
 let runCounter = 0  // 调试：追踪第几轮 run
 
 /**
@@ -122,9 +125,20 @@ function streamHandler(evt: MessageEvent): void {
 
     let event: StreamEvent | null = null
     switch (blockType) {
+      case 'start':
+        // 流式块开始标记：记录类型，后续 delta 据此路由（thinking vs text）
+        currentStreamBlockType = block.block?.type || null
+        console.log('[streamHandler] start block, inner type:', currentStreamBlockType)
+        return
       case 'delta':
-        // 流式文本增量 → chunk
-        if (block.content) event = { kind: 'chunk', text: block.content }
+        // 流式增量：根据当前块类型路由（thinking → thinking 事件，其他 → chunk）
+        if (block.content) {
+          if (currentStreamBlockType === 'thinking') {
+            event = { kind: 'thinking', text: block.content }
+          } else {
+            event = { kind: 'chunk', text: block.content }
+          }
+        }
         break
       case 'text':
         // 完整文本块（工具输出等）→ chunk
@@ -156,9 +170,6 @@ function streamHandler(evt: MessageEvent): void {
         // ask_user 块：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
         console.log('[bridge] ask_user block received')
         if (askUserHandler && block.text) askUserHandler(block.text)
-        return
-      case 'start':
-        // 流式块开始标记（StartBlock），不产生事件，delta 紧随其后
         return
       case 'usage':
         // token 用量元数据，不产生事件
@@ -211,14 +222,15 @@ export function createStreamingAdapter(): ChatModelAdapter {
         }
       }
 
+      // 最新状态槽：流式到达时只保留最新内容，避免队列积压导致闪烁
+      let latestResult: ChatModelRunResult | null = null
+
       const push = () => {
         const combined = serializeSegments(segments)
         if (combined) {
-          queue.push({ content: [{ type: 'text' as const, text: combined }] })
+          latestResult = { content: [{ type: 'text' as const, text: combined }] }
         }
       }
-
-      const queue: ChatModelRunResult[] = []
 
       const handleEvent = (evt: StreamEvent) => {
         console.log(`[adapter] run #${myRun} handleEvent:`, evt.kind)
@@ -282,10 +294,12 @@ export function createStreamingAdapter(): ChatModelAdapter {
       }
       abortSignal?.addEventListener('abort', onAbort)
 
-      // 4. 流式输出
+      // 4. 流式输出：每次取最新状态，丢弃中间态（防闪烁）
       while (!done) {
-        if (queue.length > 0) {
-          yield queue.shift()!
+        if (latestResult) {
+          const result = latestResult
+          latestResult = null
+          yield result
         } else {
           await new Promise(r => setTimeout(r, 50))
         }
@@ -294,10 +308,9 @@ export function createStreamingAdapter(): ChatModelAdapter {
       // 5. 自然结束时移除 abort 监听，防止框架取消上一轮时误发 stop
       abortSignal?.removeEventListener('abort', onAbort)
 
-      // 6. 排空剩余
-      console.log(`[adapter] run #${myRun} draining remaining, count =`, queue.length)
-      while (queue.length > 0) {
-        yield queue.shift()!
+      // 6. 排空剩余（确保最终状态被 yield）
+      if (latestResult) {
+        yield latestResult
       }
 
       directDispatch = null
