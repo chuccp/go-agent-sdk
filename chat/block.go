@@ -262,7 +262,6 @@ const (
 
 type UserBlock struct {
 	Type          BlockType     `json:"type"`
-	Queued        bool          `json:"queued"`
 	BlockUserType BlockUserType `json:"block_user_type"`
 	Content       []Block       `json:"content,omitempty"` // string 或 []Block
 }

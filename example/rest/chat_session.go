@@ -127,6 +127,10 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			}
 			lastSeq = event.Seq
 			blockType := blockTypeName(event.Block)
+			// 跳过内部元数据块（UsageBlock 等无前端意义的块）
+			if blockType == "usage" || blockType == "unknown" {
+				continue
+			}
 			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", blockType))
 			if blockType == "done" {
 				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq))

@@ -155,7 +155,7 @@ func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
 }
 func (s *BlockStream) flush() {
 	block, fa := s.assemblerBlock.flush()
-	if fa {
+	if fa && block != nil {
 		// 跳过空内容块（如无增量的 thinking/tool_use）
 		if s.isEmptyBlock(block) {
 			return
