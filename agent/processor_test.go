@@ -104,7 +104,7 @@ type echoTool struct{}
 func (t *echoTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{Name: "echo", Description: "echo tool", InputSchema: map[string]any{"type": "object"}}
 }
-func (t *echoTool) Name() string { return "echo" }
+func (t *echoTool) Name() string        { return "echo" }
 func (t *echoTool) UsagePrompt() string { return "" }
 func (t *echoTool) Execute(turn *agent.Turn, w *chat.BlockStream) {
 	w.WriteBlock(chat.NewTextBlock("echo output"))

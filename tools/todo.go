@@ -27,17 +27,17 @@ type TodoStore struct {
 // TodoTask 字段对齐 Claude Code 官方 Task 模型。
 // 参考: https://code.claude.com/docs/en/agent-sdk/todo-tracking
 type TodoTask struct {
-	ID          string         `json:"id"`
-	Subject     string         `json:"subject"`
-	Description string         `json:"description"`
-	ActiveForm  string         `json:"active_form,omitempty"`
-	Status      string         `json:"status"` // pending | in_progress | completed
-	Blocks      []string       `json:"blocks,omitempty"`
-	BlockedBy   []string       `json:"blocked_by,omitempty"`
-	Owner       string         `json:"owner,omitempty"`
+	ID          string        `json:"id"`
+	Subject     string        `json:"subject"`
+	Description string        `json:"description"`
+	ActiveForm  string        `json:"active_form,omitempty"`
+	Status      string        `json:"status"` // pending | in_progress | completed
+	Blocks      []string      `json:"blocks,omitempty"`
+	BlockedBy   []string      `json:"blocked_by,omitempty"`
+	Owner       string        `json:"owner,omitempty"`
 	Metadata    *value.Object `json:"metadata,omitempty"`
-	CreatedAt   int64          `json:"created_at"`
-	UpdatedAt   int64          `json:"updated_at"`
+	CreatedAt   int64         `json:"created_at"`
+	UpdatedAt   int64         `json:"updated_at"`
 }
 
 // NewTodoStore 创建任务存储。

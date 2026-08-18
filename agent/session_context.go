@@ -64,6 +64,7 @@ func (c *SessionContext) Flush() {
 func (c *SessionContext) History() []*chat.Message {
 	return c.events.History()
 }
+
 // Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，后续用户消息不受影响。
 func (c *SessionContext) Stop() {
 	c.runLock.Lock()
