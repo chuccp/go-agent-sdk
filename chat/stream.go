@@ -40,7 +40,7 @@ func (a *assemblerBlock) start(block UseDeltaBlock) {
 	a.active = true
 	a.stream.Reset()
 }
-func (a *assemblerBlock) flush() (Block, bool) {
+func (a *assemblerBlock) flush() (UseDeltaBlock, bool) {
 	if a.active {
 		a.block.ParesStream(a.stream)
 		a.stream.Reset()
@@ -165,7 +165,7 @@ func (s *BlockStream) flush() {
 }
 
 // isEmptyBlock 检查组装后的 block 是否为空内容。
-func (s *BlockStream) isEmptyBlock(block Block) bool {
+func (s *BlockStream) isEmptyBlock(block UseDeltaBlock) bool {
 	switch b := block.(type) {
 	case *TextBlock:
 		return b.Text == ""

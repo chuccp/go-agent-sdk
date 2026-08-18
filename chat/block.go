@@ -44,6 +44,7 @@ func NewErrorBlock(text string) *ErrorBlock {
 }
 
 type UseDeltaBlock interface {
+	Block
 	ParesStream(stream *value.Stream)
 }
 
@@ -208,15 +209,15 @@ func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
 }
 
 type StartBlock struct {
-	Type  BlockType `json:"type"`
-	Block Block     `json:"block"`
+	Type  BlockType     `json:"type"`
+	Block UseDeltaBlock `json:"block"`
 }
 
 func (b *StartBlock) ForContext() bool {
 	return false
 }
 
-func NewStartBlock(block Block) *StartBlock {
+func NewStartBlock(block UseDeltaBlock) *StartBlock {
 	return &StartBlock{
 		Type:  StartBlockType,
 		Block: block,
