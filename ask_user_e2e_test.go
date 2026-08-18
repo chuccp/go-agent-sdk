@@ -25,31 +25,31 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 	n := f.calls.Add(1)
 	switch n {
 	case 1:
-		w.Write(&chat.ToolUseBlockStart{Id: "tu_ask", Name: "ask_user_question"})
+		w.BlockToolUseStart("tu_ask", "ask_user_question")
 		// 入参按真实协议以 Delta 流式送达
-		w.Write(&chat.Delta{Content: `{"questions":[{"question":"What color?","header":"Color","options":[` +
-			`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`})
+		w.Delta(`{"questions":[{"question":"What color?","header":"Color","options":[` +
+			`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`)
 		w.StopReason(chat.StopReasonToolUse)
 	default:
-		w.Write(&chat.TextBlockStart{})
-		w.Write(&chat.Delta{Content: "已收到用户回答"})
+		w.BlockTextStart()
+		w.Delta("已收到用户回答")
 		w.StopReason(chat.StopReasonEndTurn)
 	}
 	return nil
 }
 
-// findEvent 在事件列表中查找指定类型的事件。
-func findEvent(events []*chat.ClientEvent, eventType chat.EventType) *chat.ClientEvent {
+// findAskUserBlock 在事件列表中查找 AskUserBlock。
+func findAskUserBlock(events []*agent.Event) *tools.AskUserBlock {
 	for _, e := range events {
-		if e.EventType == eventType {
-			return e
+		if ab, ok := e.Block.(*tools.AskUserBlock); ok {
+			return ab
 		}
 	}
 	return nil
 }
 
 // TestAskUserQuestion_E2E_NonBlocking 全链路验证非阻塞问答：
-// 用户提问 → LLM 调 ask_user_question → ask_user 事件推前端 → 工具不阻塞，
+// 用户提问 → LLM 调 ask_user_question → ask_user block 推前端 → 工具不阻塞，
 // 本轮正常走到 done → 用户回答作为普通消息触发新一轮 → done。
 func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	manager := agent.NewAgent()
@@ -69,22 +69,22 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	}
 	events := collectUntilDone(t, client)
 
-	// ask_user 事件已推送，content 为问题列表 JSON
-	askEvt := findEvent(events, tools.EventTypeAskUser)
-	if askEvt == nil {
-		t.Fatal("未收到 ask_user 事件")
+	// ask_user block 已推送，text 为问题列表 JSON
+	askBlock := findAskUserBlock(events)
+	if askBlock == nil {
+		t.Fatal("未收到 AskUserBlock")
 	}
 	var questions []tools.Question
-	if err := json.Unmarshal([]byte(askEvt.Content), &questions); err != nil {
-		t.Fatalf("ask_user content 不是问题列表 JSON: %v", err)
+	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
+		t.Fatalf("AskUserBlock text 不是问题列表 JSON: %v", err)
 	}
 	if len(questions) != 1 || questions[0].Question != "What color?" {
 		t.Fatalf("问题内容不符: %+v", questions)
 	}
 
-	// tool_execution 事件存在（工具非阻塞执行完成并产出 tool_result）
-	if findEvent(events, chat.EventTypeToolExecution) == nil {
-		t.Error("未收到 tool_execution 事件")
+	// tool_execution block 存在（工具非阻塞执行完成并产出 tool_result）
+	if !hasBlockType(events, &chat.ToolExecutionBlock{}) {
+		t.Error("未收到 tool_execution block")
 	}
 
 	// ── 第二轮：用户回答作为普通消息 ──
@@ -92,8 +92,18 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	events2 := collectUntilDone(t, client)
-	if findEvent(events2, chat.EventTypeChunk) == nil {
-		t.Error("回答轮未收到 chunk 事件")
+	// 流式协议产出 StartBlock{TextBlock}，检查是否有包含 TextBlock 的 StartBlock
+	hasText := false
+	for _, e := range events2 {
+		if sb, ok := e.Block.(*chat.StartBlock); ok {
+			if _, ok := sb.Block.(*chat.TextBlock); ok {
+				hasText = true
+				break
+			}
+		}
+	}
+	if !hasText {
+		t.Error("回答轮未收到 text block")
 	}
 
 	// 用户回答以普通 user 消息进入请求历史

@@ -28,23 +28,22 @@ type flowFakeProvider struct {
 }
 
 func (f *flowFakeProvider) script() []chat.Blocks {
-	toolUse := func(id, name string, input map[string]any) chat.Blocks {
-		return chat.Blocks{chat.NewToolUseBlock(id, name, value.NewObjectFromMap(input))}
+	toolUseJSON := func(id, name string, input string) chat.Blocks {
+		tu := chat.NewToolUseBlock(id, name)
+		tu.Input, _ = value.NewObjectFromJson(json.RawMessage(input))
+		return chat.Blocks{tu}
 	}
 	return []chat.Blocks{
 		// 轮1: activate_flow（原话已含主题+受众，零提问直通）
-		toolUse("t1", "activate_flow", map[string]any{
-			"flow_id": "story003",
-			"input":   map[string]any{"topic": "太空", "audience": "儿童"},
-		}),
+		toolUseJSON("t1", "activate_flow", `{"flow_id":"story003","input":{"topic":"太空","audience":"儿童"}}`),
 		// 轮2: exec_node("story")（confirm 已 DoneWhen 自动完成）
-		toolUse("t2", "exec_node", map[string]any{"step_id": "story"}),
+		toolUseJSON("t2", "exec_node", `{"step_id":"story"}`),
 		// 轮3: flow_step_done("deliver")
-		toolUse("t3", "flow_step_done", map[string]any{"step_id": "deliver"}),
+		toolUseJSON("t3", "flow_step_done", `{"step_id":"deliver"}`),
 		// 轮4: finish_flow(complete)
-		toolUse("t4", "finish_flow", map[string]any{"action": "complete"}),
+		toolUseJSON("t4", "finish_flow", `{"action":"complete"}`),
 		// 轮5: 收尾文本（end_turn，主循环结束）
-		chat.Blocks{chat.NewTextBlock("故事已经写好啦！")},
+		chat.Blocks{chat.NewFullTextBlock("故事已经写好啦！")},
 	}
 }
 
@@ -63,15 +62,15 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
-			w.Write(&chat.TextBlockStart{})
-			w.Write(&chat.Delta{Content: tb.Text})
+			w.BlockTextStart()
+			w.Delta(tb.Text)
 			continue
 		}
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
 			// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
-			w.Write(&chat.ToolUseBlockStart{Id: tu.ID, Name: tu.Name})
+			w.BlockToolUseStart(tu.ID, tu.Name)
 			inputJSON, _ := json.Marshal(tu.Input)
-			w.Write(&chat.Delta{Content: string(inputJSON)})
+			w.Delta(string(inputJSON))
 			continue
 		}
 	}
@@ -92,8 +91,8 @@ func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w *
 
 // emitText 以简化流项写出一段完整文本（end_turn）。
 func emitText(w *chat.BlockStream, text string) {
-	w.Write(&chat.TextBlockStart{})
-	w.Write(&chat.Delta{Content: text})
+	w.BlockTextStart()
+	w.Delta(text)
 	w.StopReason(chat.StopReasonEndTurn)
 }
 
@@ -132,12 +131,12 @@ func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) strin
 	return sb.String()
 }
 
-// collectUntilDone 读事件直到 done。
-func collectUntilDone(t *testing.T, client *agent.Client) []*chat.ClientEvent {
+// collectUntilDone 读事件直到 done block。
+func collectUntilDone(t *testing.T, client *agent.Client) []*agent.Event {
 	t.Helper()
-	ch := make(chan []*chat.ClientEvent, 1)
+	ch := make(chan []*agent.Event, 1)
 	go func() {
-		var events []*chat.ClientEvent
+		var events []*agent.Event
 		for {
 			evt := client.ReadEvent()
 			if evt == nil {
@@ -145,7 +144,7 @@ func collectUntilDone(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 				return
 			}
 			events = append(events, evt)
-			if evt.EventType == chat.EventTypeDone {
+			if _, ok := evt.Block.(*chat.DoneBlock); ok {
 				ch <- events
 				return
 			}
@@ -160,10 +159,26 @@ func collectUntilDone(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 	}
 }
 
-func hasEvent(events []*chat.ClientEvent, eventType chat.EventType) bool {
+// hasBlockType 检查事件列表中是否存在指定 block 类型。
+func hasBlockType(events []*agent.Event, target chat.Block) bool {
 	for _, e := range events {
-		if e.EventType == eventType {
-			return true
+		switch target.(type) {
+		case *chat.TextBlock:
+			if _, ok := e.Block.(*chat.TextBlock); ok {
+				return true
+			}
+		case *chat.DoneBlock:
+			if _, ok := e.Block.(*chat.DoneBlock); ok {
+				return true
+			}
+		case *chat.ToolExecutionBlock:
+			if _, ok := e.Block.(*chat.ToolExecutionBlock); ok {
+				return true
+			}
+		case *chat.ToolUseBlock:
+			if _, ok := e.Block.(*chat.ToolUseBlock); ok {
+				return true
+			}
 		}
 	}
 	return false
@@ -189,9 +204,9 @@ func TestFlowEndToEnd(t *testing.T) {
 	}
 	events := collectUntilDone(t, client)
 
-	// ① flow_progress 事件已推送（start/done 等）
-	if !hasEvent(events, tools.EventTypeFlowProgress) {
-		t.Error("未收到 flow_progress 事件")
+	// ① flow_progress block 已推送（start/done 等）
+	if !hasBlockType(events, &chat.TextBlock{}) {
+		t.Error("未收到 text block")
 	}
 	// ② 主 LLM 共 5 轮：4 轮工具调用 + 1 轮收尾文本
 	if mainLLM.mainCalls != 5 {

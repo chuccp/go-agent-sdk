@@ -40,7 +40,7 @@ func (s *session) SendMessage(message *chat.RevMessage, opt ...chat.Option) erro
 }
 
 // ReadEvent 从指定位置读取一个事件（委托给 SessionContext 的事件存储）。
-func (s *session) ReadEvent(position *Position) *chat.ClientEvent {
+func (s *session) ReadEvent(position *Position) *Event {
 	return s.sessionContext.ReadEvent(position)
 }
 

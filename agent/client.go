@@ -9,7 +9,7 @@ import (
 type handler interface {
 	SendMessage(message *chat.RevMessage, opt ...chat.Option) error
 	History() []*chat.Message
-	ReadEvent(position *Position) *chat.ClientEvent
+	ReadEvent(position *Position) *Event
 	DeleteClient(client *Client)
 	Stop()
 }
@@ -29,7 +29,7 @@ func (c *Client) SendMessage(message *chat.RevMessage, opt ...chat.Option) error
 	return c.handler.SendMessage(message, opt...)
 }
 
-func (c *Client) ReadEvent() *chat.ClientEvent {
+func (c *Client) ReadEvent() *Event {
 	for {
 		_, hasValue := c.queue.Dequeue()
 		if !hasValue {

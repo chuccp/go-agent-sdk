@@ -129,7 +129,6 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 		switch raw.Type {
 		case "message_start":
 			if raw.Message != nil {
-				resp.Write(&chat.Start{})
 				usage := raw.Message.Usage
 				resp.Usage(&usage)
 			}
@@ -140,11 +139,11 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 			}
 			switch raw.ContentBlock.Type {
 			case "thinking":
-				resp.Write(&chat.ThinkingBlockStart{})
+				resp.BlockThinkingStart()
 			case "tool_use":
-				resp.Write(&chat.ToolUseBlockStart{Id: raw.ContentBlock.ID, Name: raw.ContentBlock.Name})
+				resp.BlockToolUseStart(raw.ContentBlock.ID, raw.ContentBlock.Name)
 			default:
-				resp.Write(&chat.TextBlockStart{})
+				resp.BlockTextStart()
 			}
 
 		case "content_block_delta":
@@ -154,7 +153,7 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 			// text/thinking/input_json 三种增量统一为 Delta，语义由当前 block 决定
 			content := raw.Delta.Text + raw.Delta.Thinking + raw.Delta.PartialJSON
 			if content != "" {
-				resp.Write(&chat.Delta{Content: content})
+				resp.Delta(content)
 			}
 
 		case "message_delta":

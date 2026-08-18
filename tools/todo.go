@@ -97,12 +97,12 @@ func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	subject := args.GetString("subject")
 	if strings.TrimSpace(subject) == "" {
-		writer.WriteErrorText(errors.New("缺少 subject 参数"))
+		writer.ErrorText(errors.New("缺少 subject 参数"))
 		return
 	}
 	desc := args.GetString("description")
 	if strings.TrimSpace(desc) == "" {
-		writer.WriteErrorText(errors.New("缺少 description 参数"))
+		writer.ErrorText(errors.New("缺少 description 参数"))
 		return
 	}
 	activeForm := args.GetString("active_form")
@@ -125,7 +125,7 @@ func (t *TaskCreateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	}
 	t.store.tasks[task.ID] = task
 
-	writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已创建:\n%s", formatTaskDetail(task))))
+	writer.FullText(fmt.Sprintf("任务已创建:\n%s", formatTaskDetail(task)))
 }
 
 // ==================== TaskUpdateTool ====================
@@ -210,7 +210,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
-		writer.WriteErrorText(errors.New("缺少 task_id 参数"))
+		writer.ErrorText(errors.New("缺少 task_id 参数"))
 		return
 	}
 
@@ -219,7 +219,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 
 	task, ok := t.store.tasks[taskID]
 	if !ok {
-		writer.WriteErrorText(fmt.Errorf("任务不存在: %s", taskID))
+		writer.ErrorText(fmt.Errorf("任务不存在: %s", taskID))
 		return
 	}
 
@@ -259,7 +259,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	if status := args.GetString("status"); status != "" {
 		if status == "in_progress" {
 			if err := t.store.checkDeps(task); err != nil {
-				writer.WriteErrorText(err)
+				writer.ErrorText(err)
 				return
 			}
 		}
@@ -267,7 +267,7 @@ func (t *TaskUpdateTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	}
 
 	task.UpdatedAt = time.Now().Unix()
-	writer.WriteBlock(chat.NewTextBlock(fmt.Sprintf("任务已更新:\n%s", formatTaskDetail(task))))
+	writer.FullText(fmt.Sprintf("任务已更新:\n%s", formatTaskDetail(task)))
 }
 
 // ==================== 双向依赖操作（需持有 mu.Lock） ====================
@@ -368,7 +368,7 @@ func (t *TaskListTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
 	defer t.store.mu.RUnlock()
 
 	if len(t.store.tasks) == 0 {
-		writer.WriteBlock(chat.NewTextBlock("(无任务)"))
+		writer.FullText("(无任务)")
 		return
 	}
 
@@ -396,7 +396,7 @@ func (t *TaskListTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
 			sb.WriteString("\n")
 		}
 	}
-	writer.WriteBlock(chat.NewTextBlock(sb.String()))
+	writer.FullText(sb.String())
 }
 
 // ==================== TaskGetTool ====================
@@ -431,7 +431,7 @@ func (t *TaskGetTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	taskID := args.GetString("task_id")
 	if strings.TrimSpace(taskID) == "" {
-		writer.WriteErrorText(errors.New("缺少 task_id 参数"))
+		writer.ErrorText(errors.New("缺少 task_id 参数"))
 		return
 	}
 
@@ -440,10 +440,10 @@ func (t *TaskGetTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 
 	task, ok := t.store.tasks[taskID]
 	if !ok {
-		writer.WriteErrorText(fmt.Errorf("任务不存在: %s", taskID))
+		writer.ErrorText(fmt.Errorf("任务不存在: %s", taskID))
 		return
 	}
-	writer.WriteBlock(chat.NewTextBlock(formatTaskDetail(task)))
+	writer.FullText(formatTaskDetail(task))
 }
 
 // ==================== 格式化输出 ====================

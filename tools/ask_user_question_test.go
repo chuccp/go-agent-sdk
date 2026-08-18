@@ -200,8 +200,8 @@ func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	w := chat.NewBlockStream(nil)
 	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), w)
-	if text := drainText(w); !strings.Contains(text, "不支持交互式提问") {
-		t.Errorf("expected unsupported error in output, got %q", text)
+	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
+		t.Errorf("expected missing questions error in output, got %q", text)
 	}
 }
 
@@ -217,8 +217,8 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	}
 }
 
-// TestExecute_NonBlocking 验证 Execute 推送 ask_user 事件后立即返回：
-// 事件内容为问题列表 JSON，tool_result 文本陈述已提问等待回答，且停止原因置 user_wait。
+// TestExecute_NonBlocking 验证 Execute 推送 ask_user block 后立即返回：
+// tool_result 文本陈述已提问等待回答，且停止原因置 user_wait。
 func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	manager := agent.NewAgent()
@@ -266,97 +266,21 @@ func TestExecute_NonBlocking(t *testing.T) {
 		t.Errorf("expected StopReasonUserWait, got %q", got)
 	}
 
-	// 前端收到 ask_user 事件，content 为问题列表 JSON
+	// 前端收到 ask_user block，包含问题列表 JSON
 	evt := client.ReadEvent()
 	if evt == nil {
 		t.Fatal("expected ask_user event")
 	}
-	if evt.EventType != EventTypeAskUser {
-		t.Fatalf("expected ask_user event, got %q", evt.EventType)
+	askBlock, ok := evt.Block.(*AskUserBlock)
+	if !ok {
+		t.Fatalf("expected AskUserBlock, got %T", evt.Block)
 	}
 	var questions []Question
-	if err := json.Unmarshal([]byte(evt.Content), &questions); err != nil {
-		t.Fatalf("event content is not question list JSON: %v", err)
+	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
+		t.Fatalf("AskUserBlock text is not question list JSON: %v", err)
 	}
 	if len(questions) != 1 || questions[0].Question != "What color?" {
-		t.Errorf("unexpected questions in event: %+v", questions)
-	}
-}
-
-// ── 事件配置（各 tool 自行配置推送事件）──
-
-// askTestArgs 构造一组合法的问题入参，供事件配置测试复用。
-func askTestArgs() *value.Object {
-	return value.NewObjectFromMap(map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "What color?",
-				"header":   "Color",
-				"options": []any{
-					map[string]any{"label": "Red", "description": "Red color"},
-					map[string]any{"label": "Blue", "description": "Blue color"},
-				},
-			},
-		},
-	})
-}
-
-// TestExecute_CustomEventType 验证 WithAskUserEventType 定制事件类型：
-// 推送事件的类型为定制值，content 仍为问题列表 JSON，仍置 user_wait。
-func TestExecute_CustomEventType(t *testing.T) {
-	const customType chat.EventType = "custom_ask"
-	tool := NewAskUserQuestionTool(WithAskUserEventType(customType))
-	manager := agent.NewAgent()
-	ctx := manager.SessionContext("ask-custom-type")
-	client, err := manager.GetClient("ask-custom-type", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurnWithContext(ctx, askTestArgs()), w)
-
-	if got := w.GetStopReason(); got != chat.StopReasonUserWait {
-		t.Errorf("expected StopReasonUserWait, got %q", got)
-	}
-	evt := client.ReadEvent()
-	if evt == nil {
-		t.Fatal("expected custom event")
-	}
-	if evt.EventType != customType {
-		t.Fatalf("expected %q event, got %q", customType, evt.EventType)
-	}
-	if !strings.Contains(evt.Content, "What color?") {
-		t.Errorf("event content should be question list JSON, got %q", evt.Content)
-	}
-}
-
-// TestExecute_CustomEventFactory 验证 WithAskUserEventFactory 完全定制事件构造器。
-func TestExecute_CustomEventFactory(t *testing.T) {
-	tool := NewAskUserQuestionTool(WithAskUserEventFactory(func(content string) *chat.ClientEvent {
-		return &chat.ClientEvent{EventSource: chat.SourceSystem, EventType: "factory_ask", Content: content, Message: "custom"}
-	}))
-	manager := agent.NewAgent()
-	ctx := manager.SessionContext("ask-custom-factory")
-	client, err := manager.GetClient("ask-custom-factory", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurnWithContext(ctx, askTestArgs()), w)
-
-	evt := client.ReadEvent()
-	if evt == nil {
-		t.Fatal("expected factory event")
-	}
-	if evt.EventType != "factory_ask" || evt.EventSource != chat.SourceSystem || evt.Message != "custom" {
-		t.Fatalf("unexpected factory event: %+v", evt)
-	}
-	if !strings.Contains(evt.Content, "What color?") {
-		t.Errorf("event content should be question list JSON, got %q", evt.Content)
+		t.Errorf("unexpected questions in block: %+v", questions)
 	}
 }
 

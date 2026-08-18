@@ -107,52 +107,64 @@ export function setupStreamBridge(ws: WebSocket): void {
 function streamHandler(evt: MessageEvent): void {
   try {
     const msg = JSON.parse(evt.data)
-    console.log('[streamHandler] received type:', msg.type, 'seq:', msg.seq, 'done:', msg.done)
+    // 后端发送 {seq, block: {type, ...}} 格式
+    const block = msg.block
+    if (!block) return
+    const blockType = block.type as string
+    console.log('[streamHandler] block type:', blockType, 'seq:', msg.seq)
+
     let event: StreamEvent | null = null
-    switch (msg.type) {
-      case 'chunk':
-        if (msg.content) event = { kind: 'chunk', text: msg.content }
+    switch (blockType) {
+      case 'delta':
+        // 流式文本增量 → chunk
+        if (block.content) event = { kind: 'chunk', text: block.content }
+        break
+      case 'text':
+        // 完整文本块（工具输出等）→ chunk
+        if (block.text) event = { kind: 'chunk', text: block.text }
         break
       case 'thinking':
-        if (msg.content) event = { kind: 'thinking', text: msg.content }
-        break
-      case 'command':
-        // 命令执行事件：message 为命令，content 为增量输出（同一命令可多次到达）
-        if (msg.message || msg.content) {
-          event = { kind: 'command', command: msg.message || '', output: msg.content || '' }
-        }
+        // 完整 thinking 块 → thinking
+        if (block.thinking) event = { kind: 'thinking', text: block.thinking }
         break
       case 'tool_execution':
-        // 工具执行事件：message 为工具名，args 为入参展示文本，content 为执行输出
-        if (msg.message || msg.content) {
+        // 工具执行事件：tool_name 为工具名，args 为入参，output 为输出
+        if (block.tool_name || block.output) {
           event = {
             kind: 'tool_execution',
-            name: msg.message || '',
-            input: msg.args || '',
-            output: msg.content || '',
+            name: block.tool_name || '',
+            input: block.args || '',
+            output: block.output || '',
           }
         }
         break
       case 'done':
         event = { kind: 'done' }
-        console.log('[bridge] done event received, directDispatch =', !!directDispatch, 'buffer len =', pendingBuffer.length)
+        console.log('[bridge] done block received')
         break
       case 'error':
-        event = { kind: 'error', message: msg.message || 'Unknown error' }
+        event = { kind: 'error', message: block.message || 'Unknown error' }
         break
       case 'ask_user':
-        // ask_user 事件：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
-        console.log('[bridge] ask_user event received')
-        if (askUserHandler && msg.content) askUserHandler(msg.content)
+        // ask_user 块：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
+        console.log('[bridge] ask_user block received')
+        if (askUserHandler && block.text) askUserHandler(block.text)
+        return
+      case 'start':
+        // 流式块开始标记（StartBlock），不产生事件，delta 紧随其后
+        return
+      case 'usage':
+        // token 用量元数据，不产生事件
+        return
+      default:
+        console.log('[streamHandler] unknown block type:', blockType)
         return
     }
     if (!event) return
 
     if (directDispatch) {
-      // 适配器已就绪，直接分发
       directDispatch(event)
     } else {
-      // 适配器尚未启动，缓冲事件
       pendingBuffer.push(event)
     }
   } catch { /* ignore parse errors */ }

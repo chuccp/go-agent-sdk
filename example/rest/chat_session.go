@@ -122,12 +122,13 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			}
 			// 跳过重复事件
 			if event.Seq != 0 && event.Seq <= lastSeq {
-				log.Info("[RELAY] skipping duplicate", zap.Uint("seq", event.Seq), zap.Uint("lastSeq", lastSeq), zap.String("type", string(event.EventType)))
+				log.Info("[RELAY] skipping duplicate", zap.Uint("seq", event.Seq), zap.Uint("lastSeq", lastSeq), zap.String("type", blockTypeName(event.Block)))
 				continue
 			}
 			lastSeq = event.Seq
-			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", string(event.EventType)))
-			if event.EventType == "done" {
+			blockType := blockTypeName(event.Block)
+			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", blockType))
+			if blockType == "done" {
 				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq))
 			}
 			data, err := json.Marshal(event)
@@ -182,8 +183,40 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 
 // writeError 向前端发送错误事件
 func writeError(stream *web.WebSocketStream, err error) {
-	data, _ := json.Marshal(chat.NewErrorEvent(err.Error()))
+	data, _ := json.Marshal(agent.NewEvent(0, chat.NewErrorBlock(err.Error())))
 	_ = stream.WriteText(context.Background(), data)
+}
+
+// blockTypeName 从 Block 推导类型名称，用于日志。
+func blockTypeName(b chat.Block) string {
+	switch b.(type) {
+	case *chat.TextBlock:
+		return "text"
+	case *chat.ThinkingBlock:
+		return "thinking"
+	case *chat.ToolUseBlock:
+		return "tool_use"
+	case *chat.ToolResultBlock:
+		return "tool_result"
+	case *chat.DoneBlock:
+		return "done"
+	case *chat.ErrorBlock:
+		return "error"
+	case *chat.UsageBlock:
+		return "usage"
+	case *chat.StartBlock:
+		return "start"
+	case *chat.DeltaBlock:
+		return "delta"
+	case *chat.UserBlock:
+		return "user"
+	case *chat.ToolExecutionBlock:
+		return "tool_execution"
+	case *chat.ImageBlock:
+		return "image"
+	default:
+		return "unknown"
+	}
 }
 
 // writeCreated 向前端发送会话就绪确认消息

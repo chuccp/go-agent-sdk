@@ -37,7 +37,7 @@ type Message struct {
 func NewTextMessage(text string) Message {
 	return Message{
 		Role:    RoleUser,
-		Content: Blocks{NewTextBlock(text)},
+		Content: Blocks{NewFullTextBlock(text)},
 	}
 }
 
@@ -58,6 +58,6 @@ type RevMessage struct {
 func (r *RevMessage) ToMessage() Message {
 	return Message{
 		Role:    RoleUser,
-		Content: Blocks{NewTextBlock(r.Text)},
+		Content: Blocks{NewFullTextBlock(r.Text)},
 	}
 }

@@ -21,39 +21,36 @@ import (
 
 // EventTypeCommand 是命令执行事件类型，由 CommandTool 推送：
 // Message 携带执行的命令，Content 携带输出（可分多次增量推送，前端按同一命令聚合）。
-const EventTypeCommand chat.EventType = "command"
+//const EventTypeCommand chat.EventType = "command"
 
 // NewCommandEvent 创建一个命令执行事件：command 为执行的命令，output 为（增量）输出。
-func NewCommandEvent(command, output string) *chat.ClientEvent {
-	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeCommand, Message: command, Content: output}
-}
+//func NewCommandEvent(command, output string) *chat.ClientEvent {
+//	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeCommand, Message: command, Content: output}
+//}
 
 // CommandTool 在本地终端执行 shell 命令的工具。
 //
 // 推送的事件由工具自身配置：默认事件构造器为 NewCommandEvent，
 // 可通过 WithCommandEventFactory 按实例定制。
 type CommandTool struct {
-	newEvent func(command, output string) *chat.ClientEvent // 事件构造器，output 为增量输出
+	//newEvent func(command, output string) *chat.ClientEvent // 事件构造器，output 为增量输出
 }
 
 // CommandToolOption 定制 CommandTool 的行为。
 type CommandToolOption func(*CommandTool)
 
 // WithCommandEventFactory 完全定制命令事件构造器：command 为执行的命令，output 为增量输出。
-func WithCommandEventFactory(fn func(command, output string) *chat.ClientEvent) CommandToolOption {
-	return func(t *CommandTool) {
-		if fn != nil {
-			t.newEvent = fn
-		}
-	}
-}
+//func WithCommandEventFactory(fn func(command, output string) *chat.ClientEvent) CommandToolOption {
+//	return func(t *CommandTool) {
+//		if fn != nil {
+//			t.newEvent = fn
+//		}
+//	}
+//}
 
 // NewCommandTool 创建本地命令执行工具，可选定制命令事件的构造器。
-func NewCommandTool(opts ...CommandToolOption) agent.ToolExecutor {
-	t := &CommandTool{newEvent: NewCommandEvent}
-	for _, opt := range opts {
-		opt(t)
-	}
+func NewCommandTool() agent.ToolExecutor {
+	t := &CommandTool{}
 	return t
 }
 
@@ -142,13 +139,13 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	cmd := args.GetString("command")
 	if strings.TrimSpace(cmd) == "" {
-		writer.WriteErrorText(errors.New("缺少 command 参数"))
+		writer.ErrorText(errors.New("缺少 command 参数"))
 		return
 	}
 	cmd = strings.TrimSpace(cmd)
 
 	if err := validateCommand(cmd); err != nil {
-		writer.WriteErrorText(err)
+		writer.ErrorText(err)
 		return
 	}
 
@@ -156,34 +153,31 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	if isWindows() && needsStartPrefix(cmd) {
 		cmd = `start "" ` + cmd
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
 	c := newShellCommand(ctx, cmd)
 	stdout, err := c.StdoutPipe()
 	if err != nil {
-		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
+		writer.ErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 	stderr, err := c.StderrPipe()
 	if err != nil {
-		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
+		writer.ErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 	if err := c.Start(); err != nil {
-		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
+		writer.ErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
 
 	// 会话上下文：有则推送专属 command 事件（前端终端样式），无则退化为 chunk 回显
-	sctx := turn.Context()
 
 	// 流式排空 stdout/stderr：逐行实时推送（两个协程并发写入，缓冲加锁保护）
 	var gotOutput atomic.Bool
 	var buf sync.Mutex
-	var full strings.Builder
 	var wg sync.WaitGroup
+	writer.BlockTextStart()
 	streamLines := func(rd io.Reader) {
 		defer wg.Done()
 		scanner := bufio.NewScanner(rd)
@@ -191,14 +185,8 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 		for scanner.Scan() {
 			line := string(decodeOutput(scanner.Bytes())) + "\n"
 			buf.Lock()
-			full.WriteString(line)
+			writer.Delta(line)
 			buf.Unlock()
-			if sctx != nil {
-				// 专属 command 事件：Message 携带命令供前端分组，Content 为增量输出
-				sctx.AddEvent(t.newEvent(cmd, line))
-			} else {
-				writer.WriteEvent(line)
-			}
 			gotOutput.Store(true)
 		}
 	}
@@ -209,34 +197,20 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 
 	err = c.Wait()
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			writer.WriteErrorText(fmt.Errorf("命令执行超时（30s）: %s", cmd))
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			writer.ErrorText(fmt.Errorf("命令执行超时（30s）: %s", cmd))
 			return
 		}
 		// 命令执行失败：已流式写入的输出保留，补充错误说明
 		if gotOutput.Load() {
-			writer.WriteErrorText(fmt.Errorf("命令退出码非零，错误: %v", err))
+			writer.ErrorText(fmt.Errorf("命令退出码非零，错误: %v", err))
 			return
 		}
-		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
+		writer.ErrorText(fmt.Errorf("命令执行失败: %w", err))
 		return
 	}
-
-	if sctx != nil {
-		// command 事件路径：完整输出在此一次性写入 tool_result（不产生 chunk，避免与命令事件重复展示）
-		if gotOutput.Load() {
-			buf.Lock()
-			output := full.String()
-			buf.Unlock()
-			writer.WriteBlock(chat.NewTextBlock(output))
-		} else {
-			writer.WriteBlock(chat.NewTextBlock("(无输出)"))
-		}
-		return
-	}
-
 	if !gotOutput.Load() {
-		writer.WriteBlock(chat.NewTextBlock("(无输出)"))
+		writer.FullText("(无输出)")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/spf13/cast"
 )
 
 // QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
@@ -57,17 +58,16 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 	}
 	if !ctx.running {
 		ctx.running = true
-		ctx.AddEvent(chat.NewMessageSentEvent(qm.id, qm.msg))
+		ctx.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Sent))
 		util.GoWithRecover(func() {
 			p.doLoop()
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
-			evt := chat.NewErrorEvent("internal error")
-			evt.Done = true
-			ctx.AddEvent(evt)
+			evt := chat.NewErrorBlock("internal error")
+			ctx.AddBlock(evt)
 		})
 	} else {
-		ctx.AddEvent(chat.NewMessageQueuedEvent(qm.id, qm.msg))
+		ctx.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Queued))
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func (p *messageProcessor) doLoop() {
 		blocks, stopReason, err := p.executeRound()
 
 		if p.roundStopped(ctx) {
-			ctx.AddEvent(chat.NewDoneEvent())
+			ctx.AddBlock(chat.NewDoneBlock())
 			p.finishStoppedRound(ctx)
 			continue
 		}
@@ -116,7 +116,7 @@ func (p *messageProcessor) doLoop() {
 				// 轮次在工具阶段被停止：已产出的 tool_result 仍须入历史，
 				// 否则历史以无 tool_result 的 tool_use 结尾，下次请求会被 LLM API 拒绝；
 				// done 在历史写入前发出，被其 Offset 覆盖，重连不重放
-				ctx.AddEvent(chat.NewDoneEvent())
+				ctx.AddBlock(chat.NewDoneBlock())
 				ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 				p.finishStoppedRound(ctx)
 				continue
@@ -125,7 +125,7 @@ func (p *messageProcessor) doLoop() {
 				// 工具请求暂停（如 ask_user_question 等待用户回答）：本轮到此结束。
 				// done 在 tool_result 历史写入前发出，被其 Offset 覆盖，
 				// 前端根据历史计算的 start 落在 done 之后，重连时不重放残留的 done
-				ctx.AddEvent(chat.NewDoneEvent())
+				ctx.AddBlock(chat.NewDoneBlock())
 			}
 			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 			if toolStop != chat.StopReasonUserWait {
@@ -135,7 +135,7 @@ func (p *messageProcessor) doLoop() {
 		} else {
 			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
 			// 前端根据历史计算的 start 会落在 done 之后，重连时不重放残留的 done
-			ctx.AddEvent(chat.NewDoneEvent())
+			ctx.AddBlock(chat.NewDoneBlock())
 			ctx.appendAssistantMessage(blocks)
 		}
 
@@ -200,9 +200,8 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 		ctx.saveAndReset()
 		ctx.running = false
 
-		evt := chat.NewErrorEvent(callErr.Error())
-		evt.Done = true
-		ctx.AddEvent(evt)
+		evt := chat.NewErrorBlock(callErr.Error())
+		ctx.AddBlock(evt)
 		return nil, "", callErr
 	}
 	return blocks, stopReason, nil
@@ -229,7 +228,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 			// （tool_use 必须有配对的 tool_result，否则下次请求会被 LLM API 拒绝）
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
-				chat.Blocks{chat.NewTextBlock("（该工具的执行已被用户停止）")},
+				chat.Blocks{chat.NewFullTextBlock("（该工具的执行已被用户停止）")},
 			))
 			continue
 		}
@@ -237,7 +236,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 		if exec == nil {
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
-				chat.Blocks{chat.NewTextBlock(fmt.Sprintf("未知工具: %s", tu.Name))},
+				chat.Blocks{chat.NewErrorFullTextBlock(fmt.Sprintf("未知工具: %s", tu.Name))},
 			))
 			continue
 		}
@@ -283,8 +282,8 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 		text.WriteString("(无输出)")
 	}
 	resultText := text.String()
-	ctx.AddEvent(chat.NewToolExecutionEvent(tu.Name, toolArgsDisplay(tu.Input), resultText))
-	content = append(chat.Blocks{chat.NewTextBlock(resultText)}, content...)
+	ctx.AddBlock(chat.NewToolExecutionBlock(tu.Name, toolArgsDisplay(tu.Input), resultText))
+	content = append(chat.Blocks{chat.NewErrorFullTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)
 }
 

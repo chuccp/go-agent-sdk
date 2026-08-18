@@ -10,6 +10,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/spf13/cast"
 )
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
@@ -39,12 +40,13 @@ func (c *SessionContext) getSeq() uint64 {
 	return atomic.AddUint64(&c.seq, 1)
 }
 
-// AddEvent 追加事件到存储并通知所有客户端。
-func (c *SessionContext) AddEvent(event *chat.ClientEvent) {
-	if event.EventType == chat.EventTypeDone {
-		log.Printf("[processor] addEvent DONE, sessionId=%s", c.sessionId)
-	}
-	c.events.Add(event)
+// AddBlock 追加事件到存储并通知所有客户端。
+func (c *SessionContext) AddBlock(block chat.Block) {
+	c.events.AddBlock(block)
+	c.Flush()
+}
+func (c *SessionContext) AddErrorBlock(error error) {
+	c.events.AddBlock(chat.NewErrorBlock(error.Error()))
 	c.Flush()
 }
 
@@ -74,7 +76,7 @@ func (c *SessionContext) Stop() {
 	}
 }
 
-func (c *SessionContext) ReadEvent(position *Position) *chat.ClientEvent {
+func (c *SessionContext) ReadEvent(position *Position) *Event {
 	return c.events.ReadFrom(position)
 }
 
@@ -103,7 +105,7 @@ func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 // ── 会话主体能力（主循环调用）──
 
 // ChatWithStream 使用默认 provider 发起流式对话请求，返回组装完成的全部 Block 与 stop_reason。
-// 内部创建独享 BlockStream 并以本上下文作为事件接收方（AddEvent），
+// 内部创建独享 BlockStream 并以本上下文作为事件接收方（AddBlock），
 // 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
 func (c *SessionContext) ChatWithStream(messages *chat.Request) (chat.Blocks, chat.StopReason, error) {
 	stream := chat.NewBlockStream(c)
@@ -147,7 +149,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 // 返回该消息附带的 per-turn 选项。
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
-	c.AddEvent(chat.NewMessageConsumedEvent(qm.id, qm.msg))
+	c.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Consume))
 	msg := qm.msg.ToMessage()
 	c.events.AppendHistory(&msg)
 	return qm.opts

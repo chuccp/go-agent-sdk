@@ -54,19 +54,19 @@ type iterFakeProvider struct {
 }
 
 func (f *iterFakeProvider) script() []chat.Blocks {
-	toolUse := func(id, name string, input map[string]any) chat.Blocks {
-		return chat.Blocks{chat.NewToolUseBlock(id, name, value.NewObjectFromMap(input))}
+	toolUseJSON := func(id, name string, input string) chat.Blocks {
+		tu := chat.NewToolUseBlock(id, name)
+		tu.Input, _ = value.NewObjectFromJson(json.RawMessage(input))
+		return chat.Blocks{tu}
 	}
 	return []chat.Blocks{
-		toolUse("t1", "activate_flow", map[string]any{
-			"flow_id": "expand001", "input": map[string]any{"story": "小狐狸看月亮"},
-		}),
-		toolUse("t2", "exec_node", map[string]any{"step_id": "split"}),
-		toolUse("t3", "exec_node", map[string]any{"step_id": "expand"}),
-		toolUse("t4", "exec_node", map[string]any{"step_id": "merge"}),
-		toolUse("t5", "flow_step_done", map[string]any{"step_id": "deliver"}),
-		toolUse("t6", "finish_flow", map[string]any{"action": "complete"}),
-		chat.Blocks{chat.NewTextBlock("扩写完成！")},
+		toolUseJSON("t1", "activate_flow", `{"flow_id":"expand001","input":{"story":"小狐狸看月亮"}}`),
+		toolUseJSON("t2", "exec_node", `{"step_id":"split"}`),
+		toolUseJSON("t3", "exec_node", `{"step_id":"expand"}`),
+		toolUseJSON("t4", "exec_node", `{"step_id":"merge"}`),
+		toolUseJSON("t5", "flow_step_done", `{"step_id":"deliver"}`),
+		toolUseJSON("t6", "finish_flow", `{"action":"complete"}`),
+		chat.Blocks{chat.NewFullTextBlock("扩写完成！")},
 	}
 }
 
@@ -101,14 +101,14 @@ func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 	stop := chat.StopReasonToolUse
 	for _, b := range blocks {
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
-			w.Write(&chat.ToolUseBlockStart{Id: tu.ID, Name: tu.Name})
-			w.Write(&chat.Delta{Content: mustJSON(tu.Input)})
+			w.BlockToolUseStart(tu.ID, tu.Name)
+			w.Delta(mustJSON(tu.Input))
 			continue
 		}
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
-			w.Write(&chat.TextBlockStart{})
-			w.Write(&chat.Delta{Content: tb.Text})
+			w.BlockTextStart()
+			w.Delta(tb.Text)
 			continue
 		}
 	}
@@ -172,10 +172,10 @@ func TestFlowIteration(t *testing.T) {
 		!strings.Contains(llm.mergeUser, "扩写段落3的内容") {
 		t.Errorf("merge 未拿到聚合数组: %q", llm.mergeUser)
 	}
-	// ⑤ 逐项进度事件：3 条 phase=item
+	// ⑤ 逐项进度事件：3 条 phase=item（通过 TextBlock 的 FlowProgressType 标记）
 	itemEvents := 0
 	for _, e := range events {
-		if e.EventType == tools.EventTypeFlowProgress && strings.Contains(e.Content, `"phase":"item"`) {
+		if tb, ok := e.Block.(*chat.TextBlock); ok && tb.TextType == chat.FlowProgressType && strings.Contains(tb.Text, `"phase":"item"`) {
 			itemEvents++
 		}
 	}

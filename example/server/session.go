@@ -64,7 +64,7 @@ func (s *Session) getChatClient(id string, start uint) error {
 	return nil
 }
 
-func (s *Session) ReadEvent() *chat.ClientEvent {
+func (s *Session) ReadEvent() *agent.Event {
 
 	for {
 		if s.chatClient != nil {

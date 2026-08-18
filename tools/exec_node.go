@@ -17,13 +17,13 @@ import (
 
 // EventTypeFlowProgress 是 flow 步骤进度事件类型，由 ExecNodeTool 推送，
 // content 为 JSON（flowId/stepId/phase/output）。
-const EventTypeFlowProgress chat.EventType = "flow_progress"
-
-// NewFlowProgressEvent 创建一个 flow 步骤进度事件，content 为 JSON：
-// {"flowId", "stepId", "phase": "start"|"item"|"done"|"error", "output"}。
-func NewFlowProgressEvent(content string) *chat.ClientEvent {
-	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeFlowProgress, Content: content}
-}
+//const EventTypeFlowProgress chat.EventType = "flow_progress"
+//
+//// NewFlowProgressEvent 创建一个 flow 步骤进度事件，content 为 JSON：
+//// {"flowId", "stepId", "phase": "start"|"item"|"done"|"error", "output"}。
+//func NewFlowProgressEvent(content string) *chat.ClientEvent {
+//	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeFlowProgress, Content: content}
+//}
 
 type ExecNodeTool struct{ suite *FlowToolSuite }
 
@@ -57,34 +57,34 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	if stepId == "" {
-		writer.WriteErrorText(errors.New("缺少 step_id 参数"))
+		writer.ErrorText(errors.New("缺少 step_id 参数"))
 		return
 	}
 	sctx := turn.Context()
 	if sctx == nil {
-		writer.WriteErrorText(errors.New("exec_node 需要会话上下文"))
+		writer.ErrorText(errors.New("exec_node 需要会话上下文"))
 		return
 	}
 	sessionId := sctx.ID()
 
 	st := t.suite.store.Get(sessionId)
 	if st == nil {
-		writer.WriteErrorText(errors.New("当前没有激活的 flow，请先调用 activate_flow"))
+		writer.ErrorText(errors.New("当前没有激活的 flow，请先调用 activate_flow"))
 		return
 	}
 	step := findStep(st.Workflow, stepId)
 	if step == nil {
-		writer.WriteErrorText(fmt.Errorf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId))
+		writer.ErrorText(fmt.Errorf("flow %s 中不存在步骤 %s", st.Workflow.Id, stepId))
 		return
 	}
 	if step.Kind() != exec.StepExec || step.Node() == nil {
-		writer.WriteErrorText(fmt.Errorf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title()))
+		writer.ErrorText(fmt.Errorf("步骤 %q 是对话步骤，请按剧本在对话中完成，不能用 exec_node", step.Title()))
 		return
 	}
 
 	vars, err := t.suite.store.PrepareExec(sessionId, stepId)
 	if err != nil {
-		writer.WriteErrorText(err)
+		writer.ErrorText(err)
 		return
 	}
 
@@ -99,7 +99,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	}
 	if err != nil {
 		t.emitProgress(sctx, st.Workflow.Id, stepId, "error", err.Error())
-		writer.WriteErrorText(err)
+		writer.ErrorText(err)
 		return
 	}
 
@@ -120,7 +120,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 		resultText = fmt.Sprintf("步骤「%s」执行完成。%s", step.Title(), summary)
 	}
 	resultText += t.suite.footer(t.suite.store.Get(sessionId))
-	writer.WriteBlock(chat.NewTextBlock(resultText))
+	writer.FullText(resultText)
 }
 
 // execSingle 单次执行：渲染模板 → 零上下文 LLM 调用。
@@ -205,7 +205,7 @@ func (t *ExecNodeTool) emitProgress(sctx *agent.SessionContext, flowId, stepId, 
 	}
 	payload := map[string]string{"flowId": flowId, "stepId": stepId, "phase": phase, "output": output}
 	data, _ := json.Marshal(payload)
-	sctx.AddEvent(NewFlowProgressEvent(string(data)))
+	sctx.AddBlock(chat.NewFullTextTypeBlock(string(data), chat.FlowProgressType))
 }
 
 // ==================== FlowStore 执行核配套方法 ====================

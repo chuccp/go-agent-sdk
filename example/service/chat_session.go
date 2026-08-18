@@ -95,7 +95,7 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 				msg.Content = blocks
 			} else {
 				// fallback: plain text stored in legacy format
-				msg.Content = chat.Blocks{chat.NewTextBlock(row.Content)}
+				msg.Content = chat.Blocks{chat.NewFullTextBlock(row.Content)}
 			}
 		}
 		messages = append(messages, msg)

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/agent"
@@ -24,11 +23,32 @@ type Option struct {
 	Preview     string `json:"preview,omitempty"` // 可选预览内容（markdown/html），用于视觉对比
 }
 
-const EventTypeAskUser chat.EventType = "ask_user" // LLM 向用户提问，需要用户交互后继续
-// NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
-func NewAskUserEvent(content string) *chat.ClientEvent {
-	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeAskUser, Content: content}
+const AskUserBlockType chat.BlockType = "ask_user" // LLM 向用户提问，需要用户交互后继续
+
+type AskUserBlock struct {
+	chat.Block
+	Text string `json:"text"`
 }
+
+func (a *AskUserBlock) ForContext() bool {
+	return false
+}
+func (a *AskUserBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}{Type: string(AskUserBlockType), Text: a.Text})
+}
+func NewAskUserBlock(Text string) *AskUserBlock {
+	return &AskUserBlock{
+		Text: Text,
+	}
+}
+
+// NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
+//func NewAskUserEvent(content string) *chat.ClientEvent {
+//	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeAskUser, Content: content}
+//}
 
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
 // 实现 agent.ToolExecutor 接口：执行时向前端推送 ask_user 事件并置 user_wait
@@ -38,30 +58,7 @@ func NewAskUserEvent(content string) *chat.ClientEvent {
 // 推送的事件由工具自身配置：默认事件构造器为 NewAskUserEvent，
 // 可通过 WithAskUserEventType / WithAskUserEventFactory 按实例定制。
 type AskUserQuestionTool struct {
-	newEvent func(content string) *chat.ClientEvent // 事件构造器，content 为问题列表 JSON
-}
-
-// AskUserQuestionOption 定制 AskUserQuestionTool 的行为。
-type AskUserQuestionOption func(*AskUserQuestionTool)
-
-// WithAskUserEventType 定制推送事件的事件类型（默认 EventTypeAskUser），
-// 事件来源仍为 SourceAI，content 仍为问题列表 JSON。
-func WithAskUserEventType(eventType chat.EventType) AskUserQuestionOption {
-	return func(t *AskUserQuestionTool) {
-		t.newEvent = func(content string) *chat.ClientEvent {
-			return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: eventType, Content: content}
-		}
-	}
-}
-
-// WithAskUserEventFactory 完全定制事件构造器，content 为问题列表 JSON。
-// 优先级高于 WithAskUserEventType（按传入顺序，后者覆盖前者）。
-func WithAskUserEventFactory(fn func(content string) *chat.ClientEvent) AskUserQuestionOption {
-	return func(t *AskUserQuestionTool) {
-		if fn != nil {
-			t.newEvent = fn
-		}
-	}
+	//newEvent func(content string) *chat.ClientEvent // 事件构造器，content 为问题列表 JSON
 }
 
 // Name 返回工具名称。
@@ -71,11 +68,8 @@ func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
 func (t *AskUserQuestionTool) UsagePrompt() string { return "" }
 
 // NewAskUserQuestionTool 创建用户提问工具，可选配置推送事件的类型或构造器。
-func NewAskUserQuestionTool(opts ...AskUserQuestionOption) agent.ToolExecutor {
-	t := &AskUserQuestionTool{newEvent: NewAskUserEvent}
-	for _, opt := range opts {
-		opt(t)
-	}
+func NewAskUserQuestionTool() agent.ToolExecutor {
+	t := &AskUserQuestionTool{}
 	return t
 }
 
@@ -153,31 +147,27 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 // 告知后续轮次的 LLM 已提问、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
 func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	ctx := turn.Context()
-	if ctx == nil {
-		writer.WriteErrorText(errors.New("ask_user_question: 当前环境不支持交互式提问（SessionContext 未注入）"))
-		return
-	}
 
 	questions, err := parseQuestions(turn.Args())
 	if err != nil {
-		writer.WriteErrorText(err)
+		writer.ErrorText(err)
 		return
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
-		writer.WriteErrorText(fmt.Errorf("序列化问题失败: %w", err))
+		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	ctx.AddEvent(t.newEvent(string(questionsJSON)))
+	ctx.AddBlock(NewAskUserBlock(string(questionsJSON)))
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮
 	writer.StopReason(chat.StopReasonUserWait)
 
 	// 3. tool_result 文本作为历史上下文（下一轮 LLM 可见）：陈述已提问并等待回答
-	writer.WriteBlock(chat.NewTextBlock(
+	writer.Block(chat.NewFullTextBlock(
 		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。"))
 }
 

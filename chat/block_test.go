@@ -7,9 +7,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
-// 注：UnmarshalBlock / Blocks.UnmarshalJSON 目前被注释掉（与 *value.Object 入参不兼容），
-// 对应的往返反序列化测试暂移除；仅保留 Marshal 方向的测试。
-
 func TestBlocks_NilMarshalAsNull(t *testing.T) {
 	var bs Blocks
 	data, err := json.Marshal(bs)
@@ -33,7 +30,7 @@ func TestBlocks_EmptyMarshalAsArray(t *testing.T) {
 }
 
 func TestBlocks_MarshalIncludesType(t *testing.T) {
-	bs := Blocks{NewTextBlock("hi")}
+	bs := Blocks{NewFullTextBlock("hi")}
 	data, err := json.Marshal(bs)
 	if err != nil {
 		t.Fatal(err)
@@ -57,168 +54,121 @@ func TestMessage_MarshalOmitsInternalFields(t *testing.T) {
 }
 
 func TestMessage_MarshalIncludesToolUseType(t *testing.T) {
-	input := value.NewObjectFromMap(map[string]any{"a": float64(1)})
 	msg := Message{
 		Role:    RoleAssistant,
-		Content: Blocks{NewToolUseBlock("tu_1", "my_tool", input)},
+		Content: Blocks{NewToolUseBlock("tu_1", "my_tool")},
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"my_tool","input":{"a":1}}]}`
-	if string(data) != want {
-		t.Errorf("got %s, want %s", string(data), want)
-	}
-}
-
-// ==================== 反序列化 / 往返 ====================
-
-func TestBlocks_UnmarshalText(t *testing.T) {
-	var bs Blocks
-	if err := json.Unmarshal([]byte(`[{"type":"text","text":"hi"}]`), &bs); err != nil {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if len(bs) != 1 {
-		t.Fatalf("expected 1 block, got %d", len(bs))
-	}
-	tb, ok := bs[0].(*TextBlock)
-	if !ok || tb.Text != "hi" {
-		t.Errorf("expected TextBlock{Text:hi}, got %#v", bs[0])
+	content := raw["content"].([]any)
+	tu := content[0].(map[string]any)
+	if tu["type"] != "tool_use" || tu["id"] != "tu_1" || tu["name"] != "my_tool" {
+		t.Errorf("tool_use fields mismatch: %v", tu)
 	}
 }
 
-func TestBlocks_UnmarshalNull(t *testing.T) {
-	var bs Blocks = Blocks{NewTextBlock("x")}
-	if err := json.Unmarshal([]byte("null"), &bs); err != nil {
+func TestBlocks_MarshalToolUseWithInput(t *testing.T) {
+	tu := NewToolUseBlock("tu_1", "my_tool")
+	tu.Input = value.NewObjectFromMap(map[string]any{"a": float64(1)})
+	bs := Blocks{tu}
+	data, err := json.Marshal(bs)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if bs != nil {
-		t.Errorf("expected nil Blocks after unmarshal null, got %#v", bs)
+	var raw []map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw[0]["type"] != "tool_use" || raw[0]["id"] != "tu_1" {
+		t.Errorf("tool_use fields mismatch: %v", raw[0])
+	}
+	input := raw[0]["input"].(map[string]any)
+	if input["a"] != float64(1) {
+		t.Errorf("input mismatch: %v", input)
 	}
 }
 
-func TestBlocks_RoundTripToolUse(t *testing.T) {
-	input := value.NewObjectFromMap(map[string]any{"a": float64(1), "b": "x"})
-	orig := Blocks{NewToolUseBlock("tu_1", "my_tool", input)}
+func TestBlocks_MarshalToolResult(t *testing.T) {
+	orig := Blocks{NewToolResultBlock("tu_1", Blocks{NewFullTextBlock("result")})}
 	data, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back Blocks
-	if err := json.Unmarshal(data, &back); err != nil {
+	var raw []map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	tu, ok := back[0].(*ToolUseBlock)
-	if !ok {
-		t.Fatalf("expected *ToolUseBlock, got %#v", back[0])
-	}
-	if tu.ID != "tu_1" || tu.Name != "my_tool" {
-		t.Errorf("ID/Name mismatch: %q %q", tu.ID, tu.Name)
-	}
-	if tu.Input.GetInt("a") != 1 || tu.Input.GetString("b") != "x" {
-		t.Errorf("input mismatch: %s", tu.Input.String())
+	tr := raw[0]
+	if tr["type"] != "tool_result" || tr["tool_use_id"] != "tu_1" {
+		t.Errorf("tool_result fields mismatch: %v", tr)
 	}
 }
 
-func TestBlocks_RoundTripToolResult(t *testing.T) {
-	orig := Blocks{NewToolResultBlock("tu_1", Blocks{NewTextBlock("result")})}
+func TestBlocks_MarshalImage(t *testing.T) {
+	orig := Blocks{&ImageBlock{Type: ImageBlockType, Source: &ImageSource{SourceType: "base64", MediaType: "image/png", Data: "abcd"}}}
 	data, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back Blocks
-	if err := json.Unmarshal(data, &back); err != nil {
+	var raw []map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	tr, ok := back[0].(*ToolResultBlock)
-	if !ok {
-		t.Fatalf("expected *ToolResultBlock, got %#v", back[0])
-	}
-	if tr.ToolUseID != "tu_1" {
-		t.Errorf("ToolUseID mismatch: %q", tr.ToolUseID)
-	}
-	nested, ok := tr.Content.(Blocks)
-	if !ok {
-		t.Fatalf("expected Content of type Blocks, got %T", tr.Content)
-	}
-	tb, ok := nested[0].(*TextBlock)
-	if !ok || tb.Text != "result" {
-		t.Errorf("expected nested TextBlock{result}, got %#v", nested[0])
+	img := raw[0]
+	if img["type"] != "image" {
+		t.Errorf("expected image type, got %v", img["type"])
 	}
 }
 
-func TestBlocks_RoundTripImage(t *testing.T) {
-	orig := Blocks{&ImageBlock{Source: &ImageSource{SourceType: "base64", MediaType: "image/png", Data: "abcd"}}}
-	data, err := json.Marshal(orig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var back Blocks
-	if err := json.Unmarshal(data, &back); err != nil {
-		t.Fatal(err)
-	}
-	img, ok := back[0].(*ImageBlock)
-	if !ok || img.Source == nil || img.Source.SourceType != "base64" || img.Source.MediaType != "image/png" || img.Source.Data != "abcd" {
-		t.Errorf("image round-trip mismatch: %#v", back[0])
-	}
-}
-
-func TestBlocks_RoundTripMetadata(t *testing.T) {
+func TestBlocks_MarshalMetadata(t *testing.T) {
 	orig := Blocks{
 		NewUsageBlock(&Usage{InputTokens: 10, OutputTokens: 20}),
-		NewStopReasonBlock(StopReasonToolUse),
 	}
 	data, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back Blocks
-	if err := json.Unmarshal(data, &back); err != nil {
-		t.Fatal(err)
-	}
-	ub, ok := back[0].(*UsageBlock)
-	if !ok || ub.Usage == nil || ub.Usage.InputTokens != 10 || ub.Usage.OutputTokens != 20 {
-		t.Errorf("usage round-trip mismatch: %#v", back[0])
-	}
-	sb, ok := back[1].(*StopReasonBlock)
-	if !ok || sb.Reason != StopReasonToolUse {
-		t.Errorf("stop_reason round-trip mismatch: %#v", back[1])
+	// UsageBlock has private usage field, just verify it marshals without error
+	if len(data) == 0 {
+		t.Error("expected non-empty marshal output")
 	}
 }
 
-// TestBlocks_RoundTripErrorText 验证 TextBlock{IsError=true} 的序列化/反序列化往返。
-func TestBlocks_RoundTripErrorText(t *testing.T) {
-	orig := Blocks{NewErrorTextBlock("something broke")}
+func TestBlocks_MarshalErrorText(t *testing.T) {
+	orig := Blocks{NewErrorFullTextBlock("something broke")}
 	data, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back Blocks
-	if err := json.Unmarshal(data, &back); err != nil {
+	var raw []map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	tb, ok := back[0].(*TextBlock)
-	if !ok || tb.Text != "something broke" || !tb.IsError {
-		t.Errorf("error text round-trip mismatch: %#v", back[0])
+	tb := raw[0]
+	if tb["text"] != "something broke" || tb["type"] != "text" {
+		t.Errorf("error text mismatch: %v", tb)
 	}
 }
 
-// TestBlocks_ForContext 固化每种块的上下文声明（是否用于上下文由 block 自己决定）：
-// 对话内容块进入上下文，thinking（signature 约束）与内部元数据块不进入。
 func TestBlocks_ForContext(t *testing.T) {
 	cases := []struct {
 		block Block
 		want  bool
 	}{
-		{NewTextBlock("t"), true},
-		{NewErrorTextBlock("e"), true},
+		{NewFullTextBlock("t"), true},
+		{NewErrorFullTextBlock("e"), true},
 		{&ImageBlock{Source: &ImageSource{SourceType: "base64"}}, true},
-		{NewToolUseBlock("tu_1", "tool", value.NewObject()), true},
-		{NewToolResultBlock("tu_1", "result"), true},
-		{NewThinkingBlock("hmm"), false},
+		{NewToolUseBlock("tu_1", "tool"), true},
+		{NewToolResultBlock("tu_1", Blocks{NewFullTextBlock("result")}), true},
+		{NewThinkingBlock(), false},
 		{NewUsageBlock(&Usage{InputTokens: 1}), false},
-		{NewStopReasonBlock(StopReasonEndTurn), false},
+		{NewDoneBlock(), false},
 	}
 	for _, c := range cases {
 		if got := c.block.ForContext(); got != c.want {

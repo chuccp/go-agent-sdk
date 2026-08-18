@@ -21,17 +21,16 @@ type singleResponseProvider struct {
 }
 
 func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
-	w.Write(&chat.Start{})
 	if f.toolUse != nil {
-		w.Write(&chat.ToolUseBlockStart{Id: f.toolUse.ID, Name: f.toolUse.Name})
+		w.BlockToolUseStart(f.toolUse.ID, f.toolUse.Name)
 		if f.toolUse.Input != nil {
 			inputJSON, _ := json.Marshal(f.toolUse.Input)
-			w.Write(&chat.Delta{Content: string(inputJSON)})
+			w.Delta(string(inputJSON))
 		}
 		w.StopReason(chat.StopReasonToolUse)
 	} else {
-		w.Write(&chat.TextBlockStart{})
-		w.Write(&chat.Delta{Content: f.text})
+		w.BlockTextStart()
+		w.Delta(f.text)
 		w.StopReason(f.stopReason)
 	}
 	return nil
@@ -60,8 +59,8 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *
 	i := int(f.idx.Add(1)) - 1
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
-		w.Write(&chat.TextBlockStart{})
-		w.Write(&chat.Delta{Content: "fallback"})
+		w.BlockTextStart()
+		w.Delta("fallback")
 		w.StopReason(chat.StopReasonEndTurn)
 		return nil
 	}
@@ -70,24 +69,24 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *
 
 	// 如果设置了 text，使用快捷方式
 	if resp.text != "" {
-		w.Write(&chat.TextBlockStart{})
-		w.Write(&chat.Delta{Content: resp.text})
+		w.BlockTextStart()
+		w.Delta(resp.text)
 	} else {
 		for _, bs := range resp.blocks {
 			switch bs.blockType {
-			case chat.BlockTypeToolUse:
+			case chat.ToolUseBlockType:
 				// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
-				w.Write(&chat.ToolUseBlockStart{Id: bs.toolID, Name: bs.toolName})
-				w.Write(&chat.Delta{Content: `{"command":"echo hi"}`})
-			case chat.BlockTypeThinking:
-				w.Write(&chat.ThinkingBlockStart{})
+				w.BlockToolUseStart(bs.toolID, bs.toolName)
+				w.Delta(`{"command":"echo hi"}`)
+			case chat.ThinkingBlockType:
+				w.BlockThinkingStart()
 				if bs.text != "" {
-					w.Write(&chat.Delta{Content: bs.text})
+					w.Delta(bs.text)
 				}
 			default:
-				w.Write(&chat.TextBlockStart{})
+				w.BlockTextStart()
 				if bs.text != "" {
-					w.Write(&chat.Delta{Content: bs.text})
+					w.Delta(bs.text)
 				}
 			}
 		}
@@ -107,23 +106,23 @@ func (t *echoTool) Definition() *chat.ToolFunction {
 func (t *echoTool) Name() string        { return "echo" }
 func (t *echoTool) UsagePrompt() string { return "" }
 func (t *echoTool) Execute(turn *agent.Turn, w *chat.BlockStream) {
-	w.WriteBlock(chat.NewTextBlock("echo output"))
+	w.FullText("echo output")
 }
 
 // ── Helpers ──
 
 // readUntilDone 读完所有事件，返回遇到的 done 事件（超时则 fail）。
-func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *chat.ClientEvent {
+func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *agent.Event {
 	t.Helper()
 	deadline := time.After(timeout)
-	done := make(chan *chat.ClientEvent, 1)
+	done := make(chan *agent.Event, 1)
 	go func() {
 		for {
 			evt := client.ReadEvent()
 			if evt == nil {
 				return
 			}
-			if evt.EventType == chat.EventTypeDone {
+			if _, ok := evt.Block.(*chat.DoneBlock); ok {
 				done <- evt
 				return
 			}
@@ -139,12 +138,12 @@ func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *c
 }
 
 // collectEvents 收集所有事件直到队列为空。
-func collectEvents(t *testing.T, client *agent.Client) []*chat.ClientEvent {
+func collectEvents(t *testing.T, client *agent.Client) []*agent.Event {
 	t.Helper()
-	var events []*chat.ClientEvent
+	var events []*agent.Event
 	deadline := time.After(3 * time.Second)
 	for {
-		var evt *chat.ClientEvent
+		var evt *agent.Event
 		select {
 		case <-deadline:
 			t.Fatal("timeout collecting events")
@@ -156,21 +155,36 @@ func collectEvents(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 			return events
 		}
 		events = append(events, evt)
-		if evt.EventType == chat.EventTypeDone {
+		if _, ok := evt.Block.(*chat.DoneBlock); ok {
 			return events
 		}
 	}
 }
 
-// assertEventType 验证事件列表中包含指定类型的事件。
-func assertEventType(t *testing.T, events []*chat.ClientEvent, wantType chat.EventType) {
+// hasBlockTypeInEvents 验证事件列表中包含指定 block 类型的事件。
+func hasBlockTypeInEvents(t *testing.T, events []*agent.Event, block chat.Block) {
 	t.Helper()
 	for _, e := range events {
-		if e.EventType == wantType {
-			return
+		switch block.(type) {
+		case *chat.DoneBlock:
+			if _, ok := e.Block.(*chat.DoneBlock); ok {
+				return
+			}
+		case *chat.TextBlock:
+			if _, ok := e.Block.(*chat.TextBlock); ok {
+				return
+			}
+		case *chat.ToolExecutionBlock:
+			if _, ok := e.Block.(*chat.ToolExecutionBlock); ok {
+				return
+			}
+		case *chat.StartBlock:
+			if _, ok := e.Block.(*chat.StartBlock); ok {
+				return
+			}
 		}
 	}
-	t.Errorf("expected event type %q not found in %d events", wantType, len(events))
+	t.Errorf("expected block type %T not found in %d events", block, len(events))
 }
 
 // ── Tests ──
@@ -189,8 +203,8 @@ func TestSingleRoundText(t *testing.T) {
 	client.SendText("hi")
 
 	events := collectEvents(t, client)
-	assertEventType(t, events, chat.EventTypeChunk)
-	assertEventType(t, events, chat.EventTypeDone)
+	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
+	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
 
 func TestToolUseWithRegisteredTool(t *testing.T) {
@@ -200,7 +214,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	// 第一次返回 tool_use，第二次返回 end_turn
 	manager.RegisterChat("fake", &orderedProvider{
 		responses: []orderedResponse{
-			{blocks: []blockSpec{{blockType: chat.BlockTypeToolUse, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
+			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
 			{text: "tool result processed", reason: chat.StopReasonEndTurn},
 		},
 	}, true)
@@ -212,9 +226,9 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	client.SendText("use echo tool")
 
 	events := collectEvents(t, client)
-	assertEventType(t, events, chat.EventTypeToolExecution)
-	assertEventType(t, events, chat.EventTypeChunk)
-	assertEventType(t, events, chat.EventTypeDone)
+	hasBlockTypeInEvents(t, events, &chat.ToolExecutionBlock{})
+	hasBlockTypeInEvents(t, events, &chat.TextBlock{})
+	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
 
 func TestToolUse_UnknownTool(t *testing.T) {
@@ -225,7 +239,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	// → 第二轮 LLM → done
 	manager.RegisterChat("fake", &orderedProvider{
 		responses: []orderedResponse{
-			{blocks: []blockSpec{{blockType: chat.BlockTypeToolUse, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
+			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
 			{text: "unknown tool handled", reason: chat.StopReasonEndTurn},
 		},
 	}, true)
@@ -237,8 +251,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	client.SendText("use unknown tool")
 
 	events := collectEvents(t, client)
-	// unknown tool 不会产生 tool_execution 事件（executeTools 中直接生成错误 result）
-	assertEventType(t, events, chat.EventTypeDone)
+	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
 
 func TestMultipleRounds(t *testing.T) {
@@ -302,8 +315,8 @@ func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Request, 
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	w.Write(&chat.TextBlockStart{})
-	w.Write(&chat.Delta{Content: "正常回复"})
+	w.BlockTextStart()
+	w.Delta("正常回复")
 	w.StopReason(chat.StopReasonEndTurn)
 	return nil
 }
@@ -397,6 +410,6 @@ func TestMaxTokensStopReason(t *testing.T) {
 	client.SendText("hi")
 
 	events := collectEvents(t, client)
-	assertEventType(t, events, chat.EventTypeChunk)
-	assertEventType(t, events, chat.EventTypeDone)
+	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
+	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }

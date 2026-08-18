@@ -24,13 +24,13 @@ type fakeProvider struct {
 func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
 	f.calls++
 	if f.calls == 1 {
-		w.Write(&chat.ToolUseBlockStart{Id: "tu_1", Name: "fake_tool"})
-		w.Write(&chat.Delta{Content: `{"command":"echo hi"}`})
+		w.BlockToolUseStart("tu_1", "fake_tool")
+		w.Delta(`{"command":"echo hi"}`)
 		w.StopReason(chat.StopReasonToolUse)
 		return nil
 	}
-	w.Write(&chat.TextBlockStart{})
-	w.Write(&chat.Delta{Content: "工具结果已收到"})
+	w.BlockTextStart()
+	w.Delta("工具结果已收到")
 	w.StopReason(chat.StopReasonEndTurn)
 	return nil
 }
@@ -44,15 +44,15 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 func (t *fakeTool) Name() string        { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
 func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
-	writer.WriteBlock(chat.NewTextBlock("fake tool output"))
+	writer.FullText("fake tool output")
 }
 
-// waitForDone 读到 done 返回 true；超时 dump 全部协程栈后 fail。
+// waitForDone 读到 done block 返回 true；超时 dump 全部协程栈后 fail。
 func waitForDone(t *testing.T, client *agent.Client, label string) {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
 	type result struct {
-		evt *chat.ClientEvent
+		evt *agent.Event
 	}
 	ch := make(chan result, 1)
 	go func() {
@@ -62,7 +62,7 @@ func waitForDone(t *testing.T, client *agent.Client, label string) {
 				ch <- result{}
 				return
 			}
-			if evt.EventType == chat.EventTypeDone {
+			if _, ok := evt.Block.(*chat.DoneBlock); ok {
 				ch <- result{evt}
 				return
 			}

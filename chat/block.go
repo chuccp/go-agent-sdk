@@ -1,303 +1,317 @@
 package chat
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
-// BlockType 是 block 的类型标识：内容块与元数据块（usage/stop_reason/error）共用同一套。
-//type BlockType string
-//
-//const (
-//	BlockTypeText       BlockType = "text"
-//	BlockTypeThinking   BlockType = "thinking"
-//	BlockTypeImage      BlockType = "image"
-//	BlockTypeToolUse    BlockType = "tool_use"
-//	BlockTypeToolResult BlockType = "tool_result"
-//	BlockTypeUsage      BlockType = "usage"
-//	BlockTypeStopReason BlockType = "stop_reason"
-//)
+// textBlockMarshal 用于 JSON 序列化时排除嵌入的 UseDeltaBlock 接口字段。
+type textBlockMarshal struct {
+	Type     BlockType `json:"type"`
+	Text     string    `json:"text"`
+	TextType TextType  `json:"text_type,omitempty"`
+}
 
-// Block 是所有 block 的统一接口。
-// 每种 block 类型只携带自身相关字段，通过 Type() 标识类型；
-// ForContext() 声明自身是否用于上下文（随历史回传给模型）——是否过滤由 block 自己决定。
+type BlockType string
+
+const (
+	TextBlockType          BlockType = "text"
+	ThinkingBlockType      BlockType = "thinking"
+	ImageBlockType         BlockType = "image"
+	ToolUseBlockType       BlockType = "tool_use"
+	ToolResultBlockType    BlockType = "tool_result"
+	StartBlockType         BlockType = "start"
+	DeltaBlockType         BlockType = "delta"
+	DoneBlockType          BlockType = "done"
+	UsageBlockType         BlockType = "usage"
+	UserBlockType          BlockType = "User"
+	ErrorBlockType         BlockType = "error"
+	ToolExecutionBlockType BlockType = "tool_execution"
+)
+
+type ErrorBlock struct {
+	text string
+}
+
+func (b *ErrorBlock) ForContext() bool {
+	return false
+}
+func (b *ErrorBlock) Text() string { return b.text }
+func (b *ErrorBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Type    BlockType `json:"type"`
+		Message string    `json:"message"`
+	}{Type: ErrorBlockType, Message: b.text})
+}
+func NewErrorBlock(text string) *ErrorBlock {
+	return &ErrorBlock{
+		text: text,
+	}
+}
+
+type UseDeltaBlock interface {
+	Block
+	ParesStream(stream *value.Stream)
+}
+
 type Block interface {
-	Type() BlockType
 	ForContext() bool
 }
 
-// ==================== 具体 Block 类型 ====================
+type Blocks []Block
 
-// TextBlock 纯文本内容；IsError 标记该文本为错误信息（由 WriteErrorText 写入）。
+type TextType string
+
+const (
+	ErrorTextType    TextType = "error"
+	CMDTextType      TextType = "cmd"
+	FlowProgressType TextType = "flow_progress"
+)
+
 type TextBlock struct {
-	Text    string `json:"text"`
-	IsError bool   `json:"is_error,omitempty"`
+	UseDeltaBlock
+	Text     string    `json:"text"`
+	Type     BlockType `json:"type"`
+	TextType TextType  `json:"text_type"`
 }
 
-func (b *TextBlock) Type() BlockType { return BlockTypeText }
+func (b *TextBlock) ForContext() bool {
+	return true
+}
+func (b *TextBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(textBlockMarshal{Type: b.Type, Text: b.Text, TextType: b.TextType})
+}
+func (b *TextBlock) ParesStream(stream *value.Stream) {
+	b.Text = stream.String()
+}
+func NewTextBlock() *TextBlock {
+	return &TextBlock{
+		Type: TextBlockType,
+	}
+}
+func NewErrorTextBlock() *TextBlock {
+	return &TextBlock{
+		Type:     TextBlockType,
+		TextType: ErrorTextType,
+	}
+}
+func NewErrorFullTextBlock(text string) *TextBlock {
+	return &TextBlock{
+		Type:     TextBlockType,
+		TextType: ErrorTextType,
+		Text:     text,
+	}
+}
+func NewFullTextBlock(text string) *TextBlock {
+	return &TextBlock{
+		Type: TextBlockType,
+		Text: text,
+	}
+}
+func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
+	return &TextBlock{
+		Type:     TextBlockType,
+		Text:     text,
+		TextType: textType,
+	}
+}
 
-// ForContext 文本是对话内容，进入上下文。
-func (b *TextBlock) ForContext() bool { return true }
-
-// UsageBlock 记录本次请求的 token 消耗（流元数据块，非 LLM 内容）。
 type UsageBlock struct {
-	Usage *Usage `json:"usage"`
+	Block
+	usage *Usage
 }
 
-func (b *UsageBlock) Type() BlockType { return BlockTypeUsage }
-
-// ForContext 用量是 SDK 内部元数据，不进入上下文。
-func (b *UsageBlock) ForContext() bool { return false }
-
-// StopReasonBlock 记录模型停止生成的原因（流元数据块，非 LLM 内容）。
-type StopReasonBlock struct {
-	Reason StopReason `json:"reason"`
+func (b *UsageBlock) ForContext() bool {
+	return false
+}
+func NewUsageBlock(usage *Usage) *UsageBlock {
+	return &UsageBlock{
+		usage: usage,
+	}
 }
 
-func (b *StopReasonBlock) Type() BlockType { return BlockTypeStopReason }
-
-// ForContext 停止原因是 SDK 内部元数据，不进入上下文。
-func (b *StopReasonBlock) ForContext() bool { return false }
-
-// ThinkingBlock 思考链内容
 type ThinkingBlock struct {
-	Thinking string `json:"thinking"`
+	UseDeltaBlock
+	Thinking string    `json:"thinking,omitempty"`
+	Type     BlockType `json:"type"`
 }
 
-func (b *ThinkingBlock) Type() BlockType { return BlockTypeThinking }
-
-// ForContext 思考链不进入上下文：Anthropic 要求历史中的 thinking 必须携带 signature
-// 原样传回（否则 400），且空 thinking 序列化缺字段；思考链保留在历史/DB 仅供展示。
-func (b *ThinkingBlock) ForContext() bool { return false }
-
-// ImageBlock 图片内容（base64 内联）
-type ImageBlock struct {
-	Source *ImageSource `json:"source"`
+func (b *ThinkingBlock) ForContext() bool {
+	return false
+}
+func (b *ThinkingBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Thinking string    `json:"thinking,omitempty"`
+		Type     BlockType `json:"type"`
+	}{Thinking: b.Thinking, Type: b.Type})
+}
+func (b *ThinkingBlock) ParesStream(stream *value.Stream) {
+	b.Thinking = stream.String()
+}
+func NewThinkingBlock() *ThinkingBlock {
+	return &ThinkingBlock{
+		Type: ThinkingBlockType,
+	}
 }
 
-func (b *ImageBlock) Type() BlockType { return BlockTypeImage }
-
-// ForContext 图片是对话内容，进入上下文。
-func (b *ImageBlock) ForContext() bool { return true }
-
-// ImageSource 描述图片内容
 type ImageSource struct {
 	SourceType string `json:"type"`       // "base64"
 	MediaType  string `json:"media_type"` // "image/png" | "image/jpeg" | "image/gif" | "image/webp"
 	Data       string `json:"data"`       // base64 编码的图片数据
 }
 
-// ToolUseBlock 工具调用
+type ImageBlock struct {
+	Block
+	Source *ImageSource `json:"source,omitempty"`
+	Type   BlockType    `json:"type"`
+}
+
+func (b *ImageBlock) ForContext() bool {
+	return true
+}
+func (b *ImageBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Source *ImageSource `json:"source,omitempty"`
+		Type   BlockType    `json:"type"`
+	}{Source: b.Source, Type: b.Type})
+}
+
 type ToolUseBlock struct {
-	ID    string
-	Name  string
-	Input *value.Object
+	UseDeltaBlock
+	ID    string        `json:"id"`
+	Name  string        `json:"name"`
+	Input *value.Object `json:"input,omitempty"`
+	Type  BlockType     `json:"type"`
 }
 
-func (b *ToolUseBlock) Type() BlockType { return BlockTypeToolUse }
+func (b *ToolUseBlock) ForContext() bool {
+	return true
+}
+func (b *ToolUseBlock) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID    string        `json:"id"`
+		Name  string        `json:"name"`
+		Input *value.Object `json:"input,omitempty"`
+		Type  BlockType     `json:"type"`
+	}{ID: b.ID, Name: b.Name, Input: b.Input, Type: b.Type})
+}
+func (b *ToolUseBlock) ParesStream(stream *value.Stream) {
+	b.Input, _ = value.NewObjectFromJson(stream.ToJSON())
+}
+func NewToolUseBlock(id string, name string) *ToolUseBlock {
+	return &ToolUseBlock{
+		ID:   id,
+		Name: name,
+		Type: ToolUseBlockType,
+	}
+}
 
-// ForContext 工具调用是对话内容，进入上下文。
-func (b *ToolUseBlock) ForContext() bool { return true }
+type ToolExecutionBlock struct {
+	Block
+	ToolName string    `json:"tool_name"`
+	Args     string    `json:"args"`
+	Output   string    `json:"output"`
+	Type     BlockType `json:"type"`
+}
 
-// ToolResultBlock 工具执行结果
+func (b *ToolExecutionBlock) ForContext() bool {
+	return false
+}
+func NewToolExecutionBlock(toolName string, args string, Output string) *ToolExecutionBlock {
+	return &ToolExecutionBlock{
+		ToolName: toolName,
+		Args:     args,
+		Output:   Output,
+		Type:     ToolExecutionBlockType,
+	}
+}
+
 type ToolResultBlock struct {
-	ToolUseID string `json:"tool_use_id"`
-	Content   any    `json:"content"` // string 或 []Block
+	ToolUseID string    `json:"tool_use_id"`
+	Content   []Block   `json:"content,omitempty"` // string 或 []Block
+	Type      BlockType `json:"type"`
 }
 
-func (b *ToolResultBlock) Type() BlockType { return BlockTypeToolResult }
-
-// ForContext 工具结果是对话内容，进入上下文。
-func (b *ToolResultBlock) ForContext() bool { return true }
-
-// ==================== JSON 序列化 ====================
-
-// blockEnvelope 用于 JSON 序列化时携带 type 字段。
-// 各 block 类型仅携带自身相关字段，通过 Type 标识类型，与 Anthropic Messages API 对齐。
-type blockEnvelope struct {
-	Type       BlockType    `json:"type"`
-	Text       string       `json:"text,omitempty"`
-	IsError    bool         `json:"is_error,omitempty"`
-	Thinking   string       `json:"thinking,omitempty"`
-	Source     *ImageSource `json:"source,omitempty"`
-	ID         string       `json:"id,omitempty"`
-	Name       string       `json:"name,omitempty"`
-	Input      any          `json:"input,omitempty"`
-	ToolUseID  string       `json:"tool_use_id,omitempty"`
-	Content    any          `json:"content,omitempty"`
-	Usage      *Usage       `json:"usage,omitempty"`
-	StopReason StopReason   `json:"reason,omitempty"`
+func (b *ToolResultBlock) ForContext() bool {
+	return true
 }
-
-// MarshalBlock 将 Block 序列化为 JSON（携带 type 字段）。
-func MarshalBlock(b Block) ([]byte, error) {
-	var env blockEnvelope
-	switch v := b.(type) {
-	case *TextBlock:
-		env = blockEnvelope{Type: BlockTypeText, Text: v.Text, IsError: v.IsError}
-	case *ThinkingBlock:
-		env = blockEnvelope{Type: BlockTypeThinking, Thinking: v.Thinking}
-	case *ImageBlock:
-		env = blockEnvelope{Type: BlockTypeImage, Source: v.Source}
-	case *ToolUseBlock:
-		env = blockEnvelope{Type: BlockTypeToolUse, ID: v.ID, Name: v.Name, Input: v.Input}
-	case *ToolResultBlock:
-		env = blockEnvelope{Type: BlockTypeToolResult, ToolUseID: v.ToolUseID, Content: v.Content}
-	case *UsageBlock:
-		env = blockEnvelope{Type: BlockTypeUsage, Usage: v.Usage}
-	case *StopReasonBlock:
-		env = blockEnvelope{Type: BlockTypeStopReason, StopReason: v.Reason}
-	default:
-		return nil, fmt.Errorf("unknown block type: %T", b)
-	}
-	return json.Marshal(env)
-}
-
-// Blocks 是 []Block 的别名，支持 JSON 序列化/反序列化。
-type Blocks []Block
-
-// MarshalJSON 将 Blocks 序列化为 JSON，每个 block 携带 type 字段。
-// nil 序列化为 null，空切片序列化为 []。
-func (bs Blocks) MarshalJSON() ([]byte, error) {
-	if bs == nil {
-		return []byte("null"), nil
-	}
-	raw := make([]json.RawMessage, 0, len(bs))
-	for _, b := range bs {
-		data, err := MarshalBlock(b)
-		if err != nil {
-			return nil, err
-		}
-		raw = append(raw, data)
-	}
-	return json.Marshal(raw)
-}
-
-// ==================== JSON 反序列化 ====================
-
-// blockEnvelopeIn 用于 JSON 反序列化：先取 type 分发到具体 block，
-// 其中 Input（JSON 对象）/Content（字符串或 block 数组）为多态字段，按 RawMessage 保留后再解析。
-type blockEnvelopeIn struct {
-	Type       BlockType       `json:"type"`
-	Text       string          `json:"text"`
-	IsError    bool            `json:"is_error"`
-	Thinking   string          `json:"thinking"`
-	Source     *ImageSource    `json:"source"`
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	Input      json.RawMessage `json:"input"`
-	ToolUseID  string          `json:"tool_use_id"`
-	Content    json.RawMessage `json:"content"`
-	Usage      *Usage          `json:"usage"`
-	StopReason StopReason      `json:"reason"`
-}
-
-// UnmarshalBlock 从 JSON 反序列化为具体的 Block 类型。
-func UnmarshalBlock(data []byte) (Block, error) {
-	var env blockEnvelopeIn
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, err
-	}
-	switch env.Type {
-	case BlockTypeText:
-		return &TextBlock{Text: env.Text, IsError: env.IsError}, nil
-	case BlockTypeThinking:
-		return &ThinkingBlock{Thinking: env.Thinking}, nil
-	case BlockTypeImage:
-		return &ImageBlock{Source: env.Source}, nil
-	case BlockTypeToolUse:
-		input := value.NewObject()
-		if len(env.Input) > 0 {
-			if err := input.PutJson(env.Input); err != nil {
-				return nil, fmt.Errorf("tool_use input 解析失败: %w", err)
-			}
-		}
-		return &ToolUseBlock{ID: env.ID, Name: env.Name, Input: input}, nil
-	case BlockTypeToolResult:
-		content, err := decodeToolResultContent(env.Content)
-		if err != nil {
-			return nil, err
-		}
-		return &ToolResultBlock{ToolUseID: env.ToolUseID, Content: content}, nil
-	case BlockTypeUsage:
-		return &UsageBlock{Usage: env.Usage}, nil
-	case BlockTypeStopReason:
-		return &StopReasonBlock{Reason: env.StopReason}, nil
-	default:
-		return nil, fmt.Errorf("unknown content block type: %s", env.Type)
+func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
+	return &ToolResultBlock{
+		ToolUseID: id,
+		Content:   content,
+		Type:      ToolResultBlockType,
 	}
 }
 
-// decodeToolResultContent 解析 tool_result 的 content 字段：
-// 字符串按原样返回，JSON 数组按 Blocks 反序列化，null/缺省返回 nil。
-func decodeToolResultContent(raw json.RawMessage) (any, error) {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || string(trimmed) == "null" {
-		return nil, nil
+type StartBlock struct {
+	Type  BlockType `json:"type"`
+	Block Block     `json:"block"`
+}
+
+func (b *StartBlock) ForContext() bool {
+	return false
+}
+
+func NewStartBlock(block Block) *StartBlock {
+	return &StartBlock{
+		Type:  StartBlockType,
+		Block: block,
 	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, err
-		}
-		return s, nil
+}
+
+type DeltaBlock struct {
+	Type    BlockType `json:"type"`
+	Content string    `json:"content"`
+}
+
+func (b *DeltaBlock) ForContext() bool {
+	return false
+}
+func NewDeltaBlock(content string) *DeltaBlock {
+	return &DeltaBlock{
+		Type:    DeltaBlockType,
+		Content: content,
 	}
-	var blocks Blocks
-	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return nil, err
+}
+
+type DoneBlock struct {
+	Type BlockType `json:"type"`
+}
+
+func NewDoneBlock() *DoneBlock {
+	return &DoneBlock{
+		Type: DoneBlockType,
 	}
-	return blocks, nil
+}
+func (b *DoneBlock) ForContext() bool {
+	return false
 }
 
-// UnmarshalJSON 将 JSON 数组反序列化为 Blocks；null 反序列化为 nil。
-func (bs *Blocks) UnmarshalJSON(data []byte) error {
-	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
-		*bs = nil
-		return nil
+type BlockUserType string
+
+const (
+	Queued  BlockUserType = "queued"
+	Sent    BlockUserType = "sent"
+	Consume BlockUserType = "consume"
+)
+
+type UserBlock struct {
+	Type          BlockType     `json:"type"`
+	Queued        bool          `json:"queued"`
+	BlockUserType BlockUserType `json:"block_user_type"`
+	Content       []Block       `json:"content,omitempty"` // string 或 []Block
+}
+
+func (b *UserBlock) ForContext() bool {
+	return true
+}
+func NewUserBlock(id, text string, blockUserType BlockUserType) *UserBlock {
+	return &UserBlock{
+		Type:          UserBlockType,
+		BlockUserType: blockUserType,
+		Content: []Block{
+			NewFullTextBlock(text),
+		},
 	}
-	var rawList []json.RawMessage
-	if err := json.Unmarshal(data, &rawList); err != nil {
-		return err
-	}
-	result := make(Blocks, 0, len(rawList))
-	for _, raw := range rawList {
-		b, err := UnmarshalBlock(raw)
-		if err != nil {
-			return err
-		}
-		result = append(result, b)
-	}
-	*bs = result
-	return nil
-}
-
-func NewTextBlock(text string) *TextBlock {
-	return &TextBlock{Text: text}
-}
-
-func NewErrorTextBlock(text string) *TextBlock {
-	return &TextBlock{Text: text, IsError: true}
-}
-
-func NewThinkingBlock(thinking string) *ThinkingBlock {
-	return &ThinkingBlock{Thinking: thinking}
-}
-
-func NewToolUseBlock(id, name string, input *value.Object) *ToolUseBlock {
-	return &ToolUseBlock{ID: id, Name: name, Input: input}
-}
-
-func NewToolResultBlock(toolUseID string, content any) *ToolResultBlock {
-	return &ToolResultBlock{ToolUseID: toolUseID, Content: content}
-}
-
-func NewUsageBlock(usage *Usage) *UsageBlock {
-	return &UsageBlock{Usage: usage}
-}
-
-func NewStopReasonBlock(reason StopReason) *StopReasonBlock {
-	return &StopReasonBlock{Reason: reason}
 }

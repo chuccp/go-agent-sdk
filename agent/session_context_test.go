@@ -66,8 +66,8 @@ func TestBuildRequest_EmptyInbox(t *testing.T) {
 func TestBuildRequest_WithHistory(t *testing.T) {
 	ctx := newTestSessionContext()
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewTextBlock("hi there")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hi there")},
 	)
 	enqueue(ctx, "follow up")
 
@@ -93,9 +93,11 @@ func TestBuildRequest_WithHistory(t *testing.T) {
 func TestBuildRequest_StripsThinkingFromHistory(t *testing.T) {
 	ctx := newTestSessionContext()
 	// assistant 消息包含 thinking + text block
+	thinking := chat.NewThinkingBlock()
+	thinking.Thinking = "hmm..."
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewThinkingBlock("hmm..."), chat.NewTextBlock("reply")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{thinking, chat.NewFullTextBlock("reply")},
 	)
 	enqueue(ctx, "next")
 
@@ -109,17 +111,19 @@ func TestBuildRequest_StripsThinkingFromHistory(t *testing.T) {
 	if len(assistantMsg.Content) != 1 {
 		t.Fatalf("expected 1 block after stripping thinking, got %d", len(assistantMsg.Content))
 	}
-	if assistantMsg.Content[0].Type() != chat.BlockTypeText {
-		t.Errorf("expected text block, got %s", assistantMsg.Content[0].Type())
+	if _, ok := assistantMsg.Content[0].(*chat.TextBlock); !ok {
+		t.Errorf("expected text block, got %T", assistantMsg.Content[0])
 	}
 }
 
 func TestBuildRequest_AllThinkingSkipped(t *testing.T) {
 	ctx := newTestSessionContext()
 	// 一条纯 thinking 的 assistant 消息，剥离后 content 为空
+	thinking := chat.NewThinkingBlock()
+	thinking.Thinking = "only thinking"
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewThinkingBlock("only thinking")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{thinking},
 	)
 	enqueue(ctx, "next")
 
@@ -137,13 +141,15 @@ func TestBuildRequest_AllThinkingSkipped(t *testing.T) {
 // usage/stop_reason 等 SDK 内部元数据块不属于对话内容，不回传给 LLM。
 func TestBuildRequest_StripsInternalBlocks(t *testing.T) {
 	ctx := newTestSessionContext()
+	thinking := chat.NewThinkingBlock()
+	thinking.Thinking = "hmm..."
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
 		chat.Blocks{
-			chat.NewThinkingBlock("hmm..."),
-			chat.NewTextBlock("reply"),
+			thinking,
+			chat.NewFullTextBlock("reply"),
 			chat.NewUsageBlock(&chat.Usage{InputTokens: 1, OutputTokens: 2}),
-			chat.NewStopReasonBlock(chat.StopReasonEndTurn),
+			chat.NewDoneBlock(),
 		},
 	)
 	enqueue(ctx, "next")
@@ -155,16 +161,19 @@ func TestBuildRequest_StripsInternalBlocks(t *testing.T) {
 
 	// assistant 消息只应保留协议内容块（text）
 	assistantMsg := req.Messages[1]
-	if len(assistantMsg.Content) != 1 || assistantMsg.Content[0].Type() != chat.BlockTypeText {
+	if len(assistantMsg.Content) != 1 {
 		t.Errorf("only protocol text block should remain, got %v", assistantMsg.Content)
+	}
+	if _, ok := assistantMsg.Content[0].(*chat.TextBlock); !ok {
+		t.Errorf("expected TextBlock, got %T", assistantMsg.Content[0])
 	}
 }
 
 func TestBuildRequest_PerTurnOptionMerge(t *testing.T) {
 	ctx := newTestSessionContext()
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewTextBlock("hi")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hi")},
 	)
 	// 入队两条消息，第二条携带 per-turn 覆盖
 	enqueue(ctx, "first")
@@ -189,8 +198,8 @@ func TestBuildRequest_PerTurnOptionMerge(t *testing.T) {
 func TestBuildRequest_NoPerTurnOpts(t *testing.T) {
 	ctx := newTestSessionContext(chat.WithModel("global-model"))
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewTextBlock("hi")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hi")},
 	)
 	enqueue(ctx, "just text")
 
@@ -206,8 +215,8 @@ func TestBuildRequest_NoPerTurnOpts(t *testing.T) {
 func TestBuildRequest_ToolDefinitions(t *testing.T) {
 	ctx := newTestSessionContext()
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewTextBlock("hi")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hi")},
 	)
 	enqueue(ctx, "run tool")
 
@@ -229,8 +238,8 @@ func TestBuildRequest_SystemPrompt(t *testing.T) {
 	ctx := newTestSessionContext()
 	ctx.system = "You are a helpful assistant."
 	seedHistory(ctx,
-		chat.Blocks{chat.NewTextBlock("hello")},
-		chat.Blocks{chat.NewTextBlock("hi")},
+		chat.Blocks{chat.NewFullTextBlock("hello")},
+		chat.Blocks{chat.NewFullTextBlock("hi")},
 	)
 	enqueue(ctx, "tell me something")
 
@@ -258,8 +267,8 @@ func TestBuildRequest_ThinkingConfig(t *testing.T) {
 		t.Run(string(tt.level), func(t *testing.T) {
 			ctx := newTestSessionContext(chat.WithThinking(tt.level))
 			seedHistory(ctx,
-				chat.Blocks{chat.NewTextBlock("hello")},
-				chat.Blocks{chat.NewTextBlock("hi")},
+				chat.Blocks{chat.NewFullTextBlock("hello")},
+				chat.Blocks{chat.NewFullTextBlock("hi")},
 			)
 			enqueue(ctx, "hi")
 

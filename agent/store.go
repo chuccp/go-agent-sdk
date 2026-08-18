@@ -18,19 +18,29 @@ type HistoryStore interface {
 	AppendMessages(sessionID string, messages []chat.Message) error
 }
 
+type Event struct {
+	Seq   uint       `json:"seq"`
+	Block chat.Block `json:"block"`
+}
+
+func NewEvent(seq uint, block chat.Block) *Event {
+	return &Event{
+		Seq:   seq,
+		Block: block,
+	}
+}
+
 type Position struct {
 	start uint
 }
 
 type Store struct {
-	sessionId string
-	history0  *util.SliceArray[*chat.Message]
-
-	tempHistory *util.SliceArray[*chat.Message]
-
+	sessionId    string
+	history0     *util.SliceArray[*chat.Message]
+	tempHistory  *util.SliceArray[*chat.Message]
 	historyStore HistoryStore
 	mu           sync.RWMutex
-	entries      *util.SliceArray[*chat.ClientEvent]
+	entries      *util.SliceArray[*Event]
 	seq          uint // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
 	pending      int  // 自上次 AppendHistory 以来新增的事件数
 	positions    *util.SliceArray[*Position]
@@ -38,7 +48,7 @@ type Store struct {
 
 func NewStore(sessionId string, historyStore HistoryStore) *Store {
 	return &Store{
-		entries:      new(util.SliceArray[*chat.ClientEvent]),
+		entries:      new(util.SliceArray[*Event]),
 		historyStore: historyStore,
 		sessionId:    sessionId,
 		history0:     new(util.SliceArray[*chat.Message]),
@@ -46,11 +56,10 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 		positions:    new(util.SliceArray[*Position]),
 	}
 }
-
-func (l *Store) Add(event *chat.ClientEvent) uint {
+func (l *Store) AddBlock(block chat.Block) uint {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	event.Seq = l.seq
+	event := NewEvent(l.seq, block)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
@@ -59,7 +68,7 @@ func (l *Store) Add(event *chat.ClientEvent) uint {
 
 // ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
 // 每个事件的 Offset 恒为 1，读后 position 前进 1。
-func (l *Store) ReadFrom(position *Position) *chat.ClientEvent {
+func (l *Store) ReadFrom(position *Position) *Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.entries.IsEmpty() {
