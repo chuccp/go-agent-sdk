@@ -9,17 +9,17 @@ import (
 )
 
 // BlockType 是 block 的类型标识：内容块与元数据块（usage/stop_reason/error）共用同一套。
-type BlockType string
-
-const (
-	BlockTypeText       BlockType = "text"
-	BlockTypeThinking   BlockType = "thinking"
-	BlockTypeImage      BlockType = "image"
-	BlockTypeToolUse    BlockType = "tool_use"
-	BlockTypeToolResult BlockType = "tool_result"
-	BlockTypeUsage      BlockType = "usage"
-	BlockTypeStopReason BlockType = "stop_reason"
-)
+//type BlockType string
+//
+//const (
+//	BlockTypeText       BlockType = "text"
+//	BlockTypeThinking   BlockType = "thinking"
+//	BlockTypeImage      BlockType = "image"
+//	BlockTypeToolUse    BlockType = "tool_use"
+//	BlockTypeToolResult BlockType = "tool_result"
+//	BlockTypeUsage      BlockType = "usage"
+//	BlockTypeStopReason BlockType = "stop_reason"
+//)
 
 // Block 是所有 block 的统一接口。
 // 每种 block 类型只携带自身相关字段，通过 Type() 标识类型；
