@@ -13,6 +13,7 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
  * Protocol (receive only):
  *   { type: "chunk",           content: "text" }
  *   { type: "thinking",        content: "..." }
+ *   { type: "command",         message: "cmd", content: "output" }  // 命令执行，输出可增量到达
  *   { type: "tool_execution",  message: "toolName", args: "input", content: "output" }
  *   { type: "done",            done: true }
  *   { type: "error",           message: "error text" }
@@ -23,15 +24,18 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
 type StreamEvent =
   | { kind: 'chunk'; text: string }
   | { kind: 'thinking'; text: string }
+  | { kind: 'command'; command: string; output: string }
   | { kind: 'tool_execution'; name: string; input: string; output: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
 
-// 内容段：与历史展示的 ⟪think⟫/⟪tool⟫/⟪result⟫ 标记一一对应，
+// 内容段：与历史展示的 ⟪think⟫/⟪tool⟫/⟪result⟫/⟪command⟫ 标记一一对应，
 // 保证实时渲染与历史渲染（Thread.tsx parseSegments）样式完全一致
 interface Segment {
-  kind: 'thinking' | 'text' | 'tool' | 'result'
+  kind: 'thinking' | 'text' | 'tool' | 'result' | 'command'
   text: string
+  /** command 段携带的命令（供序列化与前端分组） */
+  command?: string
 }
 
 function serializeSegments(segments: Segment[]): string {
@@ -40,6 +44,7 @@ function serializeSegments(segments: Segment[]): string {
       case 'thinking': return `⟪think⟫${s.text}⟪/think⟫`
       case 'tool': return `⟪tool⟫${s.text}⟪/tool⟫`
       case 'result': return `⟪result⟫${s.text}⟪/result⟫`
+      case 'command': return `⟪command⟫${s.command ?? ''}\n${s.text}⟪/command⟫`
       default: return s.text
     }
   }).join('\n\n')
@@ -110,6 +115,12 @@ function streamHandler(evt: MessageEvent): void {
         break
       case 'thinking':
         if (msg.content) event = { kind: 'thinking', text: msg.content }
+        break
+      case 'command':
+        // 命令执行事件：message 为命令，content 为增量输出（同一命令可多次到达）
+        if (msg.message || msg.content) {
+          event = { kind: 'command', command: msg.message || '', output: msg.content || '' }
+        }
         break
       case 'tool_execution':
         // 工具执行事件：message 为工具名，args 为入参展示文本，content 为执行输出
@@ -201,7 +212,20 @@ export function createStreamingAdapter(): ChatModelAdapter {
             appendToLast('text', evt.text)
             push()
             break
+          case 'command': {
+            // 同一命令的增量输出聚合到同一个命令段；新命令开启新段
+            const last = segments[segments.length - 1]
+            if (last && last.kind === 'command' && last.command === evt.command) {
+              last.text += evt.output
+            } else {
+              segments.push({ kind: 'command', command: evt.command, text: evt.output })
+            }
+            push()
+            break
+          }
           case 'tool_execution':
+            // execute_command 已由专属 command 段展示（命令 + 输出），跳过重复的 tool_execution
+            if (evt.name === 'execute_command') break
             // 与历史一致：工具调用段（入参优先，退化到工具名）+ 结果段独立展示
             segments.push({ kind: 'tool', text: evt.input || evt.name })
             if (evt.output) segments.push({ kind: 'result', text: evt.output })

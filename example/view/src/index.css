@@ -463,3 +463,71 @@ html, body, #root { height: 100%; font-family: -apple-system, BlinkMacSystemFont
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: #37474f;
 }
+
+/* ── Command Terminal Block（execute_command 专属样式）── */
+.terminal-block {
+  margin: 10px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #2d333b;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-size: 12.5px;
+}
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #2d333b;
+}
+.terminal-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+.terminal-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #57606a;
+}
+.terminal-dots i:nth-child(1) { background: #ff5f57; }
+.terminal-dots i:nth-child(2) { background: #febc2e; }
+.terminal-dots i:nth-child(3) { background: #28c840; }
+.terminal-title {
+  font-size: 11px;
+  color: #8b949e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.terminal-body {
+  padding: 10px 14px;
+  background: #161b22;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.terminal-cmd {
+  color: #e6edf3;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  word-break: break-all;
+}
+.terminal-prompt {
+  color: #3fb950;
+  font-weight: 700;
+  margin-right: 4px;
+}
+.terminal-output {
+  margin: 8px 0 0;
+  padding: 0;
+  color: #9aa4af;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.terminal-body::-webkit-scrollbar {
+  width: 4px;
+}
+.terminal-body::-webkit-scrollbar-thumb {
+  background: #373e47;
+  border-radius: 2px;
+}

@@ -3,6 +3,7 @@ package tools
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -16,6 +17,25 @@ type eventRecorder struct {
 
 func (r *eventRecorder) AddEvent(evt *chat.ClientEvent) {
 	r.events = append(r.events, evt)
+}
+
+// readEventsUntilIdle 读取 client 事件直到空闲（ReadEvent 无事件时会阻塞，
+// 故在协程中读取并以超时判定流已排空）。
+func readEventsUntilIdle(client *agent.Client, idle time.Duration) []*chat.ClientEvent {
+	var events []*chat.ClientEvent
+	for {
+		ch := make(chan *chat.ClientEvent, 1)
+		go func() { ch <- client.ReadEvent() }()
+		select {
+		case evt := <-ch:
+			if evt == nil {
+				return events
+			}
+			events = append(events, evt)
+		case <-time.After(idle):
+			return events
+		}
+	}
 }
 
 // TestCommand_StreamingOutput 验证命令输出逐行流式回显：
@@ -48,6 +68,81 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	}
 	if !strings.Contains(text, "streaming-test") {
 		t.Errorf("输出未被收集: %q", text)
+	}
+}
+
+// TestCommand_CommandEvent 验证有 SessionContext 时输出以专属 command 事件增量推送：
+// 事件携带命令（Message）与输出（Content），不再产生 chunk；完整输出进入 tool_result。
+func TestCommand_CommandEvent(t *testing.T) {
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("cmd-s1")
+	client, err := manager.GetClient("cmd-s1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	w := chat.NewBlockStream(nil)
+	tool := NewCommandTool()
+	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo event-test"})), w)
+
+	// 收到携带命令与输出的 command 事件
+	events := readEventsUntilIdle(client, 300*time.Millisecond)
+	var cmdEvt *chat.ClientEvent
+	for _, evt := range events {
+		if evt.EventType == EventTypeCommand {
+			cmdEvt = evt
+		}
+		if evt.EventType == chat.EventTypeChunk {
+			t.Errorf("command 事件路径不应再产生 chunk 事件")
+		}
+	}
+	if cmdEvt == nil {
+		t.Fatal("未收到 command 事件")
+	}
+	if cmdEvt.Message != "echo event-test" {
+		t.Errorf("事件未携带命令，Message = %q", cmdEvt.Message)
+	}
+	if !strings.Contains(cmdEvt.Content, "event-test") {
+		t.Errorf("事件未携带输出，Content = %q", cmdEvt.Content)
+	}
+
+	// 完整输出同时进入 tool_result
+	var text string
+	for _, b := range w.ReadBlocks() {
+		if tb, ok := b.(*chat.TextBlock); ok {
+			text += tb.Text
+		}
+	}
+	if !strings.Contains(text, "event-test") {
+		t.Errorf("输出未被收集: %q", text)
+	}
+}
+
+// TestCommand_CustomEventFactory 验证 WithCommandEventFactory 定制命令事件构造器。
+func TestCommand_CustomEventFactory(t *testing.T) {
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("cmd-s2")
+	client, err := manager.GetClient("cmd-s2", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	w := chat.NewBlockStream(nil)
+	tool := NewCommandTool(WithCommandEventFactory(func(command, output string) *chat.ClientEvent {
+		return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: "custom_command", Message: command, Content: output}
+	}))
+	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo factory-test"})), w)
+
+	found := false
+	for _, evt := range readEventsUntilIdle(client, 300*time.Millisecond) {
+		if evt.EventType == "custom_command" && strings.Contains(evt.Content, "factory-test") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("未收到定制工厂产生的 custom_command 事件")
 	}
 }
 

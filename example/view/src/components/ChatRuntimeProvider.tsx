@@ -69,6 +69,8 @@ function blocksToText(blocks: ContentBlock[]): string {
     } else if (b.type === 'text' && b.text) {
       parts.push(b.text)
     } else if (b.type === 'tool_use' && b.name) {
+      // execute_command 由 buildDisplayMessages 统一产出 command 标记（与 tool_result 合并）
+      if (b.name === 'execute_command') continue
       const input = b.input as Record<string, unknown> | undefined
       const cmd = input?.command ? String(input.command) : JSON.stringify(input)
       parts.push(`⟪tool⟫${cmd}⟪/tool⟫`)
@@ -77,8 +79,18 @@ function blocksToText(blocks: ContentBlock[]): string {
   return parts.join('\n\n')
 }
 
+/** extractExecCommand 提取消息中最后一个 execute_command 调用的命令（无则返回 null）。 */
+function extractExecCommand(blocks: ContentBlock[]): string | null {
+  const lastToolUse = [...blocks].reverse().find(b => b.type === 'tool_use')
+  if (lastToolUse?.name !== 'execute_command') return null
+  const input = lastToolUse.input as Record<string, unknown> | undefined
+  return input?.command ? String(input.command) : ''
+}
+
 function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
   const result: { role: 'user' | 'assistant'; content: string }[] = []
+  // 上一个 execute_command 的命令：将其 tool_result 输出折入同一终端块（与实时流展示一致）
+  let pendingCommand: string | null = null
   for (const m of msgs) {
     if (m.role !== 'user' && m.role !== 'assistant') continue
     const blocks = parseBlocks(m.content)
@@ -87,10 +99,25 @@ function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'
     if (isToolResult(blocks)) {
       role = 'assistant'
       const content = toolResultToText(blocks).trim()
-      text = content ? `⟪result⟫${content}⟪/result⟫` : ''
+      if (pendingCommand !== null) {
+        // execute_command 的结果：命令 + 输出合并为一个 command 标记
+        text = content ? `⟪command⟫${pendingCommand}\n${content}⟪/command⟫` : ''
+        pendingCommand = null
+      } else {
+        text = content ? `⟪result⟫${content}⟪/result⟫` : ''
+      }
     } else {
       role = m.role as 'user' | 'assistant'
       text = blocksToText(blocks)
+      // 记录最后一个 execute_command 调用，等待其 tool_result；
+      // 若本轮没有结果到达（执行中/历史截断），先补一个仅含命令的终端块
+      const cmd = extractExecCommand(blocks)
+      if (cmd !== null) {
+        if (pendingCommand !== null) {
+          text = text ? `${text}\n\n⟪command⟫${pendingCommand}\n⟪/command⟫` : `⟪command⟫${pendingCommand}\n⟪/command⟫`
+        }
+        pendingCommand = cmd
+      }
     }
     if (!text.trim()) continue
     const last = result[result.length - 1]
@@ -98,6 +125,16 @@ function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'
       last.content += '\n\n' + text
     } else {
       result.push({ role, content: text })
+    }
+  }
+  // 末尾兜底：最后一个 execute_command 的结果未到达（执行中），补仅含命令的终端块
+  if (pendingCommand !== null) {
+    const marker = `⟪command⟫${pendingCommand}\n⟪/command⟫`
+    const last = result[result.length - 1]
+    if (last && last.role === 'assistant') {
+      last.content += '\n\n' + marker
+    } else {
+      result.push({ role: 'assistant', content: marker })
     }
   }
   return result

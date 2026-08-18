@@ -19,12 +19,42 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
-// CommandTool 在本地终端执行 shell 命令的工具。
-type CommandTool struct{}
+// EventTypeCommand 是命令执行事件类型，由 CommandTool 推送：
+// Message 携带执行的命令，Content 携带输出（可分多次增量推送，前端按同一命令聚合）。
+const EventTypeCommand chat.EventType = "command"
 
-// NewCommandTool 创建本地命令执行工具。
-func NewCommandTool() agent.ToolExecutor {
-	return &CommandTool{}
+// NewCommandEvent 创建一个命令执行事件：command 为执行的命令，output 为（增量）输出。
+func NewCommandEvent(command, output string) *chat.ClientEvent {
+	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeCommand, Message: command, Content: output}
+}
+
+// CommandTool 在本地终端执行 shell 命令的工具。
+//
+// 推送的事件由工具自身配置：默认事件构造器为 NewCommandEvent，
+// 可通过 WithCommandEventFactory 按实例定制。
+type CommandTool struct {
+	newEvent func(command, output string) *chat.ClientEvent // 事件构造器，output 为增量输出
+}
+
+// CommandToolOption 定制 CommandTool 的行为。
+type CommandToolOption func(*CommandTool)
+
+// WithCommandEventFactory 完全定制命令事件构造器：command 为执行的命令，output 为增量输出。
+func WithCommandEventFactory(fn func(command, output string) *chat.ClientEvent) CommandToolOption {
+	return func(t *CommandTool) {
+		if fn != nil {
+			t.newEvent = fn
+		}
+	}
+}
+
+// NewCommandTool 创建本地命令执行工具，可选定制命令事件的构造器。
+func NewCommandTool(opts ...CommandToolOption) agent.ToolExecutor {
+	t := &CommandTool{newEvent: NewCommandEvent}
+	for _, opt := range opts {
+		opt(t)
+	}
+	return t
 }
 
 // Name 返回工具名称。
@@ -104,9 +134,10 @@ func needsStartPrefix(cmd string) bool {
 	return guiApps[prog]
 }
 
-// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出逐行流式写入 writer
-// （WriteEvent 实时回显 chunk 事件，兼容长耗时命令不是一次性出结果的场景）；
-// 执行错误经 WriteErrorText 以文本写入（回传给模型），不再向外返回。
+// Execute 实现 agent.ToolExecutor 接口：在本地终端执行命令，输出逐行实时推送：
+// 有 SessionContext 时以专属 command 事件增量推送（前端按终端样式渲染），
+// 无 SessionContext 时退化为 WriteEvent 回显 chunk 事件；
+// 完整输出随 ReadBlocks 进入 tool_result，执行错误经 WriteErrorText 以文本写入（回传给模型）。
 func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 	args := turn.Args()
 	cmd := args.GetString("command")
@@ -145,16 +176,29 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 		return
 	}
 
-	// 流式排空 stdout/stderr：逐行实时推送（两个协程并发写入，BlockStream 内部已加锁）
+	// 会话上下文：有则推送专属 command 事件（前端终端样式），无则退化为 chunk 回显
+	sctx := turn.Context()
+
+	// 流式排空 stdout/stderr：逐行实时推送（两个协程并发写入，缓冲加锁保护）
 	var gotOutput atomic.Bool
+	var buf sync.Mutex
+	var full strings.Builder
 	var wg sync.WaitGroup
 	streamLines := func(rd io.Reader) {
 		defer wg.Done()
 		scanner := bufio.NewScanner(rd)
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
-			line := string(decodeOutput(scanner.Bytes()))
-			writer.WriteEvent(line + "\n")
+			line := string(decodeOutput(scanner.Bytes())) + "\n"
+			buf.Lock()
+			full.WriteString(line)
+			buf.Unlock()
+			if sctx != nil {
+				// 专属 command 事件：Message 携带命令供前端分组，Content 为增量输出
+				sctx.AddEvent(t.newEvent(cmd, line))
+			} else {
+				writer.WriteEvent(line)
+			}
 			gotOutput.Store(true)
 		}
 	}
@@ -175,6 +219,19 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
 			return
 		}
 		writer.WriteErrorText(fmt.Errorf("命令执行失败: %w", err))
+		return
+	}
+
+	if sctx != nil {
+		// command 事件路径：完整输出在此一次性写入 tool_result（不产生 chunk，避免与命令事件重复展示）
+		if gotOutput.Load() {
+			buf.Lock()
+			output := full.String()
+			buf.Unlock()
+			writer.WriteBlock(chat.NewTextBlock(output))
+		} else {
+			writer.WriteBlock(chat.NewTextBlock("(无输出)"))
+		}
 		return
 	}
 

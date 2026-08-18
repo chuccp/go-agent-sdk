@@ -205,14 +205,14 @@ function UserMessage() {
 // ── Assistant Message (agent-style, full width, no bubble) ──
 
 interface Segment {
-  type: 'think' | 'tool' | 'result' | 'text'
+  type: 'think' | 'tool' | 'result' | 'text' | 'command'
   content: string
 }
 
 /** 解析内容中的类型标记，拆分为不同类型的片段 */
 function parseSegments(raw: string): Segment[] {
   const segments: Segment[] = []
-  const regex = /⟪(think|tool|result)⟫([\s\S]*?)⟪\/\1⟫/g
+  const regex = /⟪(think|tool|result|command)⟫([\s\S]*?)⟪\/\1⟫/g
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -257,6 +257,29 @@ const segmentStyles: Record<string, React.CSSProperties> = {
   },
 }
 
+// ── Command Terminal Block（command 段：终端风格展示命令与输出）──
+
+function CommandTerminal({ content }: { content: string }) {
+  // 序列化约定：首行为命令，其余为输出
+  const nl = content.indexOf('\n')
+  const cmd = nl >= 0 ? content.slice(0, nl) : content
+  const output = nl >= 0 ? content.slice(nl + 1) : ''
+  return (
+    <div className="terminal-block">
+      <div className="terminal-header">
+        <span className="terminal-dots">
+          <i /><i /><i />
+        </span>
+        <span className="terminal-title">execute_command</span>
+      </div>
+      <div className="terminal-body">
+        <div className="terminal-cmd"><span className="terminal-prompt">$</span> {cmd}</div>
+        {output.trim() && <pre className="terminal-output">{output}</pre>}
+      </div>
+    </div>
+  )
+}
+
 function AssistantMessage() {
   const content = useMessage((m) => m.content)
 
@@ -286,6 +309,8 @@ function AssistantMessage() {
             segments.map((seg, i) =>
               seg.type === 'text' ? (
                 <Markdown key={i} remarkPlugins={[remarkGfm]}>{seg.content}</Markdown>
+              ) : seg.type === 'command' ? (
+                <CommandTerminal key={i} content={seg.content} />
               ) : (
                 <div key={i} style={segmentStyles[seg.type]}>
                   {seg.type === 'think' ? '💭 ' : seg.type === 'tool' ? '🔧 ' : '↳ '}
