@@ -45,7 +45,7 @@ ws.onmessage = (evt) => {
   const blockType = block.type
 
   if (blockType === 'error') {
-    console.error('[FAIL] error 事件:', block.message)
+    console.error('[FAIL] error 事件:', block.text)
     process.exit(1)
   }
   if (blockType === 'tool_execution') toolExecs.push({ name: block.tool_name, output: block.output })

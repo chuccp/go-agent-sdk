@@ -55,7 +55,7 @@ ws.onmessage = async (evt) => {
 
   if (blockType === 'error') {
     gotError = true
-    console.error('[FAIL] 收到 error 事件:', block.message)
+    console.error('[FAIL] 收到 error 事件:', block.text)
   }
   if (blockType === 'delta') {
     deltas++

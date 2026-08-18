@@ -164,7 +164,7 @@ function streamHandler(evt: MessageEvent): void {
         console.log('[bridge] done block received')
         break
       case 'error':
-        event = { kind: 'error', message: block.message || 'Unknown error' }
+        event = { kind: 'error', message: block.text || block.message || 'Unknown error' }
         break
       case 'ask_user':
         // ask_user 块：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）

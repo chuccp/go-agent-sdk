@@ -43,7 +43,7 @@ ws.onmessage = (evt) => {
     console.log(`\n[tool_execution] ${block.tool_name} | args=${block.args} | output=${(block.output || '').slice(0, 120)}`)
   }
   if (blockType === 'error') {
-    console.error('[FAIL] error 事件:', block.message)
+    console.error('[FAIL] error 事件:', block.text)
     process.exit(1)
   }
   if (blockType === 'done') {

@@ -1,8 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
-
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
@@ -24,22 +22,18 @@ const (
 )
 
 type ErrorBlock struct {
-	text string
+	Text string    `json:"text"`
+	Type BlockType `json:"type"`
 }
 
 func (b *ErrorBlock) ForContext() bool {
 	return false
 }
-func (b *ErrorBlock) Text() string { return b.text }
-func (b *ErrorBlock) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
-		Type    BlockType `json:"type"`
-		Message string    `json:"message"`
-	}{Type: ErrorBlockType, Message: b.text})
-}
+
 func NewErrorBlock(text string) *ErrorBlock {
 	return &ErrorBlock{
-		text: text,
+		Text: text,
+		Type: ErrorBlockType,
 	}
 }
 
@@ -107,7 +101,7 @@ func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
 }
 
 type UsageBlock struct {
-	usage *Usage
+	Usage *Usage
 }
 
 func (b *UsageBlock) ForContext() bool {
@@ -115,7 +109,7 @@ func (b *UsageBlock) ForContext() bool {
 }
 func NewUsageBlock(usage *Usage) *UsageBlock {
 	return &UsageBlock{
-		usage: usage,
+		Usage: usage,
 	}
 }
 
