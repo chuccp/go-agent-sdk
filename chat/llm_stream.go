@@ -24,6 +24,6 @@ func (s *LLMStream) StopReason(stopReason StopReason) {
 func (s *LLMStream) Usage(usage *Usage) {
 
 }
-func (s *LLMStream) ErrorText(usage *Usage) {
+func (s *LLMStream) ErrorText(error error) {
 
 }
