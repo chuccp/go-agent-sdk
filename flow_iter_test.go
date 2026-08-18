@@ -175,7 +175,7 @@ func TestFlowIteration(t *testing.T) {
 	// ⑤ 逐项进度事件：3 条 phase=item
 	itemEvents := 0
 	for _, e := range events {
-		if e.EventType == chat.EventTypeFlowProgress && strings.Contains(e.Content, `"phase":"item"`) {
+		if e.EventType == tools.EventTypeFlowProgress && strings.Contains(e.Content, `"phase":"item"`) {
 			itemEvents++
 		}
 	}

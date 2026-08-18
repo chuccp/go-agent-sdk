@@ -271,7 +271,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	if evt == nil {
 		t.Fatal("expected ask_user event")
 	}
-	if evt.EventType != chat.EventTypeAskUser {
+	if evt.EventType != EventTypeAskUser {
 		t.Fatalf("expected ask_user event, got %q", evt.EventType)
 	}
 	var questions []Question
@@ -280,6 +280,83 @@ func TestExecute_NonBlocking(t *testing.T) {
 	}
 	if len(questions) != 1 || questions[0].Question != "What color?" {
 		t.Errorf("unexpected questions in event: %+v", questions)
+	}
+}
+
+// ── 事件配置（各 tool 自行配置推送事件）──
+
+// askTestArgs 构造一组合法的问题入参，供事件配置测试复用。
+func askTestArgs() *value.Object {
+	return value.NewObjectFromMap(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "What color?",
+				"header":   "Color",
+				"options": []any{
+					map[string]any{"label": "Red", "description": "Red color"},
+					map[string]any{"label": "Blue", "description": "Blue color"},
+				},
+			},
+		},
+	})
+}
+
+// TestExecute_CustomEventType 验证 WithAskUserEventType 定制事件类型：
+// 推送事件的类型为定制值，content 仍为问题列表 JSON，仍置 user_wait。
+func TestExecute_CustomEventType(t *testing.T) {
+	const customType chat.EventType = "custom_ask"
+	tool := NewAskUserQuestionTool(WithAskUserEventType(customType))
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("ask-custom-type")
+	client, err := manager.GetClient("ask-custom-type", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	w := chat.NewBlockStream(nil)
+	tool.Execute(agent.NewTurnWithContext(ctx, askTestArgs()), w)
+
+	if got := w.GetStopReason(); got != chat.StopReasonUserWait {
+		t.Errorf("expected StopReasonUserWait, got %q", got)
+	}
+	evt := client.ReadEvent()
+	if evt == nil {
+		t.Fatal("expected custom event")
+	}
+	if evt.EventType != customType {
+		t.Fatalf("expected %q event, got %q", customType, evt.EventType)
+	}
+	if !strings.Contains(evt.Content, "What color?") {
+		t.Errorf("event content should be question list JSON, got %q", evt.Content)
+	}
+}
+
+// TestExecute_CustomEventFactory 验证 WithAskUserEventFactory 完全定制事件构造器。
+func TestExecute_CustomEventFactory(t *testing.T) {
+	tool := NewAskUserQuestionTool(WithAskUserEventFactory(func(content string) *chat.ClientEvent {
+		return &chat.ClientEvent{EventSource: chat.SourceSystem, EventType: "factory_ask", Content: content, Message: "custom"}
+	}))
+	manager := agent.NewAgent()
+	ctx := manager.SessionContext("ask-custom-factory")
+	client, err := manager.GetClient("ask-custom-factory", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	w := chat.NewBlockStream(nil)
+	tool.Execute(agent.NewTurnWithContext(ctx, askTestArgs()), w)
+
+	evt := client.ReadEvent()
+	if evt == nil {
+		t.Fatal("expected factory event")
+	}
+	if evt.EventType != "factory_ask" || evt.EventSource != chat.SourceSystem || evt.Message != "custom" {
+		t.Fatalf("unexpected factory event: %+v", evt)
+	}
+	if !strings.Contains(evt.Content, "What color?") {
+		t.Errorf("event content should be question list JSON, got %q", evt.Content)
 	}
 }
 

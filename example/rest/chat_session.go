@@ -122,11 +122,11 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			}
 			// 跳过重复事件
 			if event.Seq != 0 && event.Seq <= lastSeq {
-				log.Info("[RELAY] skipping duplicate", zap.Uint("seq", event.Seq), zap.Uint("lastSeq", lastSeq), zap.String("type", event.EventType))
+				log.Info("[RELAY] skipping duplicate", zap.Uint("seq", event.Seq), zap.Uint("lastSeq", lastSeq), zap.String("type", string(event.EventType)))
 				continue
 			}
 			lastSeq = event.Seq
-			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", event.EventType))
+			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", string(event.EventType)))
 			if event.EventType == "done" {
 				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq))
 			}

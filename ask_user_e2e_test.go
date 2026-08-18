@@ -39,7 +39,7 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 }
 
 // findEvent 在事件列表中查找指定类型的事件。
-func findEvent(events []*chat.ClientEvent, eventType string) *chat.ClientEvent {
+func findEvent(events []*chat.ClientEvent, eventType chat.EventType) *chat.ClientEvent {
 	for _, e := range events {
 		if e.EventType == eventType {
 			return e
@@ -70,7 +70,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	events := collectUntilDone(t, client)
 
 	// ask_user 事件已推送，content 为问题列表 JSON
-	askEvt := findEvent(events, chat.EventTypeAskUser)
+	askEvt := findEvent(events, tools.EventTypeAskUser)
 	if askEvt == nil {
 		t.Fatal("未收到 ask_user 事件")
 	}

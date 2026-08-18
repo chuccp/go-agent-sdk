@@ -24,11 +24,45 @@ type Option struct {
 	Preview     string `json:"preview,omitempty"` // 可选预览内容（markdown/html），用于视觉对比
 }
 
+const EventTypeAskUser chat.EventType = "ask_user" // LLM 向用户提问，需要用户交互后继续
+// NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
+func NewAskUserEvent(content string) *chat.ClientEvent {
+	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeAskUser, Content: content}
+}
+
 // AskUserQuestionTool 让 LLM 在执行过程中向用户提出澄清问题。
 // 实现 agent.ToolExecutor 接口：执行时向前端推送 ask_user 事件并置 user_wait
 // 停止原因后立即返回（不阻塞）。user_wait 使会话主循环跳过本轮的 LLM 收尾调用、
 // 直接结束本轮；用户的回答作为下一条普通消息进入会话，触发新一轮。
-type AskUserQuestionTool struct{}
+//
+// 推送的事件由工具自身配置：默认事件构造器为 NewAskUserEvent，
+// 可通过 WithAskUserEventType / WithAskUserEventFactory 按实例定制。
+type AskUserQuestionTool struct {
+	newEvent func(content string) *chat.ClientEvent // 事件构造器，content 为问题列表 JSON
+}
+
+// AskUserQuestionOption 定制 AskUserQuestionTool 的行为。
+type AskUserQuestionOption func(*AskUserQuestionTool)
+
+// WithAskUserEventType 定制推送事件的事件类型（默认 EventTypeAskUser），
+// 事件来源仍为 SourceAI，content 仍为问题列表 JSON。
+func WithAskUserEventType(eventType chat.EventType) AskUserQuestionOption {
+	return func(t *AskUserQuestionTool) {
+		t.newEvent = func(content string) *chat.ClientEvent {
+			return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: eventType, Content: content}
+		}
+	}
+}
+
+// WithAskUserEventFactory 完全定制事件构造器，content 为问题列表 JSON。
+// 优先级高于 WithAskUserEventType（按传入顺序，后者覆盖前者）。
+func WithAskUserEventFactory(fn func(content string) *chat.ClientEvent) AskUserQuestionOption {
+	return func(t *AskUserQuestionTool) {
+		if fn != nil {
+			t.newEvent = fn
+		}
+	}
+}
 
 // Name 返回工具名称。
 func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
@@ -36,9 +70,13 @@ func (t *AskUserQuestionTool) Name() string { return t.Definition().Name }
 // UsagePrompt 实现 ToolExecutor 接口，返回空字符串（本工具无引导提示词）。
 func (t *AskUserQuestionTool) UsagePrompt() string { return "" }
 
-// NewAskUserQuestionTool 创建用户提问工具。
-func NewAskUserQuestionTool() agent.ToolExecutor {
-	return &AskUserQuestionTool{}
+// NewAskUserQuestionTool 创建用户提问工具，可选配置推送事件的类型或构造器。
+func NewAskUserQuestionTool(opts ...AskUserQuestionOption) agent.ToolExecutor {
+	t := &AskUserQuestionTool{newEvent: NewAskUserEvent}
+	for _, opt := range opts {
+		opt(t)
+	}
+	return t
 }
 
 func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
@@ -132,7 +170,7 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream
 		writer.WriteErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	ctx.AddEvent(chat.NewAskUserEvent(string(questionsJSON)))
+	ctx.AddEvent(t.newEvent(string(questionsJSON)))
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮

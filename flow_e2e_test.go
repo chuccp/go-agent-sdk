@@ -160,7 +160,7 @@ func collectUntilDone(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 	}
 }
 
-func hasEvent(events []*chat.ClientEvent, eventType string) bool {
+func hasEvent(events []*chat.ClientEvent, eventType chat.EventType) bool {
 	for _, e := range events {
 		if e.EventType == eventType {
 			return true
@@ -190,7 +190,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	events := collectUntilDone(t, client)
 
 	// ① flow_progress 事件已推送（start/done 等）
-	if !hasEvent(events, chat.EventTypeFlowProgress) {
+	if !hasEvent(events, tools.EventTypeFlowProgress) {
 		t.Error("未收到 flow_progress 事件")
 	}
 	// ② 主 LLM 共 5 轮：4 轮工具调用 + 1 轮收尾文本

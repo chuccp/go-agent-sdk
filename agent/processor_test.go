@@ -163,7 +163,7 @@ func collectEvents(t *testing.T, client *agent.Client) []*chat.ClientEvent {
 }
 
 // assertEventType 验证事件列表中包含指定类型的事件。
-func assertEventType(t *testing.T, events []*chat.ClientEvent, wantType string) {
+func assertEventType(t *testing.T, events []*chat.ClientEvent, wantType chat.EventType) {
 	t.Helper()
 	for _, e := range events {
 		if e.EventType == wantType {
