@@ -121,7 +121,7 @@ func main() {
 type Block interface { ForContext() bool }  // 声明该块是否进入 LLM 上下文
 
 // 具体类型（均带 Type BlockType 字段）
-TextBlock       { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / tool_result / flow_progress
+TextBlock       { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / flow_progress
 ThinkingBlock   { Thinking string }
 ImageBlock      { Source *ImageSource }
 ToolUseBlock    { ID, Name string; Input *value.Object }
@@ -205,8 +205,8 @@ type HistoryStore interface {
 {"seq": 5, "block": {"type": "start", "block": {"type": "text"}}}
 {"seq": 6, "block": {"type": "delta", "content": "你好！当前目录是："}}
 
-# 工具输出（text_type=tool_result，tool_use_id 关联对应 tool_use，命令经 tool_use 入参流式下发）
-{"seq": 7, "block": {"type": "start", "block": {"type": "text", "text_type": "tool_result", "tool_use_id": "call_00"}}}
+# 工具输出（携带 tool_use_id 关联对应 tool_use，命令经 tool_use 入参流式下发）
+{"seq": 7, "block": {"type": "start", "block": {"type": "text", "tool_use_id": "call_00"}}}
 {"seq": 8, "block": {"type": "delta", "content": "OS Name: ..."}}
 
 # LLM 向用户提问（AskUserQuestion 工具）

@@ -108,7 +108,6 @@ type TextType string
 const (
 	ErrorTextType    TextType = "error"
 	CMDTextType      TextType = "cmd"
-	ToolResultType   TextType = "tool_result"
 	FlowProgressType TextType = "flow_progress"
 )
 
@@ -133,11 +132,9 @@ func NewTextBlock() *TextBlock {
 
 func NewToolResultTextBlock(toolUseId string) *TextBlock {
 	return &TextBlock{
-		TextType:  ToolResultType,
 		ToolUseId: toolUseId,
 		Type:      TextBlockType,
 	}
-
 }
 
 func NewErrorTextBlock() *TextBlock {
