@@ -59,6 +59,23 @@ let askUserHandler: ((questionsJson: string) => void) | null = null
 
 // 当前流式块类型（由 StartBlock 设置，Delta 据此路由）
 let currentStreamBlockType: string | null = null
+// 当前 tool_use 的工具名（用于识别 execute_command）
+let currentToolName: string | null = null
+// 当前 tool_use 入参 JSON 累积（用于解析 execute_command 的 command）
+let toolInputJson = ''
+// execute_command 命令 FIFO：多个工具时，按执行顺序与后续文本输出一一对应
+let commandQueue: string[] = []
+// 当前文本输出对应的命令（非空表示后续 text delta 是该命令的输出）
+let activeCommand: string | null = null
+
+// parseCommand 从 tool_use 入参 JSON 中解析 command；解析失败退回原始入参。
+function parseCommand(json: string): string {
+  try {
+    const obj = JSON.parse(json)
+    if (typeof obj?.command === 'string' && obj.command) return obj.command
+  } catch { /* ignore */ }
+  return json.trim()
+}
 
 let runCounter = 0  // 调试：追踪第几轮 run
 
@@ -109,9 +126,19 @@ export function setupStreamBridge(ws: WebSocket): void {
   pendingBuffer = []
   directDispatch = null
   pendingTrigger = new Promise<void>(resolve => { triggerResolve = resolve })
+  resetStreamBlockState()
   console.log('[bridge] setupStreamBridge: trigger created, buffer cleared')
 
   ws.addEventListener('message', streamHandler)
+}
+
+// resetStreamBlockState 重置流式块追踪状态（连接建立 / 一轮结束时调用）。
+function resetStreamBlockState(): void {
+  currentStreamBlockType = null
+  currentToolName = null
+  toolInputJson = ''
+  commandQueue = []
+  activeCommand = null
 }
 
 function streamHandler(evt: MessageEvent): void {
@@ -125,24 +152,67 @@ function streamHandler(evt: MessageEvent): void {
 
     let event: StreamEvent | null = null
     switch (blockType) {
-      case 'start':
+      case 'start': {
         // 流式块开始标记：记录类型，后续 delta 据此路由（thinking vs text）
-        currentStreamBlockType = block.block?.type || null
-        console.log('[streamHandler] start block, inner type:', currentStreamBlockType)
+        const inner = block.block
+        const innerType = inner?.type || null
+        const innerName = inner?.name || null
+        const wasToolUse = currentStreamBlockType === 'tool_use'
+
+        // 上一个 execute_command 的入参已收齐：命令入队（供后续文本输出作为命令头）
+        if (wasToolUse && currentToolName === 'execute_command') {
+          const cmd = parseCommand(toolInputJson)
+          if (cmd) commandQueue.push(cmd)
+        }
+
+        if (innerType === 'tool_use') {
+          // 新 tool_use 开始：清掉输出命令，开始累积下一个入参
+          activeCommand = null
+          currentToolName = innerName
+          toolInputJson = ''
+        } else {
+          // 文本/思考块：取队首命令作为输出头（多个工具连续输出时逐个消费）
+          if (commandQueue.length > 0) {
+            activeCommand = commandQueue.shift() ?? null
+          } else if (!wasToolUse) {
+            activeCommand = null
+          }
+          currentToolName = null
+          toolInputJson = ''
+        }
+        currentStreamBlockType = innerType
+        console.log('[streamHandler] start block, inner type:', innerType, 'name:', innerName)
         return
+      }
       case 'delta':
-        // 流式增量：根据当前块类型路由（thinking → thinking 事件，其他 → chunk）
+        // 流式增量：按当前块类型路由（tool_use 入参 / thinking / 命令输出 / 文本）
         if (block.content) {
-          if (currentStreamBlockType === 'thinking') {
+          if (currentStreamBlockType === 'tool_use') {
+            // tool_use 入参 JSON：execute_command 累积解析命令，其他工具按文本回显
+            if (currentToolName === 'execute_command') {
+              toolInputJson += block.content
+            } else {
+              event = { kind: 'chunk', text: block.content }
+            }
+          } else if (currentStreamBlockType === 'thinking') {
             event = { kind: 'thinking', text: block.content }
+          } else if (activeCommand !== null) {
+            // 命令输出阶段的文本增量 → command 事件（前端终端样式渲染）
+            event = { kind: 'command', command: activeCommand, output: block.content }
           } else {
             event = { kind: 'chunk', text: block.content }
           }
         }
         break
       case 'text':
-        // 完整文本块（工具输出等）→ chunk
-        if (block.text) event = { kind: 'chunk', text: block.text }
+        // 完整文本块（工具输出/错误补充等）：命令输出阶段并入 command，否则 chunk
+        if (block.text) {
+          if (activeCommand !== null) {
+            event = { kind: 'command', command: activeCommand, output: block.text }
+          } else {
+            event = { kind: 'chunk', text: block.text }
+          }
+        }
         break
       case 'thinking':
         // 完整 thinking 块 → thinking
@@ -161,6 +231,7 @@ function streamHandler(evt: MessageEvent): void {
         break
       case 'done':
         event = { kind: 'done' }
+        resetStreamBlockState()
         console.log('[bridge] done block received')
         break
       case 'error':
