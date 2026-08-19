@@ -226,7 +226,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	client.SendText("use echo tool")
 
 	events := collectEvents(t, client)
-	hasBlockTypeInEvents(t, events, &chat.ToolExecutionBlock{})
+	// 工具输出已通过 TextBlock 流式推送，不再单独发 ToolExecutionBlock（避免重复）
 	hasBlockTypeInEvents(t, events, &chat.TextBlock{})
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }

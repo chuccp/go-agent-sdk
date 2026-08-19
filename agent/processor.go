@@ -282,7 +282,7 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 		text.WriteString("(无输出)")
 	}
 	resultText := text.String()
-	ctx.AddBlock(chat.NewToolExecutionBlock(tu.Name, toolArgsDisplay(tu.Input), resultText))
+	//ctx.AddBlock(chat.NewToolExecutionBlock(tu.Name, toolArgsDisplay(tu.Input), resultText))
 	content = append(chat.Blocks{chat.NewErrorFullTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)
 }

@@ -82,10 +82,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 		t.Fatalf("问题内容不符: %+v", questions)
 	}
 
-	// tool_execution block 存在（工具非阻塞执行完成并产出 tool_result）
-	if !hasBlockType(events, &chat.ToolExecutionBlock{}) {
-		t.Error("未收到 tool_execution block")
-	}
+	// 工具输出已流式推送（TextBlock），不再单独发 ToolExecutionBlock
 
 	// ── 第二轮：用户回答作为普通消息 ──
 	if err := client.SendText("Red"); err != nil {

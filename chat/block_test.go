@@ -168,6 +168,67 @@ func TestBlocks_MarshalErrorText(t *testing.T) {
 	}
 }
 
+func TestBlocks_RoundTrip(t *testing.T) {
+	orig := Blocks{
+		NewUsageBlock(&Usage{InputTokens: 104, OutputTokens: 0}),
+		&ThinkingBlock{Thinking: "思考中", Type: ThinkingBlockType},
+		NewFullTextBlock("你好"),
+		func() *ToolUseBlock {
+			tu := NewToolUseBlock("call_00", "execute_command")
+			tu.Input = value.NewObjectFromMap(map[string]any{"command": "ver"})
+			return tu
+		}(),
+		NewToolResultBlock("call_00", Blocks{NewErrorFullTextBlock("Microsoft Windows")}),
+	}
+
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got Blocks
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(got) != len(orig) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(orig))
+	}
+
+	if u, ok := got[0].(*UsageBlock); !ok {
+		t.Errorf("block[0] = %T, want *UsageBlock", got[0])
+	} else if u.Usage == nil || u.Usage.InputTokens != 104 {
+		t.Errorf("usage mismatch: %+v", u.Usage)
+	}
+
+	if th, ok := got[1].(*ThinkingBlock); !ok {
+		t.Errorf("block[1] = %T, want *ThinkingBlock", got[1])
+	} else if th.Thinking != "思考中" {
+		t.Errorf("thinking mismatch: %q", th.Thinking)
+	}
+
+	if tb, ok := got[2].(*TextBlock); !ok {
+		t.Errorf("block[2] = %T, want *TextBlock", got[2])
+	} else if tb.Text != "你好" {
+		t.Errorf("text mismatch: %q", tb.Text)
+	}
+
+	if tu, ok := got[3].(*ToolUseBlock); !ok {
+		t.Errorf("block[3] = %T, want *ToolUseBlock", got[3])
+	} else if tu.Input == nil || tu.Input.GetString("command") != "ver" {
+		t.Errorf("tool_use input mismatch: %v", tu.Input)
+	}
+
+	if tr, ok := got[4].(*ToolResultBlock); !ok {
+		t.Errorf("block[4] = %T, want *ToolResultBlock", got[4])
+	} else if len(tr.Content) != 1 {
+		t.Errorf("tool_result content length = %d, want 1", len(tr.Content))
+	} else if tb, ok := tr.Content[0].(*TextBlock); !ok {
+		t.Errorf("tool_result content[0] = %T, want *TextBlock", tr.Content[0])
+	} else if tb.Text != "Microsoft Windows" {
+		t.Errorf("tool_result content text mismatch: %q", tb.Text)
+	}
+}
+
 func TestBlocks_ForContext(t *testing.T) {
 	cases := []struct {
 		block Block

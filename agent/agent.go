@@ -21,19 +21,22 @@ type Agent struct {
 	workflowManager *workflow.Manager
 }
 
-func NewAgent(opt ...chat.Option) *Agent {
-	opts := chat.DefaultOptions()
-	for _, o := range opt {
-		o(opts)
-	}
+func NewAgent() *Agent {
 	return &Agent{
 		sessions:        make(map[string]*session),
 		lock:            new(sync.RWMutex),
 		registry:        chat.NewProviderRegistry(),
 		toolExecutors:   make([]ToolExecutor, 0),
-		opts:            opts,
+		opts:            chat.DefaultOptions(),
 		workflowManager: workflow.NewManager(),
 	}
+}
+func (m *Agent) ChatOption(opt ...chat.Option) {
+	opts := chat.DefaultOptions()
+	for _, o := range opt {
+		o(opts)
+	}
+	m.opts = opts
 }
 func (m *Agent) AddWorkflows(workflows ...*exec.Workflow) {
 	m.workflowManager.AddWorkflow(workflows...)

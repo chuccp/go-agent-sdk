@@ -143,7 +143,7 @@ function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'
 // ── Message Queue Context ──
 
 export interface QueuedMessage {
-  id: number
+  id: string
   status: 'queued' | 'consumed'
 }
 
@@ -353,20 +353,32 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
           if (block.type === 'User') {
             // 用户消息状态变更（替代旧的 message_sent/queued/consumed）
             const content = block.content?.[0]?.text || ''
-            const msgId = msg.seq ?? 0
+            // 稳定消息 ID：sent/queued/consume 三条状态事件共享同一 id（后端 UserBlock.id），
+            // 用于队列栏状态迁移与清理；缺失时退回事件 seq
+            const msgId = block.id ?? String(msg.seq ?? 0)
             if (block.block_user_type === 'queued') {
               // 消息进入等待队列
               setQueuedMessages(prev => [...prev, { id: msgId, status: 'queued' as const }])
-            } else {
-              // sent / consume：消息已被处理 → 触发流
-              console.log('[ws] User block (sent/consume):', content.substring(0, 30))
-              setQueuedMessages(prev => [...prev, { id: msgId, status: 'consumed' as const }])
+            } else if (block.block_user_type === 'consume') {
+              // 后端确认消费：同一条消息由 queued 迁移为 consumed，并触发显示 + 启动流
+              // （旧 message_consumed 语义）。sent 是 consume 之前的冗余受理状态，两者内容
+              // 相同；若都触发会重复 append 用户消息（done 后回显）并可能重复启动 run。
+              console.log('[ws] User block (consume):', content.substring(0, 30))
+              setQueuedMessages(prev =>
+                prev.map(m => (m.id === msgId ? { ...m, status: 'consumed' as const } : m))
+              )
               setTimeout(() => {
                 setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
               }, 600)
               if (content) {
                 consumeMessageRef.current(content)
               }
+            } else {
+              // sent：消息已被受理，仅更新状态栏（旧 message_sent 语义），不触发显示
+              setQueuedMessages(prev => [...prev, { id: msgId, status: 'consumed' as const }])
+              setTimeout(() => {
+                setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
+              }, 600)
             }
           }
         } catch { /* ignore */ }
