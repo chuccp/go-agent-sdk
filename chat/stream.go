@@ -202,6 +202,11 @@ func NewToolResultBlockStream(blockStream *BlockStream, ToolUseId string) *ToolR
 func (s *ToolResultBlockStream) BlockTextStart() {
 	s.blockStream.BlockStart(NewToolResultTextBlock(s.ToolUseId))
 }
+func (s *ToolResultBlockStream) BlockTextTypeStart(textType TextType) {
+	toolResultText := NewToolResultTextBlock(s.ToolUseId)
+	toolResultText.TextType = textType
+	s.blockStream.BlockStart(toolResultText)
+}
 func (s *ToolResultBlockStream) Delta(content string) {
 	s.blockStream.Delta(content)
 }
@@ -210,9 +215,21 @@ func (s *ToolResultBlockStream) ErrorText(error error) {
 	block.Text = error.Error()
 	s.blockStream.Block(block)
 }
+func (s *ToolResultBlockStream) ErrorTextType(error error, textType TextType) {
+	block := NewToolResultTextBlock(s.ToolUseId)
+	block.Text = error.Error()
+	block.TextType = textType
+	s.blockStream.Block(block)
+}
 func (s *ToolResultBlockStream) FullText(content string) {
 	block := NewToolResultTextBlock(s.ToolUseId)
 	block.Text = content
+	s.blockStream.Block(block)
+}
+func (s *ToolResultBlockStream) FullTextType(content string, textType TextType) {
+	block := NewToolResultTextBlock(s.ToolUseId)
+	block.Text = content
+	block.TextType = textType
 	s.blockStream.Block(block)
 }
 
