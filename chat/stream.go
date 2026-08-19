@@ -26,7 +26,7 @@ type Usage struct {
 }
 
 type BlockReceiver interface {
-	AddBlock(block Block)
+	SendBlock(block Block)
 }
 
 type assemblerBlock struct {
@@ -133,14 +133,14 @@ func (s *BlockStream) Usage(usage *Usage) {
 }
 func (s *BlockStream) flushAndAdd(block Block) {
 	if s.receiver != nil {
-		s.receiver.AddBlock(block)
+		s.receiver.SendBlock(block)
 	}
 	s.flush()
 	s.blocks = append(s.blocks, block)
 }
 func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
 	if s.receiver != nil {
-		s.receiver.AddBlock(NewStartBlock(block))
+		s.receiver.SendBlock(NewStartBlock(block))
 	}
 	s.flush()
 	s.assemblerBlock.start(block)
@@ -170,7 +170,7 @@ func (s *BlockStream) isEmptyBlock(block UseDeltaBlock) bool {
 }
 func (s *BlockStream) delta(content string) {
 	if s.receiver != nil {
-		s.receiver.AddBlock(NewDeltaBlock(content))
+		s.receiver.SendBlock(NewDeltaBlock(content))
 	}
 	s.assemblerBlock.delta(content)
 }

@@ -346,7 +346,7 @@ const (
 )
 
 type UserBlock struct {
-	ID            string        `json:"id,omitempty"` // 用户消息稳定 ID：sent/queued/consume 同一条消息共享
+	ID            uint64        `json:"id,omitempty"` // 用户消息稳定 ID：sent/queued/consume 同一条消息共享
 	Type          BlockType     `json:"type"`
 	BlockUserType BlockUserType `json:"block_user_type"`
 	Content       Blocks        `json:"content,omitempty"` // string 或 []Block
@@ -355,13 +355,14 @@ type UserBlock struct {
 func (b *UserBlock) ForContext() bool {
 	return true
 }
-func NewUserBlock(id, text string, blockUserType BlockUserType) *UserBlock {
+func NewUserTextBlock(id uint64, text string, blockUserType BlockUserType) *UserBlock {
+	return NewUserBlock(id, []Block{NewFullTextBlock(text)}, blockUserType)
+}
+func NewUserBlock(id uint64, blocks Blocks, blockUserType BlockUserType) *UserBlock {
 	return &UserBlock{
 		ID:            id,
 		Type:          UserBlockType,
 		BlockUserType: blockUserType,
-		Content: []Block{
-			NewFullTextBlock(text),
-		},
+		Content:       blocks,
 	}
 }

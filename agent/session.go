@@ -30,7 +30,7 @@ func (s *session) LoadHistory() error {
 }
 
 // newClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
-func (s *session) newClient(start uint) *Client {
+func (s *session) newClient(start uint64) *Client {
 	return s.sessionContext.GetChatClient(start, s)
 }
 

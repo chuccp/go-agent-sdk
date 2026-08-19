@@ -8,7 +8,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/value"
-	"github.com/spf13/cast"
 )
 
 // QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
@@ -31,12 +30,14 @@ func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
 type messageProcessor struct {
 	ctx           *SessionContext
 	toolExecutors []ToolExecutor
+	no            uint64
 }
 
 func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
 	p := &messageProcessor{
 		ctx:           sessionContext,
 		toolExecutors: sessionContext.toolExecutors,
+		no:            0,
 	}
 	return p
 }
@@ -55,18 +56,21 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 
 	if !ctx.running {
 		ctx.running = true
-		ctx.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Sent))
+		ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Sent))
 		util.GoWithRecover(func() {
 			p.doLoop()
 		}, func(r any) {
 			log.Printf("[chatSession] run panic recovered: %v", r)
 			evt := chat.NewErrorBlock("internal error")
-			ctx.AddBlock(evt)
+			ctx.SendBlock(p.no, evt)
 		})
 	} else {
-		ctx.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Queued))
+		ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Queued))
 	}
 	return nil
+}
+func (p *messageProcessor) SendBlock(block chat.Block) {
+	p.ctx.SendBlock(p.no, block)
 }
 
 // doLoop 会话主循环：执行单轮 LLM 交互（executeRound：构建请求、流式调用）与
@@ -91,7 +95,7 @@ func (p *messageProcessor) doLoop() {
 		blocks, stopReason, err := p.executeRound()
 
 		if p.roundStopped(ctx) {
-			ctx.AddBlock(chat.NewDoneBlock())
+			p.SendBlock(chat.NewDoneBlock())
 			p.finishStoppedRound(ctx)
 			continue
 		}
@@ -113,7 +117,7 @@ func (p *messageProcessor) doLoop() {
 				// 轮次在工具阶段被停止：已产出的 tool_result 仍须入历史，
 				// 否则历史以无 tool_result 的 tool_use 结尾，下次请求会被 LLM API 拒绝；
 				// done 在历史写入前发出，被其 Offset 覆盖，重连不重放
-				ctx.AddBlock(chat.NewDoneBlock())
+				p.SendBlock(chat.NewDoneBlock())
 				ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 				p.finishStoppedRound(ctx)
 				continue
@@ -122,7 +126,7 @@ func (p *messageProcessor) doLoop() {
 				// 工具请求暂停（如 ask_user_question 等待用户回答）：本轮到此结束。
 				// done 在 tool_result 历史写入前发出，被其 Offset 覆盖，
 				// 前端根据历史计算的 start 落在 done 之后，重连时不重放残留的 done
-				ctx.AddBlock(chat.NewDoneBlock())
+				p.SendBlock(chat.NewDoneBlock())
 			}
 			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 			if toolStop != chat.StopReasonUserWait {
@@ -132,7 +136,7 @@ func (p *messageProcessor) doLoop() {
 		} else {
 			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
 			// 前端根据历史计算的 start 会落在 done 之后，重连时不重放残留的 done
-			ctx.AddBlock(chat.NewDoneBlock())
+			p.SendBlock(chat.NewDoneBlock())
 			ctx.appendAssistantMessage(blocks)
 		}
 
@@ -167,6 +171,16 @@ func (p *messageProcessor) finishStoppedRound(ctx *SessionContext) {
 	}
 }
 
+func (p *messageProcessor) ChatWithStream(messages *chat.Request) (chat.Blocks, chat.StopReason, error) {
+	stream := chat.NewBlockStream(p)
+	provider := p.ctx.registry.DefaultProvider()
+	err := p.ctx.registry.ChatWithStream(p.ctx.runCtx, provider, messages, stream)
+	if err != nil {
+		return nil, "", err
+	}
+	return stream.ReadBlocks(), stream.GetStopReason(), nil
+}
+
 // executeRound 执行一轮 LLM 交互：排干 inbox 构建请求、流式调用并收集内容块。
 // 返回 nil blocks 表示 inbox 为空（已将 running 置 false）。
 // 锁协议：进入时持有 runLock，LLM 网络调用期间释放，返回前恢复持锁。
@@ -184,7 +198,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 
 	// ChatWithStream 内部创建独享 BlockStream（组装 Block、推送增量事件），
 	// 同步完成后一次性返回全部结果
-	blocks, stopReason, callErr := ctx.ChatWithStream(request)
+	blocks, stopReason, callErr := p.ChatWithStream(request)
 
 	// ===== 重新持锁 =====
 	ctx.runLock.Lock()
@@ -198,7 +212,7 @@ func (p *messageProcessor) executeRound() (chat.Blocks, chat.StopReason, error) 
 		ctx.running = false
 
 		evt := chat.NewErrorBlock(callErr.Error())
-		ctx.AddBlock(evt)
+		p.SendBlock(evt)
 		return nil, "", callErr
 	}
 	return blocks, stopReason, nil
@@ -254,7 +268,7 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 	turn := &Turn{ctx: ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
-	writer := chat.NewBlockStream(ctx)
+	writer := chat.NewBlockStream(p)
 	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
 	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
 	writer.StopReason(chat.StopReasonToolResult)
@@ -279,7 +293,7 @@ func (p *messageProcessor) collectToolResult(ctx *SessionContext, tu *chat.ToolU
 		text.WriteString("(无输出)")
 	}
 	resultText := text.String()
-	//ctx.AddBlock(chat.NewToolExecutionBlock(tu.Name, toolArgsDisplay(tu.Input), resultText))
+	//ctx.SendBlock(chat.NewToolExecutionBlock(tu.Name, toolArgsDisplay(tu.Input), resultText))
 	content = append(chat.Blocks{chat.NewErrorFullTextBlock(resultText)}, content...)
 	return chat.NewToolResultBlock(tu.ID, content)
 }

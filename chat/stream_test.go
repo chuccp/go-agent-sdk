@@ -247,13 +247,13 @@ func TestBlockStream_FlushesActiveBlock(t *testing.T) {
 	}
 }
 
-// ── BlockReceiver：AddBlock 被调用 ──
+// ── BlockReceiver：SendBlock 被调用 ──
 
 type testReceiver struct {
 	blocks []Block
 }
 
-func (r *testReceiver) AddBlock(block Block) {
+func (r *testReceiver) SendBlock(block Block) {
 	r.blocks = append(r.blocks, block)
 }
 

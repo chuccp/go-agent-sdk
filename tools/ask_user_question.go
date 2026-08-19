@@ -154,7 +154,7 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultB
 		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	ctx.AddBlock(NewAskUserBlock(string(questionsJSON)))
+	ctx.SendBlock(0, NewAskUserBlock(string(questionsJSON)))
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮

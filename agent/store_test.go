@@ -6,7 +6,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// ── Store: AddBlock / ReadFrom ──
+// ── Store: SendBlock / ReadFrom ──
 
 func TestStore_AddAndReadFrom_SinglePosition(t *testing.T) {
 	s := NewStore("s1", nil)

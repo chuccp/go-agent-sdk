@@ -10,7 +10,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-agent-sdk/value"
-	"github.com/spf13/cast"
 )
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
@@ -40,13 +39,13 @@ func (c *SessionContext) GetSeq() uint64 {
 	return atomic.AddUint64(&c.seq, 1)
 }
 
-// AddBlock 追加事件到存储并通知所有客户端。
-func (c *SessionContext) AddBlock(block chat.Block) {
-	c.events.AddBlock(block)
+// SendBlock 追加事件到存储并通知所有客户端。
+func (c *SessionContext) SendBlock(no uint64, block chat.Block) {
+	c.events.AddBlock(no, block)
 	c.Flush()
 }
-func (c *SessionContext) AddErrorBlock(error error) {
-	c.events.AddBlock(chat.NewErrorBlock(error.Error()))
+func (c *SessionContext) AddErrorBlock(no uint64, error error) {
+	c.events.AddBlock(no, chat.NewErrorBlock(error.Error()))
 	c.Flush()
 }
 
@@ -89,7 +88,7 @@ func (c *SessionContext) DeleteClient(client *Client) {
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
-func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
+func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
 	position := c.events.GetPosition(start)
 	chatClient := &Client{
 		queue:    util.NewQueue[bool](),
@@ -105,18 +104,9 @@ func (c *SessionContext) GetChatClient(start uint, handler handler) *Client {
 // ── 会话主体能力（主循环调用）──
 
 // ChatWithStream 使用默认 provider 发起流式对话请求，返回组装完成的全部 Block 与 stop_reason。
-// 内部创建独享 BlockStream 并以本上下文作为事件接收方（AddBlock），
+// 内部创建独享 BlockStream 并以本上下文作为事件接收方（SendBlock），
 // 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
-func (c *SessionContext) ChatWithStream(messages *chat.Request) (chat.Blocks, chat.StopReason, error) {
-	stream := chat.NewBlockStream(c)
-	provider := c.registry.DefaultProvider()
-	err := c.registry.ChatWithStream(c.runCtx, provider, messages, stream)
-	if err != nil {
-		return nil, "", err
-	}
-	return stream.ReadBlocks(), stream.GetStopReason(), nil
-}
-
+// func (c *SessionContext) ChatWithStream
 // ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
 // 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
 func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
@@ -149,7 +139,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 // ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
 // 返回该消息附带的 per-turn 选项。
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
-	c.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Consume))
+	//c.SendBlock(chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Consume))
 	msg := qm.msg.ToMessage()
 	c.events.AppendHistory(&msg)
 	return qm.opts

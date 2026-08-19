@@ -33,8 +33,8 @@ func (m *WsChatMessage) Type() string { return ChatType }
 
 // WsCreateMessage 客户端请求创建/接入会话。
 type WsCreateMessage struct {
-	SessionId uint `json:"session_id"`
-	Start     uint `json:"start"`
+	SessionId uint   `json:"session_id"`
+	Start     uint64 `json:"start"`
 }
 
 func (m *WsCreateMessage) Type() string { return CreateType }

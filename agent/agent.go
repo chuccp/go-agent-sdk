@@ -96,7 +96,7 @@ func (m *Agent) History(id string) ([]*chat.Message, error) {
 	return session.History(), nil
 }
 
-func (m *Agent) GetClient(id string, start uint) (*Client, error) {
+func (m *Agent) GetClient(id string, start uint64) (*Client, error) {
 	m.lock.Lock()
 	session := m.getOrCreateSession(id)
 	m.lock.Unlock()

@@ -19,19 +19,21 @@ type HistoryStore interface {
 }
 
 type Event struct {
-	Seq   uint       `json:"seq"`
+	No    uint64     `json:"no"`
+	Seq   uint64     `json:"seq"`
 	Block chat.Block `json:"block"`
 }
 
-func NewEvent(seq uint, block chat.Block) *Event {
+func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	return &Event{
+		No:    no,
 		Seq:   seq,
 		Block: block,
 	}
 }
 
 type Position struct {
-	start uint
+	start uint64
 }
 
 type Store struct {
@@ -41,8 +43,8 @@ type Store struct {
 	historyStore HistoryStore
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*Event]
-	seq          uint // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
-	pending      int  // 自上次 AppendHistory 以来新增的事件数
+	seq          uint64 // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
+	pending      uint64 // 自上次 AppendHistory 以来新增的事件数
 	positions    *util.SliceArray[*Position]
 }
 
@@ -56,10 +58,10 @@ func NewStore(sessionId string, historyStore HistoryStore) *Store {
 		positions:    new(util.SliceArray[*Position]),
 	}
 }
-func (l *Store) AddBlock(block chat.Block) uint {
+func (l *Store) AddBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	event := NewEvent(l.seq, block)
+	event := NewEvent(no, l.seq, block)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
@@ -92,7 +94,7 @@ func (l *Store) ReadFrom(position *Position) *Event {
 // start 为初始读取偏移，返回的 Position 由 client 持有并随读取推进。
 // 若 start 超过当前写头（如根据持久化历史计算的偏移，而事件流已随服务重启重置），
 // 则钳制到写头，保证之后新产生的事件（seq 从写头开始分配）都能被读到。
-func (l *Store) GetPosition(start uint) *Position {
+func (l *Store) GetPosition(start uint64) *Position {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if start > l.seq {
@@ -112,12 +114,12 @@ func (l *Store) RemovePosition(position *Position) {
 
 // minPosition 返回所有已注册 position 中 Start 最小的值。
 // 若无 position，返回 0。
-func (l *Store) minPosition() uint {
+func (l *Store) minPosition() uint64 {
 	// 调用方已持有 l.mu，无需再加锁
 	if l.positions.Len() == 0 {
 		return 0
 	}
-	var m uint
+	var m uint64
 	first := true
 	for i := 0; i < l.positions.Len(); i++ {
 		v := l.positions.Get(i).start
@@ -170,7 +172,7 @@ func (l *Store) LoadHistory() error {
 		if err != nil {
 			return err
 		}
-		var head uint
+		var head uint64
 		for i := range msgs {
 			l.history0.Append(&msgs[i])
 			// 取所有消息 start+offset 的最大值作为事件流偏移恢复点
@@ -202,9 +204,9 @@ func (l *Store) History() []*chat.Message {
 func (l *Store) AppendHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	msg.Offset = uint(l.pending)
+	msg.Offset = l.pending
 	if l.pending > 0 {
-		msg.Start = l.seq - uint(l.pending)
+		msg.Start = l.seq - l.pending
 	}
 	l.pending = 0
 	l.tempHistory.Append(msg)

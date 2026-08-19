@@ -15,7 +15,7 @@ type blockRecorder struct {
 	blocks []chat.Block
 }
 
-func (r *blockRecorder) AddBlock(block chat.Block) {
+func (r *blockRecorder) SendBlock(block chat.Block) {
 	r.blocks = append(r.blocks, block)
 }
 

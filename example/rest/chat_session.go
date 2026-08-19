@@ -113,7 +113,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	defer session.Release()
 
 	sdkutil.Go(func() {
-		var lastSeq uint
+		var lastSeq uint64
 		for {
 			event := session.ReadEvent()
 			if event == nil {
@@ -122,7 +122,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			}
 			// 跳过重复事件
 			if event.Seq != 0 && event.Seq <= lastSeq {
-				log.Info("[RELAY] skipping duplicate", zap.Uint("seq", event.Seq), zap.Uint("lastSeq", lastSeq), zap.String("type", blockTypeName(event.Block)))
+				log.Info("[RELAY] skipping duplicate", zap.Uint64("seq", (event.Seq)), zap.Uint64("lastSeq", (lastSeq)), zap.String("type", blockTypeName(event.Block)))
 				continue
 			}
 			lastSeq = event.Seq
@@ -131,9 +131,9 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			if blockType == "usage" || blockType == "unknown" {
 				continue
 			}
-			log.Info("[RELAY] sending event", zap.Uint("seq", event.Seq), zap.String("type", blockType))
+			log.Info("[RELAY] sending event", zap.Uint64("seq", event.Seq), zap.String("type", blockType))
 			if blockType == "done" {
-				log.Info("[RELAY] sending DONE event", zap.Uint("seq", event.Seq))
+				log.Info("[RELAY] sending DONE event", zap.Uint64("seq", event.Seq))
 			}
 			data, err := json.Marshal(event)
 			if err != nil {
@@ -187,7 +187,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 
 // writeError 向前端发送错误事件
 func writeError(stream *web.WebSocketStream, err error) {
-	data, _ := json.Marshal(agent.NewEvent(0, chat.NewErrorBlock(err.Error())))
+	data, _ := json.Marshal(agent.NewEvent(0, 0, chat.NewErrorBlock(err.Error())))
 	_ = stream.WriteText(context.Background(), data)
 }
 
