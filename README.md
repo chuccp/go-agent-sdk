@@ -63,6 +63,8 @@ go-agent-sdk/
 package main
 
 import (
+    "fmt"
+
     "github.com/chuccp/go-agent-sdk/agent"
     "github.com/chuccp/go-agent-sdk/chat"
     "github.com/chuccp/go-agent-sdk/tools"
@@ -70,41 +72,39 @@ import (
 
 func main() {
     // 1. 创建 Agent
-    agent := agent.NewAgent(
+    a := agent.NewAgent()
+    a.ChatOption(
         chat.WithModel("deepseek-v4-flash"),
         chat.WithMaxTokens(4096),
         chat.WithThinking(chat.ThinkingLow),
     )
 
     // 2. 注册 LLM 提供商
-    agent.RegisterChat("my-provider", myChatService, true)
+    a.RegisterChat("my-provider", myChatService, true)
 
     // 3. 注册工具（可选）
-    agent.AddTools(tools.NewCommandTool())
+    a.AddTools(tools.NewCommandTool())
 
     // 4. 设置持久化（可选）
-    agent.SetHistoryStore(myHistoryStore)
+    a.SetHistoryStore(myHistoryStore)
 
     // 5. 获取客户端（session_id + 起始偏移）
-    client, _ := agent.GetClient("session-1", 0)
+    client, _ := a.GetClient("session-1", 0)
 
     // 6. 发送消息
     client.SendText("你好，帮我查看当前目录")
 
-    // 7. 读取事件流
+    // 7. 读取事件流（Event.Block 按 type 字段多态分发）
     for {
         event := client.ReadEvent()
         if event == nil {
             break
         }
-        switch event.EventType {
-        case "chunk":
-            print(event.Content) // 流式文本
-        case "thinking":
-            print(event.Content) // 思考链
-        case "tool_execution":
-            println("工具执行:", event.Message, event.Content)
-        case "done":
+        switch b := event.Block.(type) {
+        case *chat.DeltaBlock:
+            fmt.Print(b.Content) // 流式增量
+        case *chat.DoneBlock:
+            fmt.Println()
             return
         }
     }
@@ -115,17 +115,18 @@ func main() {
 
 ### Block（内容块）
 
-消息的 `Content` 是 `[]Block` 接口数组，支持多态 JSON 序列化：
+消息的 `Content` 是 `Blocks`（`[]Block` 接口数组），支持多态 JSON 序列化。每个具体块都带 `Type BlockType` 字段，反序列化时按 `type` 分发还原（`Blocks` 实现自定义 `UnmarshalJSON`），历史持久化加载后可无损往返。
 
 ```go
-type Block interface { Type() ContentType }
+type Block interface { ForContext() bool }  // 声明该块是否进入 LLM 上下文
 
-// 具体类型
-TextBlock       { Text string; IsError bool }   // IsError 标记错误文本，与正常文本不合并
+// 具体类型（均带 Type BlockType 字段）
+TextBlock       { Text string; TextType TextType }  // TextType: "" / error / cmd / flow_progress
 ThinkingBlock   { Thinking string }
 ImageBlock      { Source *ImageSource }
-ToolUseBlock    { ID, Name string; Input any }
-ToolResultBlock { ToolUseID string; Content any }
+ToolUseBlock    { ID, Name string; Input *value.Object }
+ToolResultBlock { ToolUseID string; Content Blocks }
+UsageBlock      { Usage *Usage }                    // token 用量元数据（不进上下文、不发前端）
 ```
 
 ### 事件流与断线续传
@@ -143,13 +144,13 @@ type ToolExecutor interface {
     Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
     Name() string                                       // 工具唯一名称
     UsagePrompt() string                                // 工具引导提示词（随每轮 System 注入）
-    Execute(turn *Turn, writer *chat.BlockStream)     // 执行逻辑（错误经 WriteErrorText 以文本写入）
+    Execute(turn *Turn, writer *chat.BlockStream)     // 执行逻辑（错误经 ErrorText 以文本写入）
 }
 ```
 
 `Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`SessionContext`）。
 执行结果通过 `writer`（统一的 `chat.BlockStream`）写出，支持逐块输出内容；
-LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统一为 Block 收集，错误经 WriteErrorText 以文本写入）。
+LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统一为 Block 收集，错误经 ErrorText 以文本写入）。
 
 ### 内置工具
 
@@ -191,33 +192,30 @@ type HistoryStore interface {
 
 ### 服务端 → 客户端
 
-所有推送事件均为 `ClientEvent` JSON，公共字段为 `seq`, `source`, `type`，其余字段按事件类型出现。
+所有推送事件均为 `{seq, block}` 格式：`seq` 为全局单调递增的事件序号，`block` 为多态内容块（按 `type` 字段区分）。
 
 ```
-# 消息生命周期（send/display 分离）
-{"seq": 1, "source": "client", "type": "message_sent",     "message_id": 1, "content": "你好"}
-{"seq": 2, "source": "client", "type": "message_queued",   "message_id": 1, "content": "你好"}
-{"seq": 3, "source": "client", "type": "message_consumed", "message_id": 1, "content": "你好"}
+# 用户消息生命周期（block.type = "User"，block.block_user_type 区分状态，id 为稳定消息 ID）
+{"seq": 1, "block": {"type": "User", "block_user_type": "sent",    "id": "1", "content": [{"type": "text", "text": "你好"}]}}
+{"seq": 2, "block": {"type": "User", "block_user_type": "consume", "id": "1", "content": [{"type": "text", "text": "你好"}]}}
 
-# AI 流式输出
-{"seq": 4, "source": "ai",     "type": "thinking",        "content": "让我看看当前目录..."}
-{"seq": 5, "source": "ai",     "type": "chunk",           "content": "你好！当前目录是："}
-{"seq": 6, "source": "ai",     "type": "chunk",           "content": "\n\nproject/"}
-
-# 工具执行（如果有 tool_use）
-{"seq": 7, "source": "ai",     "type": "tool_execution",  "message": "execute_command", "content": "..."}
+# AI 流式输出（start 标记块类型，delta 携带增量）
+{"seq": 3, "block": {"type": "start", "block": {"type": "thinking"}}}
+{"seq": 4, "block": {"type": "delta", "content": "让我看看当前目录..."}}
+{"seq": 5, "block": {"type": "start", "block": {"type": "text"}}}
+{"seq": 6, "block": {"type": "delta", "content": "你好！当前目录是："}}
 
 # LLM 向用户提问（AskUserQuestion 工具）
-{"seq": 8, "source": "ai",     "type": "ask_user",        "questions": [...]}
+{"seq": 7, "block": {"type": "ask_user", "text": "[...问题列表 JSON...]"}}
 
 # 本轮结束
-{"seq": 9, "source": "ai",     "type": "done",            "done": true}
+{"seq": 8, "block": {"type": "done"}}
 
 # 错误
-{"seq": 10, "source": "system", "type": "error",          "message": "network timeout"}
+{"seq": 9, "block": {"type": "error", "text": "network timeout"}}
 ```
 
-前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `message_consumed` 后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致。当消息进入等待队列时返回 `message_queued`，前端可显示"待处理"状态。
+前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致；`User` 块携带稳定 `id`（sent/queued/consume 同一条消息共享），前端据此做队列状态迁移与清理。
 
 ## 运行示例
 
@@ -237,7 +235,8 @@ pnpm dev
 ## 配置选项
 
 ```go
-agent.NewAgent(
+a := agent.NewAgent()
+a.ChatOption(
     chat.WithModel("claude-opus-4-8"),     // 模型名称
     chat.WithMaxTokens(8192),              // 最大生成 token
     chat.WithMaxContext(50),               // 最大上下文消息条数，超出时截断（0=不限制）
