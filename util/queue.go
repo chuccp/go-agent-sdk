@@ -20,11 +20,11 @@ func (queue *Queue[T]) Offer(value T) error {
 		queue.lock.Unlock()
 		return ErrQueueClosed
 	}
-	err := queue.sliceQueue.Write(value)
+	queue.sliceQueue.Write(value)
 	queue.lock.Unlock()
 	// 不阻塞，无信号丢失：cond.Signal 唤醒一个等待者，无等待者时直接返回
 	queue.cond.Signal()
-	return err
+	return nil
 }
 
 func (queue *Queue[T]) DequeueTimer(timer *Timer) (value T, hasValue bool) {

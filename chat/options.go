@@ -44,6 +44,7 @@ type Options struct {
 	StopSequences []string
 	Stream        bool
 	Thinking      ThinkingLevel // 扩展思考级别：off / low / medium / high
+	SystemPrompt  string
 }
 
 // DefaultOptions 返回默认配置。
@@ -59,6 +60,11 @@ type Option func(*Options)
 // WithModel 设置 LLM 请求的模型名称。
 func WithModel(model string) Option {
 	return func(o *Options) { o.Model = model }
+}
+
+// WithSystemPrompt 设置 LLM 请求的模型名称。
+func WithSystemPrompt(systemPrompt string) Option {
+	return func(o *Options) { o.SystemPrompt = systemPrompt }
 }
 
 // WithMaxTokens 设置最大生成 token 数。

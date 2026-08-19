@@ -41,10 +41,10 @@ func (sqs *SliceQueueSafe[T]) Reset() {
 	defer sqs.lock.Unlock()
 	sqs.sliceQueue.Reset()
 }
-func (sqs *SliceQueueSafe[T]) Write(c T) error {
+func (sqs *SliceQueueSafe[T]) Write(c T) {
 	sqs.lock.Lock()
 	defer sqs.lock.Unlock()
-	return sqs.sliceQueue.Write(c)
+	sqs.sliceQueue.Write(c)
 }
 func (sqs *SliceQueueSafe[T]) Read() (T, error) {
 	sqs.lock.Lock()
@@ -113,14 +113,14 @@ func (q *SliceQueue[T]) grow() {
 }
 
 // Write enqueues an element. Returns an error if the operation fails.
-func (q *SliceQueue[T]) Write(c T) error {
+func (q *SliceQueue[T]) Write(c T) {
 	if q.full() {
 		q.grow()
 	}
 	q.buf[q.write] = c
 	q.write = (q.write + 1) & q.mask()
 	q.count++
-	return nil
+	return
 }
 
 // Read dequeues and returns an element. Returns io.EOF if the queue is empty.

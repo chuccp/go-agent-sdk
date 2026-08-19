@@ -46,16 +46,13 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 	ctx.runLock.Lock()
 	defer ctx.runLock.Unlock()
 	qm := &QueuedMessage{
-		id:   p.ctx.getSeq(),
+		id:   p.ctx.GetSeq(),
 		ctx:  p.ctx,
 		msg:  message,
 		opts: opt,
 	}
-	err := ctx.inbox.Write(qm)
-	if err != nil {
-		log.Printf("[chatSession] inbox write failed: %v", err)
-		return err
-	}
+	ctx.inbox.Write(qm)
+
 	if !ctx.running {
 		ctx.running = true
 		ctx.AddBlock(chat.NewUserBlock(cast.ToString(qm.id), qm.msg.Text, chat.Sent))

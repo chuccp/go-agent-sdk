@@ -40,7 +40,7 @@ func newTestSessionContext(opts ...chat.Option) *SessionContext {
 func enqueue(ctx *SessionContext, text string) {
 	ctx.inbox.Write(&QueuedMessage{
 		ctx:  ctx,
-		id:   ctx.getSeq(),
+		id:   ctx.GetSeq(),
 		msg:  &chat.RevMessage{Text: text},
 		opts: nil,
 	})
@@ -299,7 +299,7 @@ func TestBuildRequest_ThinkingConfig(t *testing.T) {
 func enqueueOpts(ctx *SessionContext, text string, opt ...chat.Option) {
 	ctx.inbox.Write(&QueuedMessage{
 		ctx:  ctx,
-		id:   ctx.getSeq(),
+		id:   ctx.GetSeq(),
 		msg:  &chat.RevMessage{Text: text},
 		opts: opt,
 	})

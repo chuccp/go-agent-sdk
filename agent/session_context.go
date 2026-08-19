@@ -36,7 +36,7 @@ type SessionContext struct {
 // ID 返回会话 ID。
 func (c *SessionContext) ID() string { return c.sessionId }
 
-func (c *SessionContext) getSeq() uint64 {
+func (c *SessionContext) GetSeq() uint64 {
 	return atomic.AddUint64(&c.seq, 1)
 }
 
