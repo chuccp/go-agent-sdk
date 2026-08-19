@@ -10,7 +10,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/example/flow"
 	"github.com/chuccp/go-agent-sdk/example/service"
 	"github.com/chuccp/go-agent-sdk/tools"
-	"github.com/chuccp/go-agent-sdk/workflow/exec"
+	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/util"
@@ -38,12 +38,14 @@ func (r *Agent) Init(ctx *core.Context) error {
 	r.storeFlow = core.GetService[*flow.StoreFlow](ctx)
 
 	r.agentManager.AddTools(tools.NewCommandTool(), tools.NewAskUserQuestionTool())
+
+	wf := workflow.NewManager()
+	wf.AddWorkflow(r.storeFlow.GetFlow(), r.storeFlow.GetExpandFlow())
 	// flow 工具组（v3 剧本式）：activate_flow / exec_node / flow_step_done / flow_status / finish_flow
-	activateFlow, execNode, stepDone, flowStatus, finishFlow := tools.NewFlowTools(r.agentManager.WorkflowManager())
+	activateFlow, execNode, stepDone, flowStatus, finishFlow := workflow.NewFlowTools(wf)
 	r.agentManager.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
 	r.agentManager.SetHistoryStore(r.chatSessionService)
 
-	r.agentManager.AddWorkflows(r.storeFlow.GetFlow(), r.storeFlow.GetExpandFlow())
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
 	// agent.PromptProvider 机制自动拼进每轮 System），此处只留通用人设
 	r.agentManager.SetSystem("你是一个智能助手。")
@@ -73,10 +75,6 @@ func (r *Agent) GetSession() *Session {
 	return newSession(r.agentManager)
 }
 
-// Workflows 返回所有已注册的 workflow。
-func (r *Agent) Workflows() []*exec.Workflow {
-	return r.agentManager.Workflows()
-}
 func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
 	messages, err := r.agentManager.History(cast.ToString(id))
 	if err != nil {

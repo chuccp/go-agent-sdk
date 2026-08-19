@@ -1,4 +1,4 @@
-package tools
+package workflow
 
 import (
 	"encoding/json"
@@ -10,7 +10,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/value"
-	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
@@ -211,12 +210,12 @@ func invalidateDownstream(st *FlowState, stepName string) {
 // FlowToolSuite flow 工具组：共享 FlowStore 与 workflow 注册表。
 type FlowToolSuite struct {
 	store     *FlowStore
-	workflows *workflow.Manager
+	workflows *Manager
 }
 
 // NewFlowTools 创建五个 flow 工具：
 // activate_flow / exec_node / flow_step_done / flow_status / finish_flow。
-func NewFlowTools(workflows *workflow.Manager) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {
+func NewFlowTools(workflows *Manager) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {
 	suite := &FlowToolSuite{store: NewFlowStore(), workflows: workflows}
 	return &ActivateFlowTool{suite}, &ExecNodeTool{suite}, &FlowStepDoneTool{suite}, &FlowStatusTool{suite}, &FinishFlowTool{suite}
 }

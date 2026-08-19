@@ -9,8 +9,8 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -131,9 +131,10 @@ func TestFlowIteration(t *testing.T) {
 	manager := agent.NewAgent()
 	llm := &iterFakeProvider{}
 	manager.RegisterChat("fake", llm, true)
-	manager.AddWorkflows(newExpandFlow())
+	wf := workflow.NewManager()
+	wf.AddWorkflow(newExpandFlow())
 
-	activate, execNode, stepDone, _, finish := tools.NewFlowTools(manager.WorkflowManager())
+	activate, execNode, stepDone, _, finish := workflow.NewFlowTools(wf)
 	manager.AddTools(activate, execNode, stepDone, finish)
 
 	client, err := manager.GetClient("flow-iter", 0)

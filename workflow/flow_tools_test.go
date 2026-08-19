@@ -1,4 +1,4 @@
-package tools
+package workflow
 
 import (
 	"testing"
@@ -99,7 +99,7 @@ func TestIterSourceResolve(t *testing.T) {
 	vars := value.NewObjectFromMap(map[string]any{
 		"paragraphs": []any{"a", "b"},
 		"split":      `[{"title":"一"},{"title":"二"}]`, // 节点产出常为 JSON 文本
-		"bad":       "不是数组",
+		"bad":        "不是数组",
 	})
 	if arr, err := resolveIterSource(vars, "paragraphs"); err != nil || len(arr) != 2 {
 		t.Fatalf("paragraphs: %v %v", arr, err)

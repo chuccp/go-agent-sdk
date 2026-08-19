@@ -5,47 +5,32 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
-	"github.com/chuccp/go-agent-sdk/workflow"
-	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
 // Agent agent管理器
 type Agent struct {
-	sessions        map[string]*session
-	lock            *sync.RWMutex
-	registry        *chat.ProviderRegistry
-	toolExecutors   []ToolExecutor
-	system          string
-	opts            *chat.Options
-	historyStore    HistoryStore
-	workflowManager *workflow.Manager
+	sessions      map[string]*session
+	lock          *sync.RWMutex
+	registry      *chat.ProviderRegistry
+	toolExecutors []ToolExecutor
+	system        string
+	opts          *chat.Options
+	historyStore  HistoryStore
 }
 
 func NewAgent() *Agent {
 	return &Agent{
-		sessions:        make(map[string]*session),
-		lock:            new(sync.RWMutex),
-		registry:        chat.NewProviderRegistry(),
-		toolExecutors:   make([]ToolExecutor, 0),
-		opts:            chat.DefaultOptions(),
-		workflowManager: workflow.NewManager(),
+		sessions:      make(map[string]*session),
+		lock:          new(sync.RWMutex),
+		registry:      chat.NewProviderRegistry(),
+		toolExecutors: make([]ToolExecutor, 0),
+		opts:          chat.DefaultOptions(),
 	}
 }
 func (m *Agent) ChatOption(opt ...chat.Option) {
 	for _, o := range opt {
 		o(m.opts)
 	}
-}
-func (m *Agent) AddWorkflows(workflows ...*exec.Workflow) {
-	m.workflowManager.AddWorkflow(workflows...)
-}
-func (m *Agent) Workflows() []*exec.Workflow {
-	return m.workflowManager.Workflows()
-}
-
-// WorkflowManager 返回 workflow 注册表（供 flow 工具组共享）。
-func (m *Agent) WorkflowManager() *workflow.Manager {
-	return m.workflowManager
 }
 func (m *Agent) AddTools(exec ...ToolExecutor) {
 	m.lock.Lock()

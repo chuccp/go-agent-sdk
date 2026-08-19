@@ -28,13 +28,14 @@ func (c *Flow) Init(ctx *core.Context) error {
 
 // listFlows 返回所有已注册的 workflow（仅 id 和 name）。
 func (c *Flow) listFlows(request *web.Request) (any, error) {
-	workflows := c.agent.Workflows()
-	views := make([]*FlowView, 0, len(workflows))
-	for _, workflow := range workflows {
-		views = append(views, &FlowView{
-			Id:   workflow.Id,
-			Name: workflow.Name,
-		})
-	}
-	return web.Data(views), nil
+	//workflows := c.agent.Workflows()
+	//views := make([]*FlowView, 0, len(workflows))
+	//for _, workflow := range workflows {
+	//	views = append(views, &FlowView{
+	//		Id:   workflow.Id,
+	//		Name: workflow.Name,
+	//	})
+	//}
+	//return web.Data(), nil
+	return nil, nil
 }

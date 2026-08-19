@@ -9,8 +9,8 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/tools"
 	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -190,9 +190,10 @@ func TestFlowEndToEnd(t *testing.T) {
 	manager := agent.NewAgent()
 	mainLLM := &flowFakeProvider{}
 	manager.RegisterChat("fake", mainLLM, true)
-	manager.AddWorkflows(newStoryFlow())
+	wf := workflow.NewManager()
+	wf.AddWorkflow(newStoryFlow())
 
-	activate, execNode, stepDone, status, finish := tools.NewFlowTools(manager.WorkflowManager())
+	activate, execNode, stepDone, status, finish := workflow.NewFlowTools(wf)
 	manager.AddTools(activate, execNode, stepDone, status, finish)
 
 	client, err := manager.GetClient("flow-e2e", 0)
@@ -255,9 +256,10 @@ func TestFlowGuards(t *testing.T) {
 	manager := agent.NewAgent()
 	storyLLM := &fakeStoryNode{}
 	manager.RegisterChat("fake", storyLLM, true)
-	manager.AddWorkflows(newStoryFlow())
+	wf := workflow.NewManager()
+	wf.AddWorkflow(newStoryFlow())
 
-	activate, execNode, _, _, finish := tools.NewFlowTools(manager.WorkflowManager())
+	activate, execNode, _, _, finish := workflow.NewFlowTools(wf)
 	sctx := manager.SessionContext("flow-guards")
 	turn := func(args map[string]any) *agent.Turn {
 		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))
