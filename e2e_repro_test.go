@@ -43,7 +43,7 @@ func (t *fakeTool) Definition() *chat.ToolFunction {
 }
 func (t *fakeTool) Name() string        { return "fake_tool" }
 func (t *fakeTool) UsagePrompt() string { return "" }
-func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.BlockStream) {
+func (t *fakeTool) Execute(_ *agent.Turn, writer *chat.ToolResultBlockStream) {
 	writer.FullText("fake tool output")
 }
 
@@ -125,7 +125,7 @@ func runCommand(t *testing.T, cmd string) string {
 	tool := tools.NewCommandTool()
 	writer := chat.NewBlockStream(nil)
 	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可；执行错误以文本写入
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), writer)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), chat.NewToolResultBlockStream(writer, "cmd"))
 	var sb strings.Builder
 	blocks := writer.ReadBlocks()
 	for _, b := range blocks {

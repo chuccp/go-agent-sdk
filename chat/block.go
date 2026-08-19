@@ -108,13 +108,15 @@ type TextType string
 const (
 	ErrorTextType    TextType = "error"
 	CMDTextType      TextType = "cmd"
+	ToolResultType   TextType = "tool_result"
 	FlowProgressType TextType = "flow_progress"
 )
 
 type TextBlock struct {
-	Text     string    `json:"text"`
-	Type     BlockType `json:"type"`
-	TextType TextType  `json:"text_type"`
+	Text      string    `json:"text"`
+	Type      BlockType `json:"type"`
+	TextType  TextType  `json:"text_type"`
+	ToolUseId string    `json:"tool_use_id,omitempty"`
 }
 
 func (b *TextBlock) ForContext() bool {
@@ -128,6 +130,16 @@ func NewTextBlock() *TextBlock {
 		Type: TextBlockType,
 	}
 }
+
+func NewToolResultTextBlock(toolUseId string) *TextBlock {
+	return &TextBlock{
+		TextType:  ToolResultType,
+		ToolUseId: toolUseId,
+		Type:      TextBlockType,
+	}
+
+}
+
 func NewErrorTextBlock() *TextBlock {
 	return &TextBlock{
 		Type:     TextBlockType,

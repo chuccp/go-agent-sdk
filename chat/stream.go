@@ -105,13 +105,6 @@ func (s *BlockStream) Block(block Block) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.flushAndAdd(block)
-	// 连续同类型 TextBlock 合并（工具路径多次 Block 拼接为一块）
-	if tb, ok := block.(*TextBlock); ok && len(s.blocks) > 1 {
-		if prev, ok := s.blocks[len(s.blocks)-2].(*TextBlock); ok && prev.TextType == tb.TextType {
-			prev.Text += tb.Text
-			s.blocks = s.blocks[:len(s.blocks)-1]
-		}
-	}
 }
 func (s *BlockStream) ErrorText(error error) {
 	s.mu.Lock()
@@ -193,4 +186,42 @@ func (s *BlockStream) GetStopReason() StopReason {
 		return StopReasonEndTurn
 	}
 	return s.stopReason
+}
+
+type ToolResultBlockStream struct {
+	blockStream *BlockStream
+	ToolUseId   string
+}
+
+func NewToolResultBlockStream(blockStream *BlockStream, ToolUseId string) *ToolResultBlockStream {
+	return &ToolResultBlockStream{
+		blockStream: blockStream,
+		ToolUseId:   ToolUseId,
+	}
+}
+func (s *ToolResultBlockStream) BlockTextStart() {
+	s.blockStream.BlockStart(NewToolResultTextBlock(s.ToolUseId))
+}
+func (s *ToolResultBlockStream) Delta(content string) {
+	s.blockStream.Delta(content)
+}
+func (s *ToolResultBlockStream) ErrorText(error error) {
+	block := NewToolResultTextBlock(s.ToolUseId)
+	block.Text = error.Error()
+	s.blockStream.Block(block)
+}
+func (s *ToolResultBlockStream) FullText(content string) {
+	block := NewToolResultTextBlock(s.ToolUseId)
+	block.Text = content
+	s.blockStream.Block(block)
+}
+
+func (s *ToolResultBlockStream) StopReason(wait StopReason) {
+	s.blockStream.StopReason(wait)
+}
+func (s *ToolResultBlockStream) ReadBlocks() Blocks {
+	return s.blockStream.ReadBlocks()
+}
+func (s *ToolResultBlockStream) Block(block Block) {
+	s.blockStream.Block(block)
 }

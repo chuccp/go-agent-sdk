@@ -135,7 +135,7 @@ func needsStartPrefix(cmd string) bool {
 // 有 SessionContext 时以专属 command 事件增量推送（前端按终端样式渲染），
 // 无 SessionContext 时退化为 WriteEvent 回显 chunk 事件；
 // 完整输出随 ReadBlocks 进入 tool_result，执行错误经 WriteErrorText 以文本写入（回传给模型）。
-func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	args := turn.Args()
 	cmd := args.GetString("command")
 	if strings.TrimSpace(cmd) == "" {

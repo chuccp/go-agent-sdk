@@ -120,7 +120,7 @@ func newStoryFlow() *exec.Workflow {
 func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) string {
 	t.Helper()
 	w := chat.NewBlockStream(nil)
-	exec.Execute(turn, w)
+	exec.Execute(turn, chat.NewToolResultBlockStream(w, "exec"))
 	var sb strings.Builder
 	blocks := w.ReadBlocks()
 	for _, b := range blocks {

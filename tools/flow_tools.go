@@ -300,7 +300,7 @@ func (t *ActivateFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *ActivateFlowTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	args := turn.Args()
 	flowId := args.GetString("flow_id")
 	if flowId == "" {
@@ -352,7 +352,7 @@ func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *FlowStepDoneTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	st := t.suite.store.Get(sessionIdOf(turn))
@@ -394,7 +394,7 @@ func (t *FlowStatusTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *FlowStatusTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	st := t.suite.store.Get(sessionIdOf(turn))
 	if st == nil {
 		writer.FullText("（当前无激活的 flow）")
@@ -453,7 +453,7 @@ func (t *FinishFlowTool) Definition() *chat.ToolFunction {
 	}
 }
 
-func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	args := turn.Args()
 	action := args.GetString("action")
 	sessionId := sessionIdOf(turn)

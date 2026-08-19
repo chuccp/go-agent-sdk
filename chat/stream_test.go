@@ -140,17 +140,20 @@ func TestBlockStream_MetadataDefaults(t *testing.T) {
 
 // ── Block：文本拼接 / ErrorText ──
 
-func TestBlockStream_Block_TextCoalescing(t *testing.T) {
+func TestBlockStream_Block_NoCoalescing(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.Block(NewFullTextBlock("hello "))
 	stream.Block(NewFullTextBlock("world"))
 
 	blocks := stream.ReadBlocks()
-	if len(blocks) != 1 {
-		t.Fatalf("expected 1 coalesced block, got %d", len(blocks))
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 separate blocks, got %d", len(blocks))
 	}
-	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "hello world" {
-		t.Errorf("expected 'hello world', got %v", blocks[0])
+	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "hello " {
+		t.Errorf("expected 'hello ', got %v", blocks[0])
+	}
+	if tb, ok := blocks[1].(*TextBlock); !ok || tb.Text != "world" {
+		t.Errorf("expected 'world', got %v", blocks[1])
 	}
 }
 

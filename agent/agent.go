@@ -32,11 +32,9 @@ func NewAgent() *Agent {
 	}
 }
 func (m *Agent) ChatOption(opt ...chat.Option) {
-	opts := chat.DefaultOptions()
 	for _, o := range opt {
-		o(opts)
+		o(m.opts)
 	}
-	m.opts = opts
 }
 func (m *Agent) AddWorkflows(workflows ...*exec.Workflow) {
 	m.workflowManager.AddWorkflow(workflows...)

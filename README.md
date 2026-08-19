@@ -121,7 +121,7 @@ func main() {
 type Block interface { ForContext() bool }  // 声明该块是否进入 LLM 上下文
 
 // 具体类型（均带 Type BlockType 字段）
-TextBlock       { Text string; TextType TextType }  // TextType: "" / error / cmd / flow_progress
+TextBlock       { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / tool_result / flow_progress
 ThinkingBlock   { Thinking string }
 ImageBlock      { Source *ImageSource }
 ToolUseBlock    { ID, Name string; Input *value.Object }
@@ -205,14 +205,18 @@ type HistoryStore interface {
 {"seq": 5, "block": {"type": "start", "block": {"type": "text"}}}
 {"seq": 6, "block": {"type": "delta", "content": "你好！当前目录是："}}
 
+# 工具输出（text_type=tool_result，tool_use_id 关联对应 tool_use，命令经 tool_use 入参流式下发）
+{"seq": 7, "block": {"type": "start", "block": {"type": "text", "text_type": "tool_result", "tool_use_id": "call_00"}}}
+{"seq": 8, "block": {"type": "delta", "content": "OS Name: ..."}}
+
 # LLM 向用户提问（AskUserQuestion 工具）
-{"seq": 7, "block": {"type": "ask_user", "text": "[...问题列表 JSON...]"}}
+{"seq": 9, "block": {"type": "ask_user", "text": "[...问题列表 JSON...]"}}
 
 # 本轮结束
-{"seq": 8, "block": {"type": "done"}}
+{"seq": 10, "block": {"type": "done"}}
 
 # 错误
-{"seq": 9, "block": {"type": "error", "text": "network timeout"}}
+{"seq": 11, "block": {"type": "error", "text": "network timeout"}}
 ```
 
 前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致；`User` 块携带稳定 `id`（sent/queued/consume 同一条消息共享），前端据此做队列状态迁移与清理。

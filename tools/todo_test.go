@@ -24,7 +24,7 @@ func drainText(w *chat.BlockStream) string {
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
 	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), w)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "todo"))
 	return drainText(w)
 }
 

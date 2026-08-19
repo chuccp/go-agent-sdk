@@ -53,7 +53,7 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 
 // Execute 执行节点：依赖校验 → 组装变量 → 零上下文 LLM 调用（或逐项迭代）→
 // 登记输出（重跑使下游失效）→ 标记完成；执行错误经 WriteErrorText 以文本写入（回传给模型）。
-func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	args := turn.Args()
 	stepId := args.GetString("step_id")
 	if stepId == "" {

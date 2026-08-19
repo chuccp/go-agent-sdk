@@ -59,12 +59,13 @@ let askUserHandler: ((questionsJson: string) => void) | null = null
 
 // 当前流式块类型（由 StartBlock 设置，Delta 据此路由）
 let currentStreamBlockType: string | null = null
-// 当前 tool_use 的工具名（用于识别 execute_command）
+// 当前 tool_use 的工具名与 id（识别 execute_command，并按 id 关联输出）
 let currentToolName: string | null = null
+let currentToolUseId: string | null = null
 // 当前 tool_use 入参 JSON 累积（用于解析 execute_command 的 command）
 let toolInputJson = ''
-// execute_command 命令 FIFO：多个工具时，按执行顺序与后续文本输出一一对应
-let commandQueue: string[] = []
+// tool_use_id → command 映射：工具输出的 start 块携带 tool_use_id，据此取回命令
+let commandByToolUseId = new Map<string, string>()
 // 当前文本输出对应的命令（非空表示后续 text delta 是该命令的输出）
 let activeCommand: string | null = null
 
@@ -136,8 +137,9 @@ export function setupStreamBridge(ws: WebSocket): void {
 function resetStreamBlockState(): void {
   currentStreamBlockType = null
   currentToolName = null
+  currentToolUseId = null
   toolInputJson = ''
-  commandQueue = []
+  commandByToolUseId = new Map()
   activeCommand = null
 }
 
@@ -157,26 +159,26 @@ function streamHandler(evt: MessageEvent): void {
         const inner = block.block
         const innerType = inner?.type || null
         const innerName = inner?.name || null
+        const innerId = inner?.id || null
+        const toolUseId = inner?.tool_use_id || null
         const wasToolUse = currentStreamBlockType === 'tool_use'
 
-        // 上一个 execute_command 的入参已收齐：命令入队（供后续文本输出作为命令头）
-        if (wasToolUse && currentToolName === 'execute_command') {
+        // 上一个 execute_command 的入参已收齐：解析命令并按 id 记录
+        if (wasToolUse && currentToolName === 'execute_command' && currentToolUseId) {
           const cmd = parseCommand(toolInputJson)
-          if (cmd) commandQueue.push(cmd)
+          if (cmd) commandByToolUseId.set(currentToolUseId, cmd)
         }
 
         if (innerType === 'tool_use') {
-          // 新 tool_use 开始：清掉输出命令，开始累积下一个入参
+          // 新 tool_use 开始：记录 id/name，开始累积入参
           activeCommand = null
+          currentToolUseId = innerId
           currentToolName = innerName
           toolInputJson = ''
         } else {
-          // 文本/思考块：取队首命令作为输出头（多个工具连续输出时逐个消费）
-          if (commandQueue.length > 0) {
-            activeCommand = commandQueue.shift() ?? null
-          } else if (!wasToolUse) {
-            activeCommand = null
-          }
+          // 文本/思考块：工具输出携带 tool_use_id，按 id 取命令（无 id 的普通文本则清空）
+          activeCommand = toolUseId ? (commandByToolUseId.get(toolUseId) ?? null) : null
+          currentToolUseId = null
           currentToolName = null
           toolInputJson = ''
         }

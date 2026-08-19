@@ -47,3 +47,4 @@ example/data/
 *.jpeg
 *.gif
 *.webp
+/docs

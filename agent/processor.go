@@ -261,7 +261,7 @@ func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, e
 	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
 	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
 	writer.StopReason(chat.StopReasonToolResult)
-	exec.Execute(turn, writer)
+	exec.Execute(turn, chat.NewToolResultBlockStream(writer, tu.ID))
 	ctx.runLock.Lock()
 	return writer.ReadBlocks(), writer.GetStopReason()
 }

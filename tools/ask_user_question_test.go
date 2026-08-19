@@ -199,7 +199,7 @@ func TestParseQuestions_WithPreview(t *testing.T) {
 func TestExecute_NilContext(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), w)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), chat.NewToolResultBlockStream(w, "ask"))
 	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
 		t.Errorf("expected missing questions error in output, got %q", text)
 	}
@@ -211,7 +211,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 	ctx := manager.SessionContext("ask-s1")
 
 	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), w)
+	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), chat.NewToolResultBlockStream(w, "ask"))
 	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
 		t.Errorf("expected missing questions error in output, got %q", text)
 	}
@@ -245,7 +245,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	w := chat.NewBlockStream(nil)
 	done := make(chan struct{}, 1)
 	go func() {
-		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), w)
+		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))
 		done <- struct{}{}
 	}()
 

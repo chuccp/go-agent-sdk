@@ -58,7 +58,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	rec := &blockRecorder{}
 	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), w)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), chat.NewToolResultBlockStream(w, "cmd"))
 
 	// 实时收到了携带输出的 block
 	text := collectText(w)
@@ -81,7 +81,7 @@ func TestCommand_WithSessionContext(t *testing.T) {
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为
 	w := chat.NewBlockStream(ctx)
 	tool := NewCommandTool()
-	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo event-test"})), w)
+	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo event-test"})), chat.NewToolResultBlockStream(w, "cmd"))
 
 	// 收到事件（包含 StartBlock/DeltaBlock 等流式事件）
 	events := readEventsUntilIdle(client, 300*time.Millisecond)
@@ -105,7 +105,7 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
 	// printf 在 sh 与 cmd 下均可用；两行输出应产生 delta blocks
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), w)
+	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), chat.NewToolResultBlockStream(w, "cmd"))
 
 	text := collectText(w)
 	if !strings.Contains(text, "aaa") || !strings.Contains(text, "bbb") {

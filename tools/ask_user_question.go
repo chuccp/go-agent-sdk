@@ -139,7 +139,7 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 // Execute 实现 agent.ToolExecutor 接口：向前端推送问题事件（content 为问题列表 JSON）
 // 并置 user_wait 停止原因后立即返回，不阻塞等待回答；tool_result 文本作为历史上下文，
 // 告知后续轮次的 LLM 已提问、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
-func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream) {
+func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
 	ctx := turn.Context()
 
 	questions, err := parseQuestions(turn.Args())
@@ -161,8 +161,8 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.BlockStream
 	writer.StopReason(chat.StopReasonUserWait)
 
 	// 3. tool_result 文本作为历史上下文（下一轮 LLM 可见）：陈述已提问并等待回答
-	writer.Block(chat.NewFullTextBlock(
-		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。"))
+	writer.FullText(
+		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。")
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。
