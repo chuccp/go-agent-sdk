@@ -15,7 +15,7 @@ type LoopContext interface {
 	ID() string
 	History() []*chat.Message
 	SendBlock(no uint64, block chat.Block)
-	ChatComplete(ctx context.Context, chatMessages *chat.Request, stream *chat.BlockStream) error
+	GetService(provider string) chat.Service
 }
 
 type Loop struct {
@@ -25,13 +25,14 @@ type Loop struct {
 	options       *chat.Options
 	events        *Store
 	toolExecutors []ToolExecutor
-
-	running  bool
-	pContext context.Context
-	pCancel  context.CancelFunc
-	runLock  sync.Mutex
-	lContext context.Context
-	lCancel  context.CancelFunc
+	service       chat.Service
+	running       bool
+	pContext      context.Context
+	pCancel       context.CancelFunc
+	runLock       sync.Mutex
+	lContext      context.Context
+	lCancel       context.CancelFunc
+	provider      string
 }
 
 type LoopBuilder struct {
@@ -52,6 +53,10 @@ func (b *LoopBuilder) HistoryStore(historyStore HistoryStore) *LoopBuilder {
 	b.loop.events.SetHistoryStore(historyStore)
 	return b
 }
+func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
+	b.loop.provider = provider
+	return b
+}
 func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
@@ -67,7 +72,9 @@ func NewLoopBuilder(No uint64, loopContext LoopContext) *LoopBuilder {
 func (l *Loop) SendBlock(block chat.Block) {
 	l.loopContext.SendBlock(l.no, block)
 }
-
+func (l *Loop) UpdateProvider(provider string) {
+	l.provider = provider
+}
 func (l *Loop) HandleMessage(blocks chat.Blocks) {
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
@@ -215,7 +222,7 @@ func (l *Loop) UpdateOptions(Option ...chat.Option) {
 
 func (l *Loop) chatWithStream() (chat.Blocks, chat.StopReason, error) {
 	stream := chat.NewBlockStream(l)
-	err := l.loopContext.ChatComplete(l.lContext, l.buildRequest(), stream)
+	err := l.loopContext.GetService(l.provider).ChatWithStream(l.lContext, l.buildRequest(), stream)
 	if err != nil {
 		return nil, "", err
 	}

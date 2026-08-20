@@ -172,13 +172,15 @@ func (p *messageProcessor) finishStoppedRound(ctx *SessionContext) {
 }
 
 func (p *messageProcessor) ChatWithStream(messages *chat.Request) (chat.Blocks, chat.StopReason, error) {
-	stream := chat.NewBlockStream(p)
-	provider := p.ctx.registry.DefaultProvider()
-	err := p.ctx.registry.ChatWithStream(p.ctx.runCtx, provider, messages, stream)
-	if err != nil {
-		return nil, "", err
-	}
-	return stream.ReadBlocks(), stream.GetStopReason(), nil
+	//stream := chat.NewBlockStream(p)
+	//provider := p.ctx.registry.DefaultProvider()
+	//err := p.ctx.registry.ChatWithStream(p.ctx.runCtx, provider, messages, stream)
+	//if err != nil {
+	//	return nil, "", err
+	//}
+	//return stream.ReadBlocks(), stream.GetStopReason(), nil
+
+	return nil, chat.StopReasonUserWait, nil
 }
 
 // executeRound 执行一轮 LLM 交互：排干 inbox 构建请求、流式调用并收集内容块。
@@ -265,7 +267,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
 func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) (chat.Blocks, chat.StopReason) {
 
-	turn := &Turn{ctx: p.ctx, args: tu.Input}
+	turn := &Turn{ctx: nil, args: tu.Input}
 
 	ctx.runLock.Unlock()
 	writer := chat.NewBlockStream(p)

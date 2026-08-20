@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"sync"
 )
 
@@ -35,13 +34,13 @@ func (r *ProviderRegistry) getProvider(provider string) Service {
 	return r.providerMap[provider]
 }
 
-func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream *BlockStream) error {
-	chatService := r.getProvider(provider)
-	if chatService == nil {
-		return errors.New("no such provider: " + provider)
-	}
-	return chatService.ChatWithStream(ctx, chatMessages, stream)
-}
+//func (r *ProviderRegistry) ChatWithStream(ctx context.Context, provider string, chatMessages *Request, stream *BlockStream) error {
+//	chatService := r.getProvider(provider)
+//	if chatService == nil {
+//		return errors.New("no such provider: " + provider)
+//	}
+//	return chatService.ChatWithStream(ctx, chatMessages, stream)
+//}
 
 func (r *ProviderRegistry) Register(provider string, chatService Service, isDefault bool) {
 	r.rLock.Lock()

@@ -12,7 +12,6 @@ type Request struct {
 	Model     string    `json:"model"`      // 模型 ID，如 "claude-opus-4-8"
 	MaxTokens int       `json:"max_tokens"` // 最大生成 token 数
 	Messages  []Message `json:"messages"`   // 对话历史（user/assistant 交替）
-
 	// 可选字段
 	System        string          `json:"system,omitempty"`         // 系统提示（独立于 messages）
 	Tools         []ToolFunction  `json:"tools,omitempty"`          // 可用工具列表
