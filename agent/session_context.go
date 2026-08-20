@@ -144,7 +144,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
 	//c.SendBlock(chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Consume))
 	msg := qm.msg.ToMessage()
-	c.events.AppendTempHistory(&msg)
+	c.events.AppendHistory(&msg)
 	return qm.opts
 }
 
@@ -243,9 +243,9 @@ func (c *SessionContext) composeSystem() string {
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (c *SessionContext) appendAssistantTempMessage(blocks chat.Blocks) {
+func (c *SessionContext) appendAssistantMessage(blocks chat.Blocks) {
 	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
-	c.events.AppendTempHistory(assistantMsg)
+	c.events.AppendHistory(assistantMsg)
 }
 
 // saveAndReset 持久化自上次保存以来新增的消息，并清理 client 已读取的事件条目。

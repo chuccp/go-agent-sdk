@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 
+	"emperror.dev/errors"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
@@ -23,7 +26,7 @@ type Loop struct {
 	inbox         *util.SliceQueue[*chat.UserBlock]
 	loopContext   LoopContext
 	options       *chat.Options
-	events        *Store
+	store         *Store
 	toolExecutors []ToolExecutor
 	service       chat.Service
 	running       bool
@@ -50,7 +53,7 @@ func (b *LoopBuilder) Options(Option ...chat.Option) *LoopBuilder {
 	return b
 }
 func (b *LoopBuilder) HistoryStore(historyStore HistoryStore) *LoopBuilder {
-	b.loop.events.SetHistoryStore(historyStore)
+	b.loop.store.SetHistoryStore(historyStore)
 	return b
 }
 func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
@@ -61,12 +64,15 @@ func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
 func NewLoopBuilder(No uint64, loopContext LoopContext) *LoopBuilder {
+	pContext, plCancel := context.WithCancel(loopContext)
 	return &LoopBuilder{loop: &Loop{
 		no:            No,
 		loopContext:   loopContext,
 		options:       chat.DefaultOptions(),
 		toolExecutors: make([]ToolExecutor, 0),
-		events:        NewStore(loopContext.ID()),
+		store:         NewStore(loopContext.ID()),
+		pContext:      pContext,
+		pCancel:       plCancel,
 	}}
 }
 func (l *Loop) SendBlock(block chat.Block) {
@@ -98,48 +104,128 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 		l.inbox.Write(qm)
 	}
 }
+func (l *Loop) composeSystem() string {
+	system := l.options.SystemPrompt
+	var prompts []string
+	for _, exec := range l.toolExecutors {
+		if p := exec.UsagePrompt(); p != "" {
+			prompts = append(prompts, p)
+		}
+	}
+	if len(prompts) > 0 {
+		if system != "" {
+			system += "\n\n"
+		}
+		system += strings.Join(prompts, "\n\n")
+	}
+	return system
+}
 func (l *Loop) buildRequest() *chat.Request {
+
+	values, fa := l.inbox.ReadAll()
+	if fa {
+		for _, qm := range values {
+			qm.BlockUserType = chat.Consume
+			l.SendBlock(qm)
+		}
+	}
+	// 注入历史上下文
+	history := l.store.History()
+	if len(history) == 0 && !fa {
+		return nil
+	}
+	effective := l.options
+	messages := &chat.Request{
+		System:   l.composeSystem(),
+		Messages: make([]chat.Message, 0, len(history)),
+	}
+	for _, m := range history {
+		msg := *m
+		msg.Content = blocksForContext(m.Content)
+		// 剥离后内容为空的消息不发送（避免空 content 报错）
+		if len(msg.Content) == 0 {
+			continue
+		}
+		messages.Messages = append(messages.Messages, msg)
+	}
+
+	if effective != nil {
+		messages.Model = effective.Model
+		messages.MaxTokens = effective.MaxTokens
+		messages.Temperature = effective.Temperature
+		messages.TopP = effective.TopP
+		messages.TopK = effective.TopK
+		messages.StopSequences = effective.StopSequences
+		messages.Stream = effective.Stream
+		messages.Thinking = effective.Thinking.ToThinkingConfig()
+	} else {
+		messages.Stream = true
+	}
+
+	if len(l.toolExecutors) > 0 {
+		tools := make([]chat.ToolFunction, 0, len(l.toolExecutors))
+		for _, exec := range l.toolExecutors {
+			tools = append(tools, *exec.Definition())
+		}
+		messages.Tools = tools
+	}
+
 	return &chat.Request{}
 }
 
 func (l *Loop) do() {
 
-	for {
+LOOP:
 
-		select {
-		case <-l.pContext.Done():
-			return
-		default:
-		}
+	select {
+	case <-l.pContext.Done():
+		return
+	default:
+	}
 
-		if l.lCancel != nil {
-			l.lCancel()
-		}
-		l.lContext, l.lCancel = context.WithCancel(l.pContext)
-		blocks, stopReason, err := l.chatWithStream()
-		if err != nil {
-			l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
-			if l.inbox.IsEmpty() {
-				break
-			}
-			continue
-		}
+	if l.lCancel != nil {
+		l.lCancel()
+	}
+	l.lContext, l.lCancel = context.WithCancel(l.pContext)
+	blocks, stopReason, err := l.chatWithStream()
+	if err != nil {
+		l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+		goto END
+	}
+	if l.roundStopped() {
+		goto END
+	}
+	if blocks == nil {
+		goto END
+	}
+	l.appendAssistantMessage(blocks)
+	if stopReason == chat.StopReasonToolUse {
+		results, toolStop := l.executeTools(blocks)
+		l.store.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 		if l.roundStopped() {
-			if l.inbox.IsEmpty() {
-				break
-			}
-			continue
+			goto END
 		}
-		if blocks == nil {
-			if l.inbox.IsEmpty() {
-				break
-			}
-			continue
+		if toolStop == chat.StopReasonUserWait {
+			goto END
 		}
-		if stopReason == chat.StopReasonToolUse {
-			l.appendAssistantMessage(blocks)
-		}
+		l.saveAndReset()
+		goto LOOP
+	}
+	goto END
 
+END:
+	l.saveAndReset()
+	if l.inbox.IsEmpty() {
+		l.SendBlock(chat.NewDoneBlock())
+		return
+	}
+	goto LOOP
+
+}
+
+func (l *Loop) saveAndReset() {
+	if err := l.store.ResetAndSave(); err != nil {
+		log.Printf("[chatSession] save history failed: %v", err)
 	}
 }
 
@@ -202,7 +288,7 @@ func (l *Loop) findExecutor(name string) ToolExecutor {
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
 func (l *Loop) appendAssistantMessage(blocks chat.Blocks) {
 	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
-	l.events.AppendTempHistory(assistantMsg)
+	l.store.AppendHistory(assistantMsg)
 }
 
 func (l *Loop) roundStopped() bool {
@@ -222,7 +308,14 @@ func (l *Loop) UpdateOptions(Option ...chat.Option) {
 
 func (l *Loop) chatWithStream() (chat.Blocks, chat.StopReason, error) {
 	stream := chat.NewBlockStream(l)
-	err := l.loopContext.GetService(l.provider).ChatWithStream(l.lContext, l.buildRequest(), stream)
+	if util.IsBlank(l.provider) {
+		return nil, "", errors.New("blank provider")
+	}
+	service := l.loopContext.GetService(l.provider)
+	if service == nil {
+		return nil, "", errors.Errorf("service not found: %s", l.provider)
+	}
+	err := service.ChatWithStream(l.lContext, l.buildRequest(), stream)
 	if err != nil {
 		return nil, "", err
 	}

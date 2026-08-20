@@ -203,9 +203,9 @@ func (l *Store) History() []*chat.Message {
 	return result
 }
 
-// AppendTempHistory 将一条消息追加到内存历史。
+// AppendHistory 将一条消息追加到内存历史。
 // 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
-func (l *Store) AppendTempHistory(msg *chat.Message) {
+func (l *Store) AppendHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg.Offset = l.pending
