@@ -69,14 +69,11 @@ func (m *Agent) getOrCreateSession(id string) *session {
 	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
 		sessionId:     id,
-		inbox:         new(util.SliceQueue[*QueuedMessage]),
-		running:       false,
 		seq:           0,
-		events:        NewStore(id),
+		store:         NewStore(id),
 		registry:      m.registry,
 		chatClients:   new(util.SliceArray[*Client]),
 		toolExecutors: tools,
-		system:        m.system,
 		opts:          m.opts,
 		historyStore:  m.historyStore,
 		clientMutex:   new(sync.Mutex),

@@ -5,18 +5,18 @@ import (
 )
 
 // QueuedMessage 是 agent 层的消息包装，携带追踪 ID（不侵入 chat 协议层）。
-type QueuedMessage struct {
-	ctx  *SessionContext
-	id   uint64
-	msg  *chat.RevMessage
-	opts []chat.Option // 本次消息附带的per-turn选项覆盖
-}
+//type QueuedMessage struct {
+//	ctx  *SessionContext
+//	id   uint64
+//	msg  *chat.RevMessage
+//	opts []chat.Option // 本次消息附带的per-turn选项覆盖
+//}
 
 // Msg 返回包装的原始用户消息。
-func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
-
-// Context 返回消息所属的会话上下文（通过它访问会话能力）。
-func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
+//func (qm *QueuedMessage) Msg() *chat.RevMessage { return qm.msg }
+//
+//// Context 返回消息所属的会话上下文（通过它访问会话能力）。
+//func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
 
 // messageProcessor 会话编排器：接收用户消息后入队并驱动会话主循环，
 // 主循环执行单轮 LLM 交互（executeRound）与工具执行（executeTools）。
@@ -24,19 +24,19 @@ func (qm *QueuedMessage) Context() *SessionContext { return qm.ctx }
 type messageProcessor struct {
 	ctx           *SessionContext
 	toolExecutors []ToolExecutor
-	no            uint64
+	loop          Loop
 }
 
 func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
+	//NewLoopBuilder(0, sessionContext)
 	p := &messageProcessor{
 		ctx:           sessionContext,
 		toolExecutors: sessionContext.toolExecutors,
-		no:            0,
 	}
 	return p
 }
 
-func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...chat.Option) error {
+func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage) error {
 	//ctx := p.ctx
 	//ctx.runLock.Lock()
 	//defer ctx.runLock.Unlock()
@@ -147,32 +147,32 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage, opt ...cha
 //	}
 //}
 
-// roundStopped 当前轮是否被 Stop() 取消（runCtx 仅由 Stop 取消）。调用方持有 runLock。
-func (p *messageProcessor) roundStopped(ctx *SessionContext) bool {
-	select {
-	case <-ctx.runCtx.Done():
-		return true
-	default:
-		return false
-	}
-}
+//// roundStopped 当前轮是否被 Stop() 取消（runCtx 仅由 Stop 取消）。调用方持有 runLock。
+//func (p *messageProcessor) roundStopped(ctx *SessionContext) bool {
+//	select {
+//	case <-ctx.runCtx.Done():
+//		return true
+//	default:
+//		return false
+//	}
+//}
 
 // finishStoppedRound 被停轮的统一收尾：保存历史；inbox 有后续消息则继续循环处理，
 // 否则结束循环等待下一条用户消息（done 事件由调用方在合适时机发出）。调用方持有 runLock。
-func (p *messageProcessor) finishStoppedRound(ctx *SessionContext) {
-	ctx.saveAndReset()
-	if ctx.inbox.IsEmpty() {
-		ctx.running = false
-	}
-}
+//func (p *messageProcessor) finishStoppedRound(ctx *SessionContext) {
+//	ctx.saveAndReset()
+//	if ctx.inbox.IsEmpty() {
+//		ctx.running = false
+//	}
+//}
 
 // Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，
 // LLM 调用与监听会话停止的工具会尽快中止；后续用户消息不受影响。
 func (p *messageProcessor) Stop() {
-	ctx := p.ctx
-	ctx.runLock.Lock()
-	if ctx.cancel != nil {
-		ctx.cancel()
-	}
-	ctx.runLock.Unlock()
+	//ctx := p.ctx
+	//ctx.runLock.Lock()
+	//if ctx.cancel != nil {
+	//	ctx.cancel()
+	//}
+	//ctx.runLock.Unlock()
 }

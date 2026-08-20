@@ -16,7 +16,6 @@ type LoopContext interface {
 	context.Context
 	GetSeq() uint64
 	ID() string
-	History() []*chat.Message
 	SendBlock(no uint64, block chat.Block)
 	GetService(provider string) chat.Service
 }
@@ -26,13 +25,13 @@ type Loop struct {
 	inbox         *util.SliceQueue[*chat.UserBlock]
 	loopContext   LoopContext
 	options       *chat.Options
-	store         *Store
 	toolExecutors []ToolExecutor
 	service       chat.Service
 	running       bool
 	pContext      context.Context
 	pCancel       context.CancelFunc
 	runLock       sync.Mutex
+	store         *Store
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	provider      string
@@ -63,14 +62,14 @@ func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
-func NewLoopBuilder(No uint64, loopContext LoopContext) *LoopBuilder {
+func NewLoopBuilder(store *Store, No uint64, loopContext LoopContext) *LoopBuilder {
 	pContext, plCancel := context.WithCancel(loopContext)
 	return &LoopBuilder{loop: &Loop{
 		no:            No,
 		loopContext:   loopContext,
 		options:       chat.DefaultOptions(),
 		toolExecutors: make([]ToolExecutor, 0),
-		store:         NewStore(loopContext.ID()),
+		store:         store,
 		pContext:      pContext,
 		pCancel:       plCancel,
 	}}
@@ -141,7 +140,7 @@ func (l *Loop) buildRequest() *chat.Request {
 	}
 	for _, m := range history {
 		msg := *m
-		msg.Content = blocksForContext(m.Content)
+		msg.Content = l.blocksForContext(m.Content)
 		// 剥离后内容为空的消息不发送（避免空 content 报错）
 		if len(msg.Content) == 0 {
 			continue
@@ -298,6 +297,16 @@ func (l *Loop) roundStopped() bool {
 	default:
 		return false
 	}
+}
+
+func (l *Loop) blocksForContext(blocks chat.Blocks) chat.Blocks {
+	result := make(chat.Blocks, 0, len(blocks))
+	for _, b := range blocks {
+		if b.ForContext() {
+			result = append(result, b)
+		}
+	}
+	return result
 }
 
 func (l *Loop) UpdateOptions(Option ...chat.Option) {

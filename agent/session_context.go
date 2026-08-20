@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"log"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -14,22 +13,17 @@ import (
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
+	LoopContext
 	context.Context
-	inbox         *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
-	running       bool                             // 主循环是否运行中（runLock 保护）
-	runCtx        context.Context                  // 主循环上下文（runLock 保护）
-	cancel        context.CancelFunc               // runCtx 的取消函数（runLock 保护）
-	runLock       sync.Mutex                       // 保护 inbox / running / runCtx / cancel
-	seq           uint64
 	sessionId     string
-	events        *Store
 	registry      *chat.ProviderRegistry
 	chatClients   *util.SliceArray[*Client]
 	toolExecutors []ToolExecutor
-	system        string
+	store         *Store
 	opts          *chat.Options
 	historyStore  HistoryStore
 	clientMutex   *sync.Mutex // 保护 chatClients
+	seq           uint64
 }
 
 // ID 返回会话 ID。
@@ -41,19 +35,16 @@ func (c *SessionContext) GetSeq() uint64 {
 
 // SendBlock 追加事件到存储并通知所有客户端。
 func (c *SessionContext) SendBlock(no uint64, block chat.Block) {
-	c.events.AddBlock(no, block)
-	c.Flush()
+	c.store.AddBlock(no, block)
+	c.flush()
 }
-func (c *SessionContext) ChatComplete(ctx context.Context, chatMessages *chat.Request, stream *chat.BlockStream) error {
-	return nil
-}
-func (c *SessionContext) AddErrorBlock(no uint64, error error) {
-	c.events.AddBlock(no, chat.NewErrorBlock(error.Error()))
-	c.Flush()
+
+func (c *SessionContext) GetService(provider string) chat.Service {
+	return c.registry.GetProvider(provider)
 }
 
 // Flush 通知所有客户端有新事件可读。
-func (c *SessionContext) Flush() {
+func (c *SessionContext) flush() {
 	c.clientMutex.Lock()
 	clients := c.chatClients.Slice()
 	c.clientMutex.Unlock()
@@ -65,21 +56,12 @@ func (c *SessionContext) Flush() {
 	}
 }
 
-func (c *SessionContext) History() []*chat.Message {
-	return c.events.History()
-}
-
-// Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，后续用户消息不受影响。
 func (c *SessionContext) Stop() {
-	c.runLock.Lock()
-	defer c.runLock.Unlock()
-	if c.cancel != nil {
-		c.cancel()
-	}
+
 }
 
-func (c *SessionContext) ReadEvent(position *Position) *Event {
-	return c.events.ReadFrom(position)
+func (c *SessionContext) ReceiveEvent(position *Position) *Event {
+	return c.store.ReadFrom(position)
 }
 
 func (c *SessionContext) DeleteClient(client *Client) {
@@ -87,12 +69,12 @@ func (c *SessionContext) DeleteClient(client *Client) {
 	c.chatClients.Remove(client)
 	client.queue.Close()
 	c.clientMutex.Unlock()
-	c.events.RemovePosition(client.position)
+	c.store.RemovePosition(client.position)
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
 func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
-	position := c.events.GetPosition(start)
+	position := c.store.GetPosition(start)
 	chatClient := &Client{
 		queue:    util.NewQueue[bool](),
 		handler:  handler,
@@ -102,169 +84,4 @@ func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
 	c.chatClients.Append(chatClient)
 	c.clientMutex.Unlock()
 	return chatClient
-}
-
-// ── 会话主体能力（主循环调用）──
-
-// ChatWithStream 使用默认 provider 发起流式对话请求，返回组装完成的全部 Block 与 stop_reason。
-// 内部创建独享 BlockStream 并以本上下文作为事件接收方（SendBlock），
-// 流式增量产生的客户端事件（chunk/thinking）由 BlockStream 直接推送。
-// func (c *SessionContext) ChatWithStream
-// ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
-// 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
-//func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
-//	stream := chat.NewBlockStream(nil)
-//	provider := c.registry.DefaultProvider()
-//	if err := c.registry.ChatWithStream(c.runCtx, provider, request, stream); err != nil {
-//		return "", err
-//	}
-//	blocks := stream.ReadBlocks()
-//	streamValue := value.NewStream()
-//	for _, b := range blocks {
-//		if tb, ok := b.(*chat.TextBlock); ok {
-//			streamValue.WriteString(tb.Text)
-//		}
-//	}
-//	return streamValue.Text(), nil
-//}
-
-// Done 返回主循环上下文的取消通道，供长耗时工具（如 exec_node 的 LLM 调用）响应会话停止。
-// 主循环未启动时返回 nil。
-func (c *SessionContext) Done() <-chan struct{} {
-	c.runLock.Lock()
-	defer c.runLock.Unlock()
-	if c.runCtx == nil {
-		return nil
-	}
-	return c.runCtx.Done()
-}
-
-// ConsumeMessage 将一条用户消息追加到历史记录，并发出消费事件。
-// 返回该消息附带的 per-turn 选项。
-func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
-	//c.SendBlock(chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Consume))
-	msg := qm.msg.ToMessage()
-	c.events.AppendHistory(&msg)
-	return qm.opts
-}
-
-// buildRequest 从 inbox 中取出所有待处理消息，追加到历史记录，构建 LLM 请求。
-// 调用方必须持有 runLock。
-func (c *SessionContext) buildRequest() *chat.Request {
-	var turnOpts []chat.Option
-
-	values, fa := c.inbox.ReadAll()
-	if fa {
-		for _, qm := range values {
-			if opts := c.ConsumeMessage(qm); len(opts) > 0 {
-				turnOpts = opts
-			}
-		}
-	}
-	// 注入历史上下文
-	history := c.events.History()
-	if len(history) == 0 {
-		return nil
-	}
-
-	effective := c.opts
-	if len(turnOpts) > 0 && effective != nil {
-		merged := *effective
-		for _, o := range turnOpts {
-			o(&merged)
-		}
-		effective = &merged
-	} else if len(turnOpts) > 0 {
-		// effective 为 nil 但存在 per-turn 选项时，从默认零值合并
-		merged := chat.Options{}
-		for _, o := range turnOpts {
-			o(&merged)
-		}
-		effective = &merged
-	}
-
-	messages := &chat.Request{
-		System:   c.composeSystem(),
-		Messages: make([]chat.Message, 0, len(history)),
-	}
-	for _, m := range history {
-		msg := *m
-		msg.Content = blocksForContext(m.Content)
-		// 剥离后内容为空的消息不发送（避免空 content 报错）
-		if len(msg.Content) == 0 {
-			continue
-		}
-		messages.Messages = append(messages.Messages, msg)
-	}
-
-	if effective != nil {
-		messages.Model = effective.Model
-		messages.MaxTokens = effective.MaxTokens
-		messages.Temperature = effective.Temperature
-		messages.TopP = effective.TopP
-		messages.TopK = effective.TopK
-		messages.StopSequences = effective.StopSequences
-		messages.Stream = effective.Stream
-		messages.Thinking = effective.Thinking.ToThinkingConfig()
-	} else {
-		messages.Stream = true
-	}
-
-	if len(c.toolExecutors) > 0 {
-		tools := make([]chat.ToolFunction, 0, len(c.toolExecutors))
-		for _, exec := range c.toolExecutors {
-			tools = append(tools, *exec.Definition())
-		}
-		messages.Tools = tools
-	}
-
-	return messages
-}
-
-// composeSystem 组装本轮请求的 System：基础系统提示词 + 各工具的引导提示词。
-// 工具可通过 UsagePrompt() 返回引导提示词——用了哪个工具就带上哪个，
-// 宿主应用无需硬编码；未提供引导词时返回空字符串。
-// 调用方必须持有 runLock。
-func (c *SessionContext) composeSystem() string {
-	system := c.system
-	var prompts []string
-	for _, exec := range c.toolExecutors {
-		if p := exec.UsagePrompt(); p != "" {
-			prompts = append(prompts, p)
-		}
-	}
-	if len(prompts) > 0 {
-		if system != "" {
-			system += "\n\n"
-		}
-		system += strings.Join(prompts, "\n\n")
-	}
-	return system
-}
-
-// appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (c *SessionContext) appendAssistantMessage(blocks chat.Blocks) {
-	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
-	c.events.AppendHistory(assistantMsg)
-}
-
-// saveAndReset 持久化自上次保存以来新增的消息，并清理 client 已读取的事件条目。
-func (c *SessionContext) saveAndReset() {
-	if err := c.events.ResetAndSave(); err != nil {
-		log.Printf("[chatSession] save history failed: %v", err)
-	}
-}
-
-// blocksForContext 过滤出用于上下文的块：是否进入上下文由每个 block 自己声明（ForContext）——
-// thinking 因 signature 约束不进入，usage/stop_reason 等内部元数据不属于对话内容，
-// 均在各 block 的 ForContext 中声明；新增块类型只需声明自身去向，接口强制实现，
-// 无需回这里维护名单。
-func blocksForContext(blocks chat.Blocks) chat.Blocks {
-	result := make(chat.Blocks, 0, len(blocks))
-	for _, b := range blocks {
-		if b.ForContext() {
-			result = append(result, b)
-		}
-	}
-	return result
 }

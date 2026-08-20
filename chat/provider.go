@@ -25,7 +25,7 @@ func NewProviderRegistry() *ProviderRegistry {
 	}
 }
 
-func (r *ProviderRegistry) getProvider(provider string) Service {
+func (r *ProviderRegistry) GetProvider(provider string) Service {
 	r.rLock.RLock()
 	defer r.rLock.RUnlock()
 	if r.providerMap == nil {

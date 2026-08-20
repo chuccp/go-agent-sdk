@@ -18,24 +18,6 @@ type HistoryStore interface {
 	AppendMessages(sessionID string, messages []chat.Message) error
 }
 
-type Event struct {
-	No    uint64     `json:"no"`
-	Seq   uint64     `json:"seq"`
-	Block chat.Block `json:"block"`
-}
-
-func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
-	return &Event{
-		No:    no,
-		Seq:   seq,
-		Block: block,
-	}
-}
-
-type Position struct {
-	start uint64
-}
-
 type Store struct {
 	sessionId    string
 	history0     *util.SliceArray[*chat.Message]
@@ -176,18 +158,8 @@ func (l *Store) LoadHistory() error {
 		if err != nil {
 			return err
 		}
-		var head uint64
 		for i := range msgs {
 			l.history0.Append(&msgs[i])
-			// 取所有消息 start+offset 的最大值作为事件流偏移恢复点
-			if end := msgs[i].Start + msgs[i].Offset; end > head {
-				head = end
-			}
-		}
-		// 恢复事件流偏移：新事件的 seq 从持久化历史之后接续，
-		// 与前端根据历史计算的 start 对齐
-		if l.entries.IsEmpty() && head > l.seq {
-			l.seq = head
 		}
 	}
 	return nil
@@ -208,11 +180,11 @@ func (l *Store) History() []*chat.Message {
 func (l *Store) AppendHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	msg.Offset = l.pending
-	if l.pending > 0 {
-		msg.Start = l.seq - l.pending
-	}
-	l.pending = 0
+	//msg.Offset = l.pending
+	//if l.pending > 0 {
+	//	msg.Start = l.seq - l.pending
+	//}
+	//l.pending = 0
 	l.tempHistory.Append(msg)
 }
 

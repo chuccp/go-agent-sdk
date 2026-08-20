@@ -85,9 +85,7 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 	messages := make([]chat.Message, 0, len(rows))
 	for _, row := range rows {
 		msg := chat.Message{
-			Role:   chat.Role(row.Role),
-			Start:  row.Start,
-			Offset: row.Offset,
+			Role: chat.Role(row.Role),
 		}
 		if row.Content != "" {
 			var blocks chat.Blocks
@@ -118,8 +116,6 @@ func (s *ChatSessionService) AppendMessages(sessionID string, messages []chat.Me
 			SessionId: sid,
 			Role:      string(msg.Role),
 			Content:   string(contentJSON),
-			Start:     msg.Start,
-			Offset:    msg.Offset,
 		}
 		if err := s.messageModel.Save(row); err != nil {
 			return err

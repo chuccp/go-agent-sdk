@@ -21,27 +21,28 @@ func newSession(sessionContext *SessionContext) *session {
 
 // History 返回当前会话的完整历史。
 func (s *session) History() []*chat.Message {
-	return s.sessionContext.History()
+	//return s.sessionContext.History()
+	return nil
 }
 
 // LoadHistory 从持久化存储加载历史记录。
 func (s *session) LoadHistory() error {
-	return s.sessionContext.events.LoadHistory()
+	return s.sessionContext.store.LoadHistory()
 }
 
 // newClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
 func (s *session) newClient(start uint64) *Client {
-	return s.sessionContext.GetChatClient(start, s)
+	return s.sessionContext.GetChatClient(start, nil)
 }
 
 // SendMessage 接收一条用户消息，交给会话主循环处理。
-func (s *session) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
-	return s.processor.HandleRevMessage(message, opt...)
+func (s *session) SendMessage(message *chat.RevMessage) error {
+	return s.processor.HandleRevMessage(message)
 }
 
 // ReadEvent 从指定位置读取一个事件（委托给 SessionContext 的事件存储）。
 func (s *session) ReadEvent(position *Position) *Event {
-	return s.sessionContext.ReadEvent(position)
+	return s.sessionContext.ReceiveEvent(position)
 }
 
 // DeleteClient 注销事件消费客户端（委托给 SessionContext）。

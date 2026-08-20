@@ -86,8 +86,6 @@ func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
 		result = append(result, &entity.ChatMessage{
 			Role:    string(m.Role),
 			Content: string(contentJSON),
-			Start:   m.Start,
-			Offset:  m.Offset,
 		})
 	}
 	return result, nil
