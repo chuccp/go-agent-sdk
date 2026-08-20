@@ -6,7 +6,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-// ── Store: SendBlock / ReadFrom ──
+// ── Store0: SendBlock / ReadFrom ──
 
 func TestStore_AddAndReadFrom_SinglePosition(t *testing.T) {
 	s := NewStore("s1", nil)
@@ -121,7 +121,7 @@ func TestStore_MultiplePositions(t *testing.T) {
 	}
 }
 
-// ── Store: ResetAndSave ──
+// ── Store0: ResetAndSave ──
 
 func TestStore_Reset_CleansReadEvents(t *testing.T) {
 	s := NewStore("s1", nil)
@@ -184,7 +184,7 @@ func TestStore_Reset_PreservesLastEvent(t *testing.T) {
 	}
 }
 
-// ── Store: AppendHistory ──
+// ── Store0: AppendHistory ──
 
 func TestStore_AppendHistory_SetsStartAndOffset(t *testing.T) {
 	s := NewStore("s1", nil)
@@ -230,7 +230,7 @@ func TestStore_AppendHistory_NoPendingEvents(t *testing.T) {
 	}
 }
 
-// ── Store: LoadHistory ──
+// ── Store0: LoadHistory ──
 
 type fakeHistoryStore struct {
 	messages []chat.Message
@@ -299,7 +299,7 @@ func TestStore_NoHistoryStore(t *testing.T) {
 	}
 }
 
-// ── Store: ResetAndSave（保存历史） ──
+// ── Store0: ResetAndSave（保存历史） ──
 
 type recordingHistoryStore struct {
 	appended [][]chat.Message // 记录每次 AppendMessages 的调用
@@ -349,7 +349,7 @@ func TestStore_SaveHistory_AppendsNewMessages(t *testing.T) {
 	}
 }
 
-// ── Store: Positions lifecycle ──
+// ── Store0: Positions lifecycle ──
 
 func TestStore_RemovePosition(t *testing.T) {
 	s := NewStore("s1", nil)
@@ -396,7 +396,7 @@ func TestStore_Reset_AfterRemovePosition(t *testing.T) {
 	}
 }
 
-// ── Store: Seq 单调递增 ──
+// ── Store0: Seq 单调递增 ──
 
 func TestStore_SeqNeverResets(t *testing.T) {
 	s := NewStore("s1", nil)

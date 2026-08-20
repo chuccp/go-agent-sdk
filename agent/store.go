@@ -18,7 +18,7 @@ type HistoryStore interface {
 	AppendMessages(sessionID string, messages []chat.Message) error
 }
 
-type Store struct {
+type Store0 struct {
 	sessionId    string
 	history0     *util.SliceArray[*chat.Message]
 	tempHistory  *util.SliceArray[*chat.Message]
@@ -30,8 +30,8 @@ type Store struct {
 	positions    *util.SliceArray[*Position]
 }
 
-func NewStore(sessionId string) *Store {
-	return &Store{
+func NewStore0(sessionId string) *Store0 {
+	return &Store0{
 		entries:     new(util.SliceArray[*Event]),
 		sessionId:   sessionId,
 		history0:    new(util.SliceArray[*chat.Message]),
@@ -39,30 +39,30 @@ func NewStore(sessionId string) *Store {
 		positions:   new(util.SliceArray[*Position]),
 	}
 }
-func (l *Store) SetHistoryStore(historyStore HistoryStore) {
+func (l *Store0) SetHistoryStore(historyStore HistoryStore) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	l.historyStore = historyStore
 }
-func (l *Store) AddBlock(no uint64, block chat.Block) uint64 {
+func (l *Store0) AddBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	event := NewEvent(no, l.seq, block)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
-	return event.Seq
+	return event.Start
 }
 
 // ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
 // 每个事件的 Offset 恒为 1，读后 position 前进 1。
-func (l *Store) ReadFrom(position *Position) *Event {
+func (l *Store0) ReadFrom(position *Position) *Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	if l.entries.IsEmpty() {
 		return nil
 	}
-	firstSeq := l.entries.Get(0).Seq
+	firstSeq := l.entries.Get(0).Start
 	start := max(position.start, firstSeq)
 	idx := int(start - firstSeq)
 	if idx >= l.entries.Len() {
@@ -80,7 +80,7 @@ func (l *Store) ReadFrom(position *Position) *Event {
 // start 为初始读取偏移，返回的 Position 由 client 持有并随读取推进。
 // 若 start 超过当前写头（如根据持久化历史计算的偏移，而事件流已随服务重启重置），
 // 则钳制到写头，保证之后新产生的事件（seq 从写头开始分配）都能被读到。
-func (l *Store) GetPosition(start uint64) *Position {
+func (l *Store0) GetPosition(start uint64) *Position {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if start > l.seq {
@@ -92,7 +92,7 @@ func (l *Store) GetPosition(start uint64) *Position {
 }
 
 // RemovePosition 注销客户端读取位置，后续 Reset 不再考虑该 position。
-func (l *Store) RemovePosition(position *Position) {
+func (l *Store0) RemovePosition(position *Position) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.positions.Remove(position)
@@ -100,7 +100,7 @@ func (l *Store) RemovePosition(position *Position) {
 
 // minPosition 返回所有已注册 position 中 Start 最小的值。
 // 若无 position，返回 0。
-func (l *Store) minPosition() uint64 {
+func (l *Store0) minPosition() uint64 {
 	// 调用方已持有 l.mu，无需再加锁
 	if l.positions.Len() == 0 {
 		return 0
@@ -116,11 +116,11 @@ func (l *Store) minPosition() uint64 {
 	}
 	return m
 }
-func (l *Store) ResetAndSave() error {
+func (l *Store0) ResetAndSave() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !l.entries.IsEmpty() {
-		firstSeq := l.entries.Get(0).Seq
+		firstSeq := l.entries.Get(0).Start
 		minStart := l.minPosition()
 		if minStart > firstSeq {
 			removeCount := min(int(minStart-firstSeq), l.entries.Len())
@@ -147,7 +147,7 @@ func (l *Store) ResetAndSave() error {
 
 }
 
-func (l *Store) LoadHistory() error {
+func (l *Store0) LoadHistory() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.historyStore == nil {
@@ -166,7 +166,7 @@ func (l *Store) LoadHistory() error {
 }
 
 // History 返回当前全量历史消息快照。
-func (l *Store) History() []*chat.Message {
+func (l *Store0) History() []*chat.Message {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	result := make([]*chat.Message, l.history0.Len()+l.tempHistory.Len())
@@ -177,7 +177,7 @@ func (l *Store) History() []*chat.Message {
 
 // AppendHistory 将一条消息追加到内存历史。
 // 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
-func (l *Store) AppendHistory(msg *chat.Message) {
+func (l *Store0) AppendHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	//msg.Offset = l.pending
@@ -189,7 +189,7 @@ func (l *Store) AppendHistory(msg *chat.Message) {
 }
 
 // HistoryLen 返回当前历史消息数量。
-func (l *Store) HistoryLen() int {
+func (l *Store0) HistoryLen() int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.history0.Len() + l.tempHistory.Len()

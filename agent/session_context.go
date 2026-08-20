@@ -19,7 +19,7 @@ type SessionContext struct {
 	registry      *chat.ProviderRegistry
 	chatClients   *util.SliceArray[*Client]
 	toolExecutors []ToolExecutor
-	store         *Store
+	store         *Store0
 	opts          *chat.Options
 	historyStore  HistoryStore
 	clientMutex   *sync.Mutex // 保护 chatClients

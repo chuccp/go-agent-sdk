@@ -18,6 +18,8 @@ func (ChatSession) TableName() string {
 type ChatMessage struct {
 	Id          uint      `gorm:"primaryKey" json:"id"`
 	SessionId   uint      `gorm:"index" json:"session_id"`
+	Start       uint64    `json:"start"`
+	Offset      uint64    `json:"offset"`
 	Role        string    `gorm:"size:32" json:"role"`
 	Content     string    `gorm:"type:text" json:"content"`
 	ToolCalls   string    `gorm:"type:text" json:"tool_calls,omitempty"`   // JSON-serialized tool calls

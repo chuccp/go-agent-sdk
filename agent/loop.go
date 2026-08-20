@@ -31,7 +31,7 @@ type Loop struct {
 	pContext      context.Context
 	pCancel       context.CancelFunc
 	runLock       sync.Mutex
-	store         *Store
+	store         *Store0
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	provider      string
@@ -62,7 +62,7 @@ func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
-func NewLoopBuilder(store *Store, No uint64, loopContext LoopContext) *LoopBuilder {
+func NewLoopBuilder(store *Store0, No uint64, loopContext LoopContext) *LoopBuilder {
 	pContext, plCancel := context.WithCancel(loopContext)
 	return &LoopBuilder{loop: &Loop{
 		no:            No,
