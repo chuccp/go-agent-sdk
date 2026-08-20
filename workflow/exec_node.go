@@ -177,29 +177,29 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 // nodeCall 零上下文一次性 LLM 调用（硬边界）：不带会话历史，
 // 模板变量 = 共享变量(vars) + 项变量(itemVars)，不产生会话事件。
 func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value.Object, itemVars map[string]any) (string, error) {
-	sctx := turn.Context()
-	merged := vars.ToMap()
-	for k, v := range itemVars {
-		merged[k] = v
-	}
-
-	system := exec.RenderTemplate(nd.SystemTemplate(), merged)
-	user := exec.RenderTemplate(nd.UserTemplate(), merged)
-	request := &chat.Request{
-		Model:     nd.Model(),
-		MaxTokens: 8192,
-		Stream:    true,
-		System:    system,
-		// 节点是一次性任务生成，默认关闭扩展思考：避免简单任务（如缝合/拼接）
-		// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理
-		Thinking: &chat.ThinkingConfig{Type: "disabled"},
-		Messages: []chat.Message{chat.NewTextMessage(user)},
-	}
-	return sctx.ChatComplete(request)
+	//sctx := turn.Context()
+	//merged := vars.ToMap()
+	//for k, v := range itemVars {
+	//	merged[k] = v
+	//}
+	//
+	//system := exec.RenderTemplate(nd.SystemTemplate(), merged)
+	//user := exec.RenderTemplate(nd.UserTemplate(), merged)
+	//request := &chat.Request{
+	//	Model:     nd.Model(),
+	//	MaxTokens: 8192,
+	//	Stream:    true,
+	//	System:    system,
+	//	// 节点是一次性任务生成，默认关闭扩展思考：避免简单任务（如缝合/拼接）
+	//	// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理
+	//	Thinking: &chat.ThinkingConfig{Type: "disabled"},
+	//	Messages: []chat.Message{chat.NewTextMessage(user)},
+	//}
+	return "", nil
 }
 
 // emitProgress 推送 flow_progress 事件（前端步骤进度/作品卡片）。
-func (t *ExecNodeTool) emitProgress(sctx *agent.SessionContext, flowId, stepId, phase, output string) {
+func (t *ExecNodeTool) emitProgress(sctx agent.LoopContext, flowId, stepId, phase, output string) {
 	if sctx == nil {
 		return
 	}

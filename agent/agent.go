@@ -72,7 +72,7 @@ func (m *Agent) getOrCreateSession(id string) *session {
 		inbox:         new(util.SliceQueue[*QueuedMessage]),
 		running:       false,
 		seq:           0,
-		events:        NewStore(id, m.historyStore),
+		events:        NewStore(id),
 		registry:      m.registry,
 		chatClients:   new(util.SliceArray[*Client]),
 		toolExecutors: tools,

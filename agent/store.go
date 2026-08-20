@@ -48,15 +48,19 @@ type Store struct {
 	positions    *util.SliceArray[*Position]
 }
 
-func NewStore(sessionId string, historyStore HistoryStore) *Store {
+func NewStore(sessionId string) *Store {
 	return &Store{
-		entries:      new(util.SliceArray[*Event]),
-		historyStore: historyStore,
-		sessionId:    sessionId,
-		history0:     new(util.SliceArray[*chat.Message]),
-		tempHistory:  new(util.SliceArray[*chat.Message]),
-		positions:    new(util.SliceArray[*Position]),
+		entries:     new(util.SliceArray[*Event]),
+		sessionId:   sessionId,
+		history0:    new(util.SliceArray[*chat.Message]),
+		tempHistory: new(util.SliceArray[*chat.Message]),
+		positions:   new(util.SliceArray[*Position]),
 	}
+}
+func (l *Store) SetHistoryStore(historyStore HistoryStore) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	l.historyStore = historyStore
 }
 func (l *Store) AddBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
@@ -199,9 +203,9 @@ func (l *Store) History() []*chat.Message {
 	return result
 }
 
-// AppendHistory 将一条消息追加到内存历史。
+// AppendTempHistory 将一条消息追加到内存历史。
 // 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
-func (l *Store) AppendHistory(msg *chat.Message) {
+func (l *Store) AppendTempHistory(msg *chat.Message) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg.Offset = l.pending

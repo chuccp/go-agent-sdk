@@ -9,12 +9,12 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
-	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
+	context.Context
 	inbox         *util.SliceQueue[*QueuedMessage] // 用户输入消息队列（runLock 保护）
 	running       bool                             // 主循环是否运行中（runLock 保护）
 	runCtx        context.Context                  // 主循环上下文（runLock 保护）
@@ -43,6 +43,9 @@ func (c *SessionContext) GetSeq() uint64 {
 func (c *SessionContext) SendBlock(no uint64, block chat.Block) {
 	c.events.AddBlock(no, block)
 	c.Flush()
+}
+func (c *SessionContext) ChatComplete(ctx context.Context, chatMessages *chat.Request, stream *chat.BlockStream) error {
+	return nil
 }
 func (c *SessionContext) AddErrorBlock(no uint64, error error) {
 	c.events.AddBlock(no, chat.NewErrorBlock(error.Error()))
@@ -109,21 +112,21 @@ func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
 // func (c *SessionContext) ChatWithStream
 // ChatComplete 零上下文一次性调用：不带会话历史、不产生会话事件（receiver 为 nil）。
 // 供 flow 执行节点等需要与会话隔离的 LLM 调用使用。
-func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
-	stream := chat.NewBlockStream(nil)
-	provider := c.registry.DefaultProvider()
-	if err := c.registry.ChatWithStream(c.runCtx, provider, request, stream); err != nil {
-		return "", err
-	}
-	blocks := stream.ReadBlocks()
-	streamValue := value.NewStream()
-	for _, b := range blocks {
-		if tb, ok := b.(*chat.TextBlock); ok {
-			streamValue.WriteString(tb.Text)
-		}
-	}
-	return streamValue.Text(), nil
-}
+//func (c *SessionContext) ChatComplete(request *chat.Request) (string, error) {
+//	stream := chat.NewBlockStream(nil)
+//	provider := c.registry.DefaultProvider()
+//	if err := c.registry.ChatWithStream(c.runCtx, provider, request, stream); err != nil {
+//		return "", err
+//	}
+//	blocks := stream.ReadBlocks()
+//	streamValue := value.NewStream()
+//	for _, b := range blocks {
+//		if tb, ok := b.(*chat.TextBlock); ok {
+//			streamValue.WriteString(tb.Text)
+//		}
+//	}
+//	return streamValue.Text(), nil
+//}
 
 // Done 返回主循环上下文的取消通道，供长耗时工具（如 exec_node 的 LLM 调用）响应会话停止。
 // 主循环未启动时返回 nil。
@@ -141,7 +144,7 @@ func (c *SessionContext) Done() <-chan struct{} {
 func (c *SessionContext) ConsumeMessage(qm *QueuedMessage) []chat.Option {
 	//c.SendBlock(chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Consume))
 	msg := qm.msg.ToMessage()
-	c.events.AppendHistory(&msg)
+	c.events.AppendTempHistory(&msg)
 	return qm.opts
 }
 
@@ -240,9 +243,9 @@ func (c *SessionContext) composeSystem() string {
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (c *SessionContext) appendAssistantMessage(blocks chat.Blocks) {
+func (c *SessionContext) appendAssistantTempMessage(blocks chat.Blocks) {
 	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
-	c.events.AppendHistory(assistantMsg)
+	c.events.AppendTempHistory(assistantMsg)
 }
 
 // saveAndReset 持久化自上次保存以来新增的消息，并清理 client 已读取的事件条目。

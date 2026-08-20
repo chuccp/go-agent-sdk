@@ -110,7 +110,7 @@ func (p *messageProcessor) doLoop() {
 
 		if stopReason == chat.StopReasonToolUse {
 			// assistant 消息入历史
-			ctx.appendAssistantMessage(blocks)
+			ctx.appendAssistantTempMessage(blocks)
 			// tool_result 作为 user 消息入历史；未命中工具的 tool_use 已在 executeTools 补错误结果
 			results, toolStop := p.executeTools(ctx, blocks)
 			if p.roundStopped(ctx) {
@@ -118,7 +118,7 @@ func (p *messageProcessor) doLoop() {
 				// 否则历史以无 tool_result 的 tool_use 结尾，下次请求会被 LLM API 拒绝；
 				// done 在历史写入前发出，被其 Offset 覆盖，重连不重放
 				p.SendBlock(chat.NewDoneBlock())
-				ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
+				ctx.events.AppendTempHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 				p.finishStoppedRound(ctx)
 				continue
 			}
@@ -128,7 +128,7 @@ func (p *messageProcessor) doLoop() {
 				// 前端根据历史计算的 start 落在 done 之后，重连时不重放残留的 done
 				p.SendBlock(chat.NewDoneBlock())
 			}
-			ctx.events.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
+			ctx.events.AppendTempHistory(&chat.Message{Role: chat.RoleUser, Content: results})
 			if toolStop != chat.StopReasonUserWait {
 				// 继续循环：携带 tool_result 再次调用 LLM
 				continue
@@ -137,7 +137,7 @@ func (p *messageProcessor) doLoop() {
 			// 先发 done 事件再写 assistant 历史：消息的 Offset 即可覆盖 done，
 			// 前端根据历史计算的 start 会落在 done 之后，重连时不重放残留的 done
 			p.SendBlock(chat.NewDoneBlock())
-			ctx.appendAssistantMessage(blocks)
+			ctx.appendAssistantTempMessage(blocks)
 		}
 
 		// 收尾（end_turn / 工具暂停）：保存历史；inbox 还有消息则继续循环，否则退出
@@ -265,7 +265,7 @@ func (p *messageProcessor) executeTools(ctx *SessionContext, blocks chat.Blocks)
 // 锁协议：调用方持有 runLock，工具执行（外部 I/O）期间释放，返回前恢复持锁。
 func (p *messageProcessor) runTool(ctx *SessionContext, tu *chat.ToolUseBlock, exec ToolExecutor) (chat.Blocks, chat.StopReason) {
 
-	turn := &Turn{ctx: ctx, args: tu.Input}
+	turn := &Turn{ctx: p.ctx, args: tu.Input}
 
 	ctx.runLock.Unlock()
 	writer := chat.NewBlockStream(p)
