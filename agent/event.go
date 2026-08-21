@@ -191,5 +191,28 @@ func (l *Transfer) history() []*chat.Message {
 	return l.messageStore.History()
 }
 func (l *Transfer) reset() {
-
+	if !l.entries.IsEmpty() {
+		firstSeq := l.entries.Get(0).Start
+		minStart := l.minPosition()
+		if minStart > firstSeq {
+			removeCount := min(int(minStart-firstSeq), l.entries.Len())
+			l.entries.RemoveFront(removeCount)
+		}
+	}
+}
+func (l *Transfer) minPosition() uint64 {
+	// 调用方已持有 l.mu，无需再加锁
+	if l.chatClients.Len() == 0 {
+		return 0
+	}
+	var m uint64
+	first := true
+	for i := 0; i < l.chatClients.Len(); i++ {
+		v := l.chatClients.Get(i).start
+		if first || v < m {
+			m = v
+			first = false
+		}
+	}
+	return m
 }
