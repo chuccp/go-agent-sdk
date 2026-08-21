@@ -33,25 +33,33 @@ func (c *Client) WriteMessage(block ...chat.Block) {
 	c.handler.WriteBlocks(block...)
 }
 
+// ReadEvent 读取单个事件，无事件时返回 nil。
+func (c *Client) ReadEvent() *Event {
+	events := c.ReadEvents()
+	if len(events) > 0 {
+		return events[0]
+	}
+	return nil
+}
+
 func (c *Client) ReadEvents() []*Event {
+	_, hasValue := c.queue.Dequeue()
+	if !hasValue {
+		return nil
+	}
+	allEvents := make([]*Event, 0)
 	for {
-		_, hasValue := c.queue.Dequeue()
-		if !hasValue {
-			return nil
-		}
-		allEvents := make([]*Event, 0)
-		for {
-			events := c.readEvents.readEvents(c)
-			if len(events) > 0 {
-				allEvents = append(allEvents, events...)
-			} else {
-				if len(allEvents) == 0 {
-					return nil
-				}
-				return allEvents
-			}
+		events := c.readEvents.readEvents(c)
+		if len(events) > 0 {
+			allEvents = append(allEvents, events...)
+		} else {
+			break
 		}
 	}
+	if len(allEvents) == 0 {
+		return nil
+	}
+	return allEvents
 }
 
 func (c *Client) Stop() {

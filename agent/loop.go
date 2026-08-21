@@ -72,6 +72,7 @@ func NewLoopBuilder(ctx context.Context, loopContext LoopContext, No uint64, sto
 		store:         store,
 		pContext:      pContext,
 		pCancel:       plCancel,
+		inbox:         new(util.SliceQueue[*chat.UserBlock]),
 	}}
 }
 
@@ -268,19 +269,18 @@ func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup,
 			stopReason = chat.StopReasonUserWait
 		}
 	}
-	return l.mergeBlockGroup(blockGroups), stopReason
+	return l.mergeToolsBlockGroup(blockGroups, results), stopReason
 }
 
-func (l *Loop) mergeBlockGroup(blockGroups []*chat.BlockGroup) *chat.BlockGroup {
+func (l *Loop) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
 	if len(blockGroups) == 1 {
+		blockGroups[0].Content = results
 		return blockGroups[0]
 	}
 	var blockGroup chat.BlockGroup
 	blockGroup.Start = blockGroups[0].Start
 	blockGroup.Offset = blockGroups[len(blockGroups)-1].Offset + blockGroups[len(blockGroups)-1].Start - blockGroup.Start
-	for _, bg := range blockGroups {
-		blockGroup.Content = append(blockGroup.Content, bg.Content...)
-	}
+	blockGroup.Content = results
 	return &blockGroup
 }
 

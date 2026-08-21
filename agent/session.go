@@ -23,6 +23,7 @@ func newSession(sessionContext *SessionContext) *session {
 	}
 	loopBuilder := NewLoopBuilder(context.Background(), sessionContext, 0, sessionContext.GetStore())
 	loopBuilder.ToolExecutor(sessionContext.toolExecutors...)
+	loopBuilder.Provider(sessionContext.registry.DefaultProvider())
 	loopBuilder.Done(func() {
 		sessionContext.Reset()
 	})

@@ -80,6 +80,9 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	events := l.greaterStart(cl.start)
+	if len(events) == 0 {
+		return nil
+	}
 	lastEvent := events[0]
 	cl.start = lastEvent.Start + lastEvent.Offset
 	return reverseNew(events)

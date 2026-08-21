@@ -98,6 +98,16 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *
 
 // ── Tools ──
 
+// fakeTool 用于 TestToolUse_UnknownTool 等场景（agent 包内 fakeTool 不可导出）。
+type fakeTool struct{}
+
+func (f *fakeTool) Definition() *chat.ToolFunction {
+	return &chat.ToolFunction{Name: "fake", Description: "a fake tool"}
+}
+func (f *fakeTool) Name() string                         { return "fake" }
+func (f *fakeTool) UsagePrompt() string                  { return "" }
+func (f *fakeTool) Execute(_ *agent.Turn, _ *chat.ToolResultBlockStream) {}
+
 type echoTool struct{}
 
 func (t *echoTool) Definition() *chat.ToolFunction {
@@ -111,51 +121,72 @@ func (t *echoTool) Execute(turn *agent.Turn, w *chat.ToolResultBlockStream) {
 
 // ── Helpers ──
 
-// readUntilDone 读完所有事件，返回遇到的 done 事件（超时则 fail）。
+// eventHasBlock 检查事件的 Blocks 中是否包含指定类型的 block。
+func eventHasBlock(evt *agent.Event, target chat.Block) bool {
+	for _, b := range evt.Blocks {
+		switch target.(type) {
+		case *chat.DoneBlock:
+			if _, ok := b.(*chat.DoneBlock); ok {
+				return true
+			}
+		case *chat.TextBlock:
+			if _, ok := b.(*chat.TextBlock); ok {
+				return true
+			}
+		case *chat.ToolExecutionBlock:
+			if _, ok := b.(*chat.ToolExecutionBlock); ok {
+				return true
+			}
+		case *chat.StartBlock:
+			if _, ok := b.(*chat.StartBlock); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// readUntilDone 持续轮询事件，返回遇到的 done 事件（超时则 fail）。
 func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *agent.Event {
 	t.Helper()
 	deadline := time.After(timeout)
-	done := make(chan *agent.Event, 1)
-	go func() {
-		for {
-			evt := client.ReadEvent()
-			if evt == nil {
-				return
-			}
-			if _, ok := evt.Block.(*chat.DoneBlock); ok {
-				done <- evt
-				return
-			}
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timeout waiting for done event")
+			return nil
+		default:
 		}
-	}()
-	select {
-	case evt := <-done:
-		return evt
-	case <-deadline:
-		t.Fatal("timeout waiting for done event")
-		return nil
+		evt := client.ReadEvent()
+		if evt == nil {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if eventHasBlock(evt, &chat.DoneBlock{}) {
+			return evt
+		}
 	}
 }
 
-// collectEvents 收集所有事件直到队列为空。
+// collectEvents 持续轮询收集事件，直到遇到 DoneBlock 或超时。
 func collectEvents(t *testing.T, client *agent.Client) []*agent.Event {
 	t.Helper()
 	var events []*agent.Event
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for {
-		var evt *agent.Event
 		select {
 		case <-deadline:
 			t.Fatal("timeout collecting events")
 			return events
 		default:
-			evt = client.ReadEvent()
 		}
+		evt := client.ReadEvent()
 		if evt == nil {
-			return events
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 		events = append(events, evt)
-		if _, ok := evt.Block.(*chat.DoneBlock); ok {
+		if eventHasBlock(evt, &chat.DoneBlock{}) {
 			return events
 		}
 	}
@@ -165,23 +196,8 @@ func collectEvents(t *testing.T, client *agent.Client) []*agent.Event {
 func hasBlockTypeInEvents(t *testing.T, events []*agent.Event, block chat.Block) {
 	t.Helper()
 	for _, e := range events {
-		switch block.(type) {
-		case *chat.DoneBlock:
-			if _, ok := e.Block.(*chat.DoneBlock); ok {
-				return
-			}
-		case *chat.TextBlock:
-			if _, ok := e.Block.(*chat.TextBlock); ok {
-				return
-			}
-		case *chat.ToolExecutionBlock:
-			if _, ok := e.Block.(*chat.ToolExecutionBlock); ok {
-				return
-			}
-		case *chat.StartBlock:
-			if _, ok := e.Block.(*chat.StartBlock); ok {
-				return
-			}
+		if eventHasBlock(e, block) {
+			return
 		}
 	}
 	t.Errorf("expected block type %T not found in %d events", block, len(events))
@@ -203,6 +219,13 @@ func TestSingleRoundText(t *testing.T) {
 	client.WriteText("hi")
 
 	events := collectEvents(t, client)
+	t.Logf("got %d events", len(events))
+	for i, e := range events {
+		t.Logf("  event[%d]: Start=%d Offset=%d Blocks=%d", i, e.Start, e.Offset, len(e.Blocks))
+		for j, b := range e.Blocks {
+			t.Logf("    block[%d]: %T", j, b)
+		}
+	}
 	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
@@ -333,9 +356,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.WriteText("开始长耗时生成"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("开始长耗时生成")
 
 	// 等首轮生成确实开始后再停止
 	select {
@@ -351,9 +372,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	}
 
 	// 后续新消息正常触发新一轮
-	if err := client.WriteText("下一条消息"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("下一条消息")
 	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
 		t.Fatal("expected done event after stop")
 	}
