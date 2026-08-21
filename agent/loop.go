@@ -131,6 +131,7 @@ func (l *Loop) buildRequest() *chat.Request {
 		for _, qm := range values {
 			qm.BlockUserType = chat.Consume
 			l.SendBlock(qm)
+			l.store.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: qm.Content})
 		}
 	}
 	// 注入历史上下文

@@ -146,21 +146,28 @@ function resetStreamBlockState(): void {
 function streamHandler(evt: MessageEvent): void {
   try {
     const msg = JSON.parse(evt.data)
-    // 后端发送 {seq, block: {type, ...}} 格式
-    const block = msg.block
-    if (!block) return
+    // 后端发送 {no, start, offset, block: [{type, ...}, ...]} 格式
+    const blocks = msg.block
+    if (!Array.isArray(blocks)) return
+    for (const block of blocks) {
+      processBlock(block, msg)
+    }
+  } catch { /* ignore parse errors */ }
+}
+
+function processBlock(block: Record<string, unknown>, msg: Record<string, unknown>): void {
     const blockType = block.type as string
-    console.log('[streamHandler] block type:', blockType, 'seq:', msg.seq)
+    console.log('[streamHandler] block type:', blockType, 'seq:', msg.start)
 
     let event: StreamEvent | null = null
     switch (blockType) {
       case 'start': {
         // 流式块开始标记：记录类型，后续 delta 据此路由（thinking vs text）
-        const inner = block.block
-        const innerType = inner?.type || null
-        const innerName = inner?.name || null
-        const innerId = inner?.id || null
-        const toolUseId = inner?.tool_use_id || null
+        const inner = block.block as Record<string, unknown> | undefined
+        const innerType = (inner?.type as string) || null
+        const innerName = (inner?.name as string) || null
+        const innerId = (inner?.id as string) || null
+        const toolUseId = (inner?.tool_use_id as string) || null
         const wasToolUse = currentStreamBlockType === 'tool_use'
 
         // 上一个 execute_command 的入参已收齐：解析命令并按 id 记录
@@ -192,17 +199,17 @@ function streamHandler(evt: MessageEvent): void {
           if (currentStreamBlockType === 'tool_use') {
             // tool_use 入参 JSON：execute_command 累积解析命令，其他工具按文本回显
             if (currentToolName === 'execute_command') {
-              toolInputJson += block.content
+              toolInputJson += block.content as string
             } else {
-              event = { kind: 'chunk', text: block.content }
+              event = { kind: 'chunk', text: block.content as string }
             }
           } else if (currentStreamBlockType === 'thinking') {
-            event = { kind: 'thinking', text: block.content }
+            event = { kind: 'thinking', text: block.content as string }
           } else if (activeCommand !== null) {
             // 命令输出阶段的文本增量 → command 事件（前端终端样式渲染）
-            event = { kind: 'command', command: activeCommand, output: block.content }
+            event = { kind: 'command', command: activeCommand, output: block.content as string }
           } else {
-            event = { kind: 'chunk', text: block.content }
+            event = { kind: 'chunk', text: block.content as string }
           }
         }
         break
@@ -210,24 +217,24 @@ function streamHandler(evt: MessageEvent): void {
         // 完整文本块（工具输出/错误补充等）：命令输出阶段并入 command，否则 chunk
         if (block.text) {
           if (activeCommand !== null) {
-            event = { kind: 'command', command: activeCommand, output: block.text }
+            event = { kind: 'command', command: activeCommand, output: block.text as string }
           } else {
-            event = { kind: 'chunk', text: block.text }
+            event = { kind: 'chunk', text: block.text as string }
           }
         }
         break
       case 'thinking':
         // 完整 thinking 块 → thinking
-        if (block.thinking) event = { kind: 'thinking', text: block.thinking }
+        if (block.thinking) event = { kind: 'thinking', text: block.thinking as string }
         break
       case 'tool_execution':
         // 工具执行事件：tool_name 为工具名，args 为入参，output 为输出
         if (block.tool_name || block.output) {
           event = {
             kind: 'tool_execution',
-            name: block.tool_name || '',
-            input: block.args || '',
-            output: block.output || '',
+            name: (block.tool_name as string) || '',
+            input: (block.args as string) || '',
+            output: (block.output as string) || '',
           }
         }
         break
@@ -237,15 +244,18 @@ function streamHandler(evt: MessageEvent): void {
         console.log('[bridge] done block received')
         break
       case 'error':
-        event = { kind: 'error', message: block.text || block.message || 'Unknown error' }
+        event = { kind: 'error', message: (block.text as string) || (block.message as string) || 'Unknown error' }
         break
       case 'ask_user':
         // ask_user 块：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
         console.log('[bridge] ask_user block received')
-        if (askUserHandler && block.text) askUserHandler(block.text)
+        if (askUserHandler && block.text) askUserHandler(block.text as string)
         return
       case 'usage':
         // token 用量元数据，不产生事件
+        return
+      case 'User':
+        // User block 由 ChatRuntimeProvider 处理，此处跳过
         return
       default:
         console.log('[streamHandler] unknown block type:', blockType)
@@ -258,7 +268,6 @@ function streamHandler(evt: MessageEvent): void {
     } else {
       pendingBuffer.push(event)
     }
-  } catch { /* ignore parse errors */ }
 }
 
 // ── Adapter factory ──
