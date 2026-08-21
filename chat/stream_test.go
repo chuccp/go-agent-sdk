@@ -253,8 +253,9 @@ type testReceiver struct {
 	blocks []Block
 }
 
-func (r *testReceiver) SendBlock(block Block) {
+func (r *testReceiver) SendBlock(block Block) uint64 {
 	r.blocks = append(r.blocks, block)
+	return 0
 }
 
 func TestBlockStream_EmitsStartAndDeltaBlocks(t *testing.T) {

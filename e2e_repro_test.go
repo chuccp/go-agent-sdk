@@ -57,14 +57,16 @@ func waitForDone(t *testing.T, client *agent.Client, label string) {
 	ch := make(chan result, 1)
 	go func() {
 		for {
-			evt := client.ReadEvent()
-			if evt == nil {
+			events := client.ReadEvents()
+			if len(events) == 0 {
 				ch <- result{}
 				return
 			}
-			if _, ok := evt.Block.(*chat.DoneBlock); ok {
-				ch <- result{evt}
-				return
+			for _, evt := range events {
+				if _, ok := evt.Blocks[0].(*chat.DoneBlock); ok {
+					ch <- result{evt}
+					return
+				}
 			}
 		}
 	}()
@@ -103,15 +105,11 @@ func TestTwoRoundsWithTool(t *testing.T) {
 	}
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
-	if err := client.WriteText("请使用 fake_tool 工具"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("请使用 fake_tool 工具")
 	waitForDone(t, client, "round-1(tool)")
 
 	// ── 第三轮（同会话第二次用户消息）：纯文本 end_turn ──
-	if err := client.WriteText("再来一轮普通对话"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("再来一轮普通对话")
 	waitForDone(t, client, "round-2(plain)")
 
 	fmt.Println("两轮对话均正常收到 done")

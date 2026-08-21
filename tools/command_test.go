@@ -15,8 +15,20 @@ type blockRecorder struct {
 	blocks []chat.Block
 }
 
-func (r *blockRecorder) SendBlock(block chat.Block) {
+func (r *blockRecorder) SendBlock(block chat.Block) uint64 {
 	r.blocks = append(r.blocks, block)
+	return 0
+}
+
+// ctxReceiver 适配 SessionContext.SendBlock(no, block) 到 BlockReceiver 接口。
+type ctxReceiver struct {
+	ctx *agent.SessionContext
+	seq uint64
+}
+
+func (r *ctxReceiver) SendBlock(block chat.Block) uint64 {
+	no := r.ctx.GetSeq()
+	return r.ctx.SendBlock(no, block)
 }
 
 // collectText 从 BlockStream 的已组装 blocks 中提取全部文本。
@@ -30,22 +42,22 @@ func collectText(w *chat.BlockStream) string {
 	return sb.String()
 }
 
-// readEventsUntilIdle 读取 client 事件直到空闲（ReadEvent 无事件时会阻塞，
+// readEventsUntilIdle 读取 client 事件直到空闲（ReadEvents 无事件时会阻塞，
 // 故在协程中读取并以超时判定流已排空）。
 func readEventsUntilIdle(client *agent.Client, idle time.Duration) []*agent.Event {
 	var events []*agent.Event
 	for {
-		ch := make(chan *agent.Event, 1)
+		ch := make(chan []*agent.Event, 1)
 		go func() {
-			evt := client.ReadEvent()
-			ch <- evt
+			evts := client.ReadEvents()
+			ch <- evts
 		}()
 		select {
-		case evt := <-ch:
-			if evt == nil {
+		case evts := <-ch:
+			if len(evts) == 0 {
 				return events
 			}
-			events = append(events, evt)
+			events = append(events, evts...)
 		case <-time.After(idle):
 			return events
 		}
@@ -79,7 +91,7 @@ func TestCommand_WithSessionContext(t *testing.T) {
 	defer client.Close()
 
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为
-	w := chat.NewBlockStream(ctx)
+	w := chat.NewBlockStream(&ctxReceiver{ctx: ctx})
 	tool := NewCommandTool()
 	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo event-test"})), chat.NewToolResultBlockStream(w, "cmd"))
 

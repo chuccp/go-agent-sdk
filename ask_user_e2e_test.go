@@ -41,7 +41,7 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 // findAskUserBlock 在事件列表中查找 AskUserBlock。
 func findAskUserBlock(events []*agent.Event) *tools.AskUserBlock {
 	for _, e := range events {
-		if ab, ok := e.Block.(*tools.AskUserBlock); ok {
+		if ab, ok := e.Blocks[0].(*tools.AskUserBlock); ok {
 			return ab
 		}
 	}
@@ -64,9 +64,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	defer client.Close()
 
 	// ── 第一轮：触发 ask_user_question ──
-	if err := client.WriteText("帮我选个颜色"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("帮我选个颜色")
 	events := collectUntilDone(t, client)
 
 	// ask_user block 已推送，text 为问题列表 JSON
@@ -85,14 +83,12 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	// 工具输出已流式推送（TextBlock），不再单独发 ToolExecutionBlock
 
 	// ── 第二轮：用户回答作为普通消息 ──
-	if err := client.WriteText("Red"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("Red")
 	events2 := collectUntilDone(t, client)
 	// 流式协议产出 StartBlock{TextBlock}，检查是否有包含 TextBlock 的 StartBlock
 	hasText := false
 	for _, e := range events2 {
-		if sb, ok := e.Block.(*chat.StartBlock); ok {
+		if sb, ok := e.Blocks[0].(*chat.StartBlock); ok {
 			if _, ok := sb.Block.(*chat.TextBlock); ok {
 				hasText = true
 				break

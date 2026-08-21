@@ -267,13 +267,13 @@ func TestExecute_NonBlocking(t *testing.T) {
 	}
 
 	// 前端收到 ask_user block，包含问题列表 JSON
-	evt := client.ReadEvent()
-	if evt == nil {
+	events := client.ReadEvents()
+	if len(events) == 0 {
 		t.Fatal("expected ask_user event")
 	}
-	askBlock, ok := evt.Block.(*AskUserBlock)
+	askBlock, ok := events[len(events)-1].Blocks[0].(*AskUserBlock)
 	if !ok {
-		t.Fatalf("expected AskUserBlock, got %T", evt.Block)
+		t.Fatalf("expected AskUserBlock, got %T", events[len(events)-1].Blocks[0])
 	}
 	var questions []Question
 	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {

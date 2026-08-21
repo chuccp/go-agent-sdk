@@ -141,9 +141,7 @@ func TestFlowIteration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.WriteText("把「小狐狸看月亮」扩写成故事"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("把「小狐狸看月亮」扩写成故事")
 	events := collectUntilDone(t, client)
 
 	// ① 节点调用次数：split 1 次、expand 3 次（逐项）、merge 1 次
@@ -176,7 +174,7 @@ func TestFlowIteration(t *testing.T) {
 	// ⑤ 逐项进度事件：3 条 phase=item（通过 TextBlock 的 FlowProgressType 标记）
 	itemEvents := 0
 	for _, e := range events {
-		if tb, ok := e.Block.(*chat.TextBlock); ok && tb.TextType == chat.FlowProgressType && strings.Contains(tb.Text, `"phase":"item"`) {
+		if tb, ok := e.Blocks[0].(*chat.TextBlock); ok && tb.TextType == chat.FlowProgressType && strings.Contains(tb.Text, `"phase":"item"`) {
 			itemEvents++
 		}
 	}

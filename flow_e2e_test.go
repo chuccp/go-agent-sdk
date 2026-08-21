@@ -138,15 +138,17 @@ func collectUntilDone(t *testing.T, client *agent.Client) []*agent.Event {
 	go func() {
 		var events []*agent.Event
 		for {
-			evt := client.ReadEvent()
-			if evt == nil {
+			batch := client.ReadEvents()
+			if len(batch) == 0 {
 				ch <- events
 				return
 			}
-			events = append(events, evt)
-			if _, ok := evt.Block.(*chat.DoneBlock); ok {
-				ch <- events
-				return
+			for _, evt := range batch {
+				events = append(events, evt)
+				if _, ok := evt.Blocks[0].(*chat.DoneBlock); ok {
+					ch <- events
+					return
+				}
 			}
 		}
 	}()
@@ -164,19 +166,19 @@ func hasBlockType(events []*agent.Event, target chat.Block) bool {
 	for _, e := range events {
 		switch target.(type) {
 		case *chat.TextBlock:
-			if _, ok := e.Block.(*chat.TextBlock); ok {
+			if _, ok := e.Blocks[0].(*chat.TextBlock); ok {
 				return true
 			}
 		case *chat.DoneBlock:
-			if _, ok := e.Block.(*chat.DoneBlock); ok {
+			if _, ok := e.Blocks[0].(*chat.DoneBlock); ok {
 				return true
 			}
 		case *chat.ToolExecutionBlock:
-			if _, ok := e.Block.(*chat.ToolExecutionBlock); ok {
+			if _, ok := e.Blocks[0].(*chat.ToolExecutionBlock); ok {
 				return true
 			}
 		case *chat.ToolUseBlock:
-			if _, ok := e.Block.(*chat.ToolUseBlock); ok {
+			if _, ok := e.Blocks[0].(*chat.ToolUseBlock); ok {
 				return true
 			}
 		}
@@ -200,9 +202,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.WriteText("给我 5 岁孩子写个太空故事"); err != nil {
-		t.Fatal(err)
-	}
+	client.WriteText("给我 5 岁孩子写个太空故事")
 	events := collectUntilDone(t, client)
 
 	// ① flow_progress block 已推送（start/done 等）

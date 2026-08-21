@@ -33,30 +33,20 @@ func (c *Client) WriteMessage(block ...chat.Block) {
 	c.handler.WriteBlocks(block...)
 }
 
-// ReadEvent 读取单个事件，无事件时返回 nil（阻塞等待直到有事件或队列关闭）。
-func (c *Client) ReadEvent() *Event {
-	events := c.ReadEvents()
-	if len(events) > 0 {
-		return events[0]
-	}
-	return nil
-}
-
 // ReadEvents 阻塞等待直到有新事件到达，然后返回所有可用事件。
 // 返回 nil 表示队列已关闭。
 func (c *Client) ReadEvents() []*Event {
-	_, hasValue := c.queue.Dequeue()
-	if !hasValue {
-		return nil
+	for {
+		_, hasValue := c.queue.Dequeue()
+		if !hasValue {
+			return nil
+		}
+		events := c.readEvents.readEvents(c)
+		if len(events) > 0 {
+			return events
+		}
+		// readEvents 为空说明是过期通知（事件尚未写入），继续等待。
 	}
-	// 通知到达后事件可能尚未写入存储，短暂重试。
-
-	events := c.readEvents.readEvents(c)
-	if len(events) > 0 {
-		return events
-	}
-
-	return nil
 }
 
 func (c *Client) Stop() {
