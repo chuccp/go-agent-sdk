@@ -182,7 +182,6 @@ func (l *Transfer) flush() {
 			log.Printf("Error offering chat session: %v", err)
 		}
 	}
-	l.reset()
 }
 func (l *Transfer) deleteClient(client *Client) {
 	l.chatClients.Remove(client)
@@ -190,7 +189,9 @@ func (l *Transfer) deleteClient(client *Client) {
 func (l *Transfer) history() []*chat.Message {
 	return l.messageStore.History()
 }
-func (l *Transfer) reset() {
+func (l *Transfer) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if !l.entries.IsEmpty() {
 		firstSeq := l.entries.Get(0).Start
 		minStart := l.minPosition()
