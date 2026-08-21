@@ -34,6 +34,7 @@ type Loop struct {
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	provider      string
+	done          func()
 }
 
 type LoopBuilder struct {
@@ -52,6 +53,10 @@ func (b *LoopBuilder) Options(Option ...chat.Option) *LoopBuilder {
 }
 func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 	b.loop.provider = provider
+	return b
+}
+func (b *LoopBuilder) Done(done func()) *LoopBuilder {
+	b.loop.done = done
 	return b
 }
 func (b *LoopBuilder) Build() *Loop {
@@ -88,6 +93,9 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 			defer l.runLock.Unlock()
 			l.do()
 			l.running = false
+			if l.done != nil {
+				l.done()
+			}
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
 			l.SendBlock(evt)

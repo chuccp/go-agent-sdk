@@ -41,6 +41,9 @@ func (c *SessionContext) GetService(provider string) chat.Service {
 func (c *SessionContext) Stop() {
 
 }
+func (c *SessionContext) Reset() {
+	c.transfer.Reset()
+}
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
 func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {

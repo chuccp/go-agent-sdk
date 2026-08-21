@@ -24,21 +24,24 @@ import (
 // 主循环执行单轮 LLM 交互（executeRound）与工具执行（executeTools）。
 // 会话状态集中于 SessionContext。
 type messageProcessor struct {
-	ctx           *SessionContext
-	toolExecutors []ToolExecutor
-	loop          Loop
+	ctx  *SessionContext
+	loop *Loop
 	handler
 }
 
 func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
-	NewLoopBuilder(context.Background(), sessionContext, 0, sessionContext.GetStore())
+	loopBuilder := NewLoopBuilder(context.Background(), sessionContext, 0, sessionContext.GetStore())
+	loopBuilder.ToolExecutor(sessionContext.toolExecutors...)
+	loopBuilder.Done(func() {
+		sessionContext.Reset()
+	})
+	loop := loopBuilder.Build()
 	p := &messageProcessor{
-		ctx:           sessionContext,
-		toolExecutors: sessionContext.toolExecutors,
+		ctx:  sessionContext,
+		loop: loop,
 	}
 	return p
 }
-
 func (p *messageProcessor) WriteBlocks(block ...chat.Block) error {
 
 	return nil
