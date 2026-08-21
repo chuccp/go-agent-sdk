@@ -59,11 +59,11 @@ func (l *Transfer) LoadHistory() error {
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	event := NewEvent(no, l.seq, block)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
+	l.mu.Unlock()
 	l.flush()
 	return event.Start
 }
@@ -83,6 +83,7 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	if len(events) == 0 {
 		return nil
 	}
+	// events 按 Start 降序排列，第一个元素是最新事件。
 	lastEvent := events[0]
 	cl.start = lastEvent.Start + lastEvent.Offset
 	return reverseNew(events)

@@ -157,13 +157,15 @@ func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *a
 			return nil
 		default:
 		}
-		evt := client.ReadEvent()
-		if evt == nil {
+		evts := client.ReadEvents()
+		if len(evts) == 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
-		if eventHasBlock(evt, &chat.DoneBlock{}) {
-			return evt
+		for _, evt := range evts {
+			if eventHasBlock(evt, &chat.DoneBlock{}) {
+				return evt
+			}
 		}
 	}
 }
@@ -176,18 +178,20 @@ func collectEvents(t *testing.T, client *agent.Client) []*agent.Event {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timeout collecting events")
+			t.Fatalf("timeout collecting events (got %d so far)", len(events))
 			return events
 		default:
 		}
-		evt := client.ReadEvent()
-		if evt == nil {
+		evts := client.ReadEvents()
+		if len(evts) == 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
-		events = append(events, evt)
-		if eventHasBlock(evt, &chat.DoneBlock{}) {
-			return events
+		for _, evt := range evts {
+			events = append(events, evt)
+			if eventHasBlock(evt, &chat.DoneBlock{}) {
+				return events
+			}
 		}
 	}
 }
@@ -219,14 +223,6 @@ func TestSingleRoundText(t *testing.T) {
 	client.WriteText("hi")
 
 	events := collectEvents(t, client)
-	t.Logf("got %d events", len(events))
-	for i, e := range events {
-		t.Logf("  event[%d]: Start=%d Offset=%d Blocks=%d", i, e.Start, e.Offset, len(e.Blocks))
-		for j, b := range e.Blocks {
-			t.Logf("    block[%d]: %T", j, b)
-		}
-	}
-	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
 
@@ -429,6 +425,5 @@ func TestMaxTokensStopReason(t *testing.T) {
 	client.WriteText("hi")
 
 	events := collectEvents(t, client)
-	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }

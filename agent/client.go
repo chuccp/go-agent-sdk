@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"time"
+
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
@@ -33,7 +35,7 @@ func (c *Client) WriteMessage(block ...chat.Block) {
 	c.handler.WriteBlocks(block...)
 }
 
-// ReadEvent 读取单个事件，无事件时返回 nil。
+// ReadEvent 读取单个事件，无事件时返回 nil（阻塞等待直到有事件或队列关闭）。
 func (c *Client) ReadEvent() *Event {
 	events := c.ReadEvents()
 	if len(events) > 0 {
@@ -42,24 +44,22 @@ func (c *Client) ReadEvent() *Event {
 	return nil
 }
 
+// ReadEvents 阻塞等待直到有新事件到达，然后返回所有可用事件。
+// 返回 nil 表示队列已关闭。
 func (c *Client) ReadEvents() []*Event {
 	_, hasValue := c.queue.Dequeue()
 	if !hasValue {
 		return nil
 	}
-	allEvents := make([]*Event, 0)
-	for {
+	// 通知到达后事件可能尚未写入存储，短暂重试。
+	for i := 0; i < 200; i++ {
 		events := c.readEvents.readEvents(c)
 		if len(events) > 0 {
-			allEvents = append(allEvents, events...)
-		} else {
-			break
+			return events
 		}
+		time.Sleep(time.Millisecond)
 	}
-	if len(allEvents) == 0 {
-		return nil
-	}
-	return allEvents
+	return nil
 }
 
 func (c *Client) Stop() {
