@@ -179,7 +179,9 @@ func (l *Transfer) GetChatClient(start uint64, handler handler) *Client {
 	return chatClient
 }
 func (l *Transfer) flush() {
+	l.mu.Lock()
 	clients := l.chatClients.Slice()
+	l.mu.Unlock()
 	for _, sub := range clients {
 		err := sub.queue.Offer(true)
 		if err != nil {

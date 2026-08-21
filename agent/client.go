@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"time"
-
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
@@ -52,13 +50,12 @@ func (c *Client) ReadEvents() []*Event {
 		return nil
 	}
 	// 通知到达后事件可能尚未写入存储，短暂重试。
-	for i := 0; i < 200; i++ {
-		events := c.readEvents.readEvents(c)
-		if len(events) > 0 {
-			return events
-		}
-		time.Sleep(time.Millisecond)
+
+	events := c.readEvents.readEvents(c)
+	if len(events) > 0 {
+		return events
 	}
+
 	return nil
 }
 
