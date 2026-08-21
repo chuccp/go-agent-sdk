@@ -103,63 +103,69 @@ func NewEvents() *Events {
 	}
 }
 
-func (l *Transfer) greaterStart(start uint64) []*Event {
+// messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
+func messageToEvent(m *chat.Message) *Event {
+	return &Event{Start: m.Start, Offset: m.Offset, Blocks: m.Content}
+}
 
+func (l *Transfer) greaterStart(start uint64) []*Event {
 	cache := new(util.SliceArray[*Event])
 
-	// 从 entries 取数据
+	// 1. 从 entries 取数据（当前会话的运行时事件，倒序遍历）
 	indexLen := l.entries.Len()
 	for index := indexLen - 1; index >= 0; index-- {
 		event := l.entries.Get(index)
 		if event.Start+event.Offset > start {
 			cache.Append(event)
 		} else {
-			return cache.Slice()
+			break
 		}
 	}
 
+	// 2. 从 tempHistory 取数据（本轮对话产生的消息，倒序）
 	tempLen := l.messageStore.tempHistory.Len()
-	// 清理重复数据
 	if tempLen > 0 {
-		lastEvent := l.messageStore.tempHistory.Get(tempLen - 1)
-		for index := cache.Len() - 1; index >= 0; index-- {
-			event := cache.Get(index)
-			if event.Start < lastEvent.Start+lastEvent.Offset {
-				cache.Delete(index)
+		firstMsg := l.messageStore.tempHistory.Get(0)
+		lastMsg := l.messageStore.tempHistory.Get(tempLen - 1)
+		// 去重：entries 中与 tempHistory 重叠区间的事件被持久化版本取代
+		for i := cache.Len() - 1; i >= 0; i-- {
+			ev := cache.Get(i)
+			if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
+				cache.Delete(i)
+			}
+		}
+		for index := tempLen - 1; index >= 0; index-- {
+			msg := l.messageStore.tempHistory.Get(index)
+			if msg.Start+msg.Offset > start {
+				cache.Append(messageToEvent(msg))
+			} else {
+				break
 			}
 		}
 	}
-	// 从 tempHistory 取数据
-	for index := tempLen - 1; index >= 0; index-- {
-		event := l.entries.Get(index)
-		if event.Start+event.Offset > start {
-			cache.Append(event)
-		} else {
-			return cache.Slice()
-		}
-	}
 
+	// 3. 从 history 取数据（持久化的历史消息，倒序）
 	hLen := l.messageStore.history.Len()
-	// 清理重复数据
-	if tempLen == 0 && hLen > 0 {
-		lastEvent := l.messageStore.history.Get(hLen - 1)
-		for index := cache.Len() - 1; index >= 0; index-- {
-			event := cache.Get(index)
-			if event.Start < lastEvent.Start+lastEvent.Offset {
-				cache.Delete(index)
+	if hLen > 0 {
+		firstMsg := l.messageStore.history.Get(0)
+		lastMsg := l.messageStore.history.Get(hLen - 1)
+		// 去重：cache 中与 history 重叠区间的事件被持久化版本取代
+		for i := cache.Len() - 1; i >= 0; i-- {
+			ev := cache.Get(i)
+			if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
+				cache.Delete(i)
+			}
+		}
+		for index := hLen - 1; index >= 0; index-- {
+			msg := l.messageStore.history.Get(index)
+			if msg.Start+msg.Offset > start {
+				cache.Append(messageToEvent(msg))
+			} else {
+				break
 			}
 		}
 	}
 
-	// 从 history 取数据
-	for index := hLen - 1; index >= 0; index-- {
-		event := l.entries.Get(index)
-		if event.Start+event.Offset > start {
-			cache.Append(event)
-		} else {
-			return cache.Slice()
-		}
-	}
 	return cache.Slice()
 }
 
