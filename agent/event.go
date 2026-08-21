@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -23,91 +24,65 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	}
 }
 
-type Position struct {
-	start uint64
-}
-type Store struct {
-	history     *util.SliceArray[*chat.Message]
-	tempHistory *util.SliceArray[*chat.Message]
-}
-
-func (s *Store) IsEmpty() bool {
-	return s.history.Len() == 0
-}
-
-func (s *Store) Append(c *chat.Message) {
-	s.history.Append(c)
-}
-
-func NewStore() *Store {
-	return &Store{
-		history:     new(util.SliceArray[*chat.Message]),
-		tempHistory: new(util.SliceArray[*chat.Message]),
-	}
-}
-
-type SendEvent struct {
+type Transfer struct {
 	sessionId    string
 	seq          uint64
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*Event]
 	pending      uint64
-	positions    *util.SliceArray[*Position]
-	historyStore HistoryStore
+	chatClients  *util.SliceArray[*Client]
 	messageStore *Store
 }
 
-func NewSendEvent(sessionId string, historyStore HistoryStore) *SendEvent {
-	return &SendEvent{
-		sessionId:    sessionId,
-		entries:      new(util.SliceArray[*Event]),
-		positions:    new(util.SliceArray[*Position]),
-		historyStore: historyStore,
-		messageStore: NewStore(),
+func NewTransfer(sessionId string, historyStore HistoryStore) *Transfer {
+	return &Transfer{
+		sessionId:   sessionId,
+		entries:     new(util.SliceArray[*Event]),
+		chatClients: new(util.SliceArray[*Client]),
+		messageStore: &Store{
+			history:      new(util.SliceArray[*chat.Message]),
+			tempHistory:  new(util.SliceArray[*chat.Message]),
+			historyStore: historyStore,
+		},
 	}
 
 }
-func (l *SendEvent) GetMessageStore() *Store {
+func (l *Transfer) GetStore() *Store {
 	return l.messageStore
 }
 
-func (l *SendEvent) LoadHistory() error {
+func (l *Transfer) LoadHistory() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.historyStore == nil {
-		return nil
-	}
-	if l.messageStore.IsEmpty() {
-		msgs, err := l.historyStore.LoadHistory(l.sessionId)
-		if err != nil {
-			return err
-		}
-		for i := range msgs {
-			l.messageStore.Append(&msgs[i])
-		}
-	}
-	return nil
+	return l.messageStore.loadHistory(l.sessionId)
 }
 
-func (l *SendEvent) SendBlock(no uint64, block chat.Block) uint64 {
+func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	event := NewEvent(no, l.seq, block)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
+	l.flush()
 	return event.Start
 }
 
-func (l *SendEvent) ReadEvents(position *Position) []*Event {
+func reverseNew(s []*Event) []*Event {
+	res := make([]*Event, 0, len(s))
+	for i := len(s) - 1; i >= 0; i-- {
+		res = append(res, s[i])
+	}
+	return res
+}
+
+func (l *Transfer) readEvents(cl *Client) []*Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	events := l.greaterStart(position.start)
-	if len(events) > 0 {
-		firstEvent := events[0]
-		position.start = firstEvent.Start + firstEvent.Offset
-	}
-	return events
+	events := l.greaterStart(cl.start)
+	lastEvent := events[0]
+	cl.start = lastEvent.Start + lastEvent.Offset
+	return reverseNew(events)
 }
 
 type Events struct {
@@ -124,7 +99,7 @@ func NewEvents() *Events {
 	}
 }
 
-func (l *SendEvent) greaterStart(start uint64) []*Event {
+func (l *Transfer) greaterStart(start uint64) []*Event {
 
 	cache := new(util.SliceArray[*Event])
 
@@ -184,15 +159,37 @@ func (l *SendEvent) greaterStart(start uint64) []*Event {
 	return cache.Slice()
 }
 
-func (l *SendEvent) GetPosition(start uint64) *Position {
+func (l *Transfer) GetChatClient(start uint64, handler handler) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if start > l.seq {
 		start = l.seq
 	}
-	position := &Position{
-		start: start,
+	chatClient := &Client{
+		queue:      util.NewQueue[bool](),
+		handler:    handler,
+		start:      start,
+		readEvents: l,
 	}
-	l.positions.Append(position)
-	return position
+	l.chatClients.Append(chatClient)
+	return chatClient
+}
+func (l *Transfer) flush() {
+	clients := l.chatClients.Slice()
+	for _, sub := range clients {
+		err := sub.queue.Offer(true)
+		if err != nil {
+			log.Printf("Error offering chat session: %v", err)
+		}
+	}
+	l.reset()
+}
+func (l *Transfer) deleteClient(client *Client) {
+	l.chatClients.Remove(client)
+}
+func (l *Transfer) history() []*chat.Message {
+	return l.messageStore.History()
+}
+func (l *Transfer) reset() {
+
 }

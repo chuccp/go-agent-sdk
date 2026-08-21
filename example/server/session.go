@@ -25,7 +25,7 @@ func (s *Session) HandleChat(message *entity.WsChatMessage) error {
 	if message.Thinking != "" {
 		opts = append(opts, chat.WithThinking(chat.ThinkingLevel(message.Thinking)))
 	}
-	return s.chatClient.SendText(message.Message, opts...)
+	return s.chatClient.WriteText(message.Message)
 }
 func (s *Session) CreateChat(message *entity.WsCreateMessage) error {
 	err := s.getChatClient(message.GetSessionId(), message.Start)
@@ -64,11 +64,11 @@ func (s *Session) getChatClient(id string, start uint64) error {
 	return nil
 }
 
-func (s *Session) ReadEvent() *agent.Event {
+func (s *Session) ReadEvent() []*agent.Event {
 
 	for {
 		if s.chatClient != nil {
-			return s.chatClient.ReadEvent()
+			return s.chatClient.ReadEvents()
 		}
 		if !<-s.hasClient {
 			break

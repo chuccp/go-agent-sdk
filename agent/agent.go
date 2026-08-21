@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/util"
 )
 
 // Agent agent管理器
@@ -70,13 +69,10 @@ func (m *Agent) getOrCreateSession(id string) *session {
 	sessionContext := &SessionContext{
 		sessionId:     id,
 		seq:           0,
-		store:         NewStore(id),
+		transfer:      NewTransfer(id, m.historyStore),
 		registry:      m.registry,
-		chatClients:   new(util.SliceArray[*Client]),
 		toolExecutors: tools,
 		opts:          m.opts,
-		historyStore:  m.historyStore,
-		clientMutex:   new(sync.Mutex),
 	}
 	session := newSession(sessionContext)
 	m.sessions[id] = session

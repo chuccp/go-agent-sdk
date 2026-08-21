@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
@@ -25,10 +27,11 @@ type messageProcessor struct {
 	ctx           *SessionContext
 	toolExecutors []ToolExecutor
 	loop          Loop
+	handler
 }
 
 func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
-	//NewLoopBuilder(0, sessionContext)
+	NewLoopBuilder(context.Background(), sessionContext, 0, sessionContext.GetStore())
 	p := &messageProcessor{
 		ctx:           sessionContext,
 		toolExecutors: sessionContext.toolExecutors,
@@ -36,33 +39,41 @@ func newMessageProcessor(sessionContext *SessionContext) *messageProcessor {
 	return p
 }
 
-func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage) error {
-	//ctx := p.ctx
-	//ctx.runLock.Lock()
-	//defer ctx.runLock.Unlock()
-	//qm := &QueuedMessage{
-	//	id:   p.ctx.GetSeq(),
-	//	ctx:  p.ctx,
-	//	msg:  message,
-	//	opts: opt,
-	//}
-	//ctx.inbox.Write(qm)
-	//
-	//if !ctx.running {
-	//	ctx.running = true
-	//	ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Sent))
-	//	util.GoWithRecover(func() {
-	//		p.doLoop()
-	//	}, func(r any) {
-	//		log.Printf("[chatSession] run panic recovered: %v", r)
-	//		evt := chat.NewErrorBlock("internal error")
-	//		ctx.SendBlock(p.no, evt)
-	//	})
-	//} else {
-	//	ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Queued))
-	//}
+func (p *messageProcessor) WriteBlocks(block ...chat.Block) error {
+
 	return nil
 }
+func (p *messageProcessor) Stop() {
+
+}
+
+//func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage) error {
+//ctx := p.ctx
+//ctx.runLock.Lock()
+//defer ctx.runLock.Unlock()
+//qm := &QueuedMessage{
+//	id:   p.ctx.GetSeq(),
+//	ctx:  p.ctx,
+//	msg:  message,
+//	opts: opt,
+//}
+//ctx.inbox.Write(qm)
+//
+//if !ctx.running {
+//	ctx.running = true
+//	ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Sent))
+//	util.GoWithRecover(func() {
+//		p.doLoop()
+//	}, func(r any) {
+//		log.Printf("[chatSession] run panic recovered: %v", r)
+//		evt := chat.NewErrorBlock("internal error")
+//		ctx.SendBlock(p.no, evt)
+//	})
+//} else {
+//	ctx.SendBlock(p.no, chat.NewUserTextBlock(qm.id, qm.msg.Text, chat.Queued))
+//}
+//return nil
+//}
 
 //func (p *messageProcessor) SendBlock(block chat.Block) {
 //	p.ctx.SendBlock(p.no, block)
@@ -168,11 +179,11 @@ func (p *messageProcessor) HandleRevMessage(message *chat.RevMessage) error {
 
 // Stop 停止当前轮次（只对单轮生效）：取消本轮的可取消上下文，
 // LLM 调用与监听会话停止的工具会尽快中止；后续用户消息不受影响。
-func (p *messageProcessor) Stop() {
-	//ctx := p.ctx
-	//ctx.runLock.Lock()
-	//if ctx.cancel != nil {
-	//	ctx.cancel()
-	//}
-	//ctx.runLock.Unlock()
-}
+//func (p *messageProcessor) Stop() {
+//ctx := p.ctx
+//ctx.runLock.Lock()
+//if ctx.cancel != nil {
+//	ctx.cancel()
+//}
+//ctx.runLock.Unlock()
+//}

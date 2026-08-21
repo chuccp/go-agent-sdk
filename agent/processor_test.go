@@ -200,7 +200,7 @@ func TestSingleRoundText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.SendText("hi")
+	client.WriteText("hi")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.StartBlock{})
@@ -223,7 +223,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.SendText("use echo tool")
+	client.WriteText("use echo tool")
 
 	events := collectEvents(t, client)
 	// 工具输出已通过 TextBlock 流式推送，不再单独发 ToolExecutionBlock（避免重复）
@@ -248,7 +248,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.SendText("use unknown tool")
+	client.WriteText("use unknown tool")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
@@ -267,11 +267,11 @@ func TestMultipleRounds(t *testing.T) {
 	}
 
 	// 第一轮
-	client.SendText("round 1")
+	client.WriteText("round 1")
 	readUntilDone(t, client, 10*time.Second)
 
 	// 第二论
-	client.SendText("round 2")
+	client.WriteText("round 2")
 	evt := readUntilDone(t, client, 10*time.Second)
 	if evt == nil {
 		t.Fatal("expected done event in round 2")
@@ -289,14 +289,14 @@ func TestStopGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.SendText("hello")
+	client.WriteText("hello")
 
 	// 等待 doLoop 启动后再 stop
 	time.Sleep(50 * time.Millisecond)
 	client.Stop()
 
 	// stop 后可发送新消息，验证系统仍可正常工作
-	client.SendText("after stop")
+	client.WriteText("after stop")
 	evt := readUntilDone(t, client, 10*time.Second)
 	if evt == nil {
 		t.Fatal("expected done event after restart")
@@ -333,7 +333,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.SendText("开始长耗时生成"); err != nil {
+	if err := client.WriteText("开始长耗时生成"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -351,7 +351,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	}
 
 	// 后续新消息正常触发新一轮
-	if err := client.SendText("下一条消息"); err != nil {
+	if err := client.WriteText("下一条消息"); err != nil {
 		t.Fatal(err)
 	}
 	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
@@ -379,7 +379,7 @@ func TestTwoClientsSameSession(t *testing.T) {
 	}
 
 	// client1 发消息，两个 client 都应该能读到事件
-	client1.SendText("hello")
+	client1.WriteText("hello")
 
 	// 两个 client 都应该能读到 done
 	evt1 := readUntilDone(t, client1, 10*time.Second)
@@ -407,7 +407,7 @@ func TestMaxTokensStopReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.SendText("hi")
+	client.WriteText("hi")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.StartBlock{})

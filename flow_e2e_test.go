@@ -200,7 +200,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.SendText("给我 5 岁孩子写个太空故事"); err != nil {
+	if err := client.WriteText("给我 5 岁孩子写个太空故事"); err != nil {
 		t.Fatal(err)
 	}
 	events := collectUntilDone(t, client)

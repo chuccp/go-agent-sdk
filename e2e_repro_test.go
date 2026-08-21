@@ -103,13 +103,13 @@ func TestTwoRoundsWithTool(t *testing.T) {
 	}
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
-	if err := client.SendText("请使用 fake_tool 工具"); err != nil {
+	if err := client.WriteText("请使用 fake_tool 工具"); err != nil {
 		t.Fatal(err)
 	}
 	waitForDone(t, client, "round-1(tool)")
 
 	// ── 第三轮（同会话第二次用户消息）：纯文本 end_turn ──
-	if err := client.SendText("再来一轮普通对话"); err != nil {
+	if err := client.WriteText("再来一轮普通对话"); err != nil {
 		t.Fatal(err)
 	}
 	waitForDone(t, client, "round-2(plain)")

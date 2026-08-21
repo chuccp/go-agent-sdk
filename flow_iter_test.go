@@ -141,7 +141,7 @@ func TestFlowIteration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.SendText("把「小狐狸看月亮」扩写成故事"); err != nil {
+	if err := client.WriteText("把「小狐狸看月亮」扩写成故事"); err != nil {
 		t.Fatal(err)
 	}
 	events := collectUntilDone(t, client)

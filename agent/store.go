@@ -12,131 +12,81 @@ import (
 type HistoryStore interface {
 	// LoadHistory 加载指定会话的历史消息。
 	// 返回空切片表示新会话，无历史记录。
-	LoadHistory(sessionID string) ([]chat.Message, error)
+	LoadHistory(sessionID string) ([]*chat.Message, error)
 
 	// AppendMessages 追加本批次新产生的消息到持久化存储。
-	AppendMessages(sessionID string, messages []chat.Message) error
+	AppendMessages(sessionID string, messages []*chat.Message) error
 }
 
-type Store0 struct {
-	sessionId    string
-	history0     *util.SliceArray[*chat.Message]
+type Store struct {
+	history      *util.SliceArray[*chat.Message]
 	tempHistory  *util.SliceArray[*chat.Message]
+	lock         sync.RWMutex
 	historyStore HistoryStore
-	mu           sync.RWMutex
-	entries      *util.SliceArray[*Event]
-	seq          uint64 // 事件序号计数器（下一个 event.Seq），entries 被裁空也不回退
-	pending      uint64 // 自上次 AppendHistory 以来新增的事件数
-	positions    *util.SliceArray[*Position]
 }
 
-func NewStore0(sessionId string) *Store0 {
-	return &Store0{
-		entries:     new(util.SliceArray[*Event]),
-		sessionId:   sessionId,
-		history0:    new(util.SliceArray[*chat.Message]),
-		tempHistory: new(util.SliceArray[*chat.Message]),
-		positions:   new(util.SliceArray[*Position]),
+func (s *Store) IsEmpty() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.history.Len() == 0
+}
+
+func (s *Store) append(c ...*chat.Message) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, m := range c {
+		s.history.Append(m)
 	}
 }
-func (l *Store0) SetHistoryStore(historyStore HistoryStore) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	l.historyStore = historyStore
+func (s *Store) ResetAndSave() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	return nil
 }
-func (l *Store0) AddBlock(no uint64, block chat.Block) uint64 {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	event := NewEvent(no, l.seq, block)
-	l.seq++
-	l.entries.Append(event)
-	l.pending++
-	return event.Start
+func (s *Store) AppendTemp(c ...*chat.Message) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	for _, m := range c {
+		s.tempHistory.Append(m)
+	}
 }
 
-// ReadFrom 从 Position 记录的全局偏移读取下一个事件，若无新事件返回 nil。
-// 每个事件的 Offset 恒为 1，读后 position 前进 1。
-func (l *Store0) ReadFrom(position *Position) *Event {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	if l.entries.IsEmpty() {
+func (s *Store) History() []*chat.Message {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	result := make([]*chat.Message, s.history.Len()+s.tempHistory.Len())
+	copy(result, s.history.Slice())
+	copy(result[s.history.Len():], s.tempHistory.Slice())
+	return result
+}
+func (s *Store) loadHistory(sessionId string) error {
+	if s.historyStore == nil {
 		return nil
 	}
-	firstSeq := l.entries.Get(0).Start
-	start := max(position.start, firstSeq)
-	idx := int(start - firstSeq)
-	if idx >= l.entries.Len() {
-		return nil
-	}
-	event := l.entries.Get(idx)
-	if event == nil {
-		return nil
-	}
-	position.start++
-	return event
-}
-
-// GetPosition 创建并注册一个客户端读取位置。
-// start 为初始读取偏移，返回的 Position 由 client 持有并随读取推进。
-// 若 start 超过当前写头（如根据持久化历史计算的偏移，而事件流已随服务重启重置），
-// 则钳制到写头，保证之后新产生的事件（seq 从写头开始分配）都能被读到。
-func (l *Store0) GetPosition(start uint64) *Position {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if start > l.seq {
-		start = l.seq
-	}
-	position := &Position{start: start}
-	l.positions.Append(position)
-	return position
-}
-
-// RemovePosition 注销客户端读取位置，后续 Reset 不再考虑该 position。
-func (l *Store0) RemovePosition(position *Position) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.positions.Remove(position)
-}
-
-// minPosition 返回所有已注册 position 中 Start 最小的值。
-// 若无 position，返回 0。
-func (l *Store0) minPosition() uint64 {
-	// 调用方已持有 l.mu，无需再加锁
-	if l.positions.Len() == 0 {
-		return 0
-	}
-	var m uint64
-	first := true
-	for i := 0; i < l.positions.Len(); i++ {
-		v := l.positions.Get(i).start
-		if first || v < m {
-			m = v
-			first = false
+	if s.history.IsEmpty() {
+		messages, err := s.historyStore.LoadHistory(sessionId)
+		if err != nil {
+			return err
 		}
+		s.append(messages...)
 	}
-	return m
+	return nil
 }
-func (l *Store0) ResetAndSave() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.entries.IsEmpty() {
-		firstSeq := l.entries.Get(0).Start
-		minStart := l.minPosition()
-		if minStart > firstSeq {
-			removeCount := min(int(minStart-firstSeq), l.entries.Len())
-			l.entries.RemoveFront(removeCount)
-		}
-	}
-	if l.historyStore != nil {
-		allTemp := l.tempHistory.Slice()
+
+func (s *Store) Save(sessionId string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.historyStore != nil {
+		allTemp := s.tempHistory.Slice()
 		if len(allTemp) > 0 {
-			msgs := make([]chat.Message, len(allTemp))
+			msgs := make([]*chat.Message, len(allTemp))
 			for i, m := range allTemp {
-				msgs[i] = *m
-				l.history0.Append(m)
+				msgs[i] = m
+				s.history.Append(m)
 			}
-			l.tempHistory.Reset()
-			err := l.historyStore.AppendMessages(l.sessionId, msgs)
+			s.tempHistory.Reset()
+			err := s.historyStore.AppendMessages(sessionId, msgs)
 			if err != nil {
 				return err
 			}
@@ -144,53 +94,16 @@ func (l *Store0) ResetAndSave() error {
 		}
 	}
 	return nil
+}
+func (s *Store) AppendHistory(c *chat.Message) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.tempHistory.Append(c)
 
 }
-
-func (l *Store0) LoadHistory() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.historyStore == nil {
-		return nil
+func NewStore() *Store {
+	return &Store{
+		history:     new(util.SliceArray[*chat.Message]),
+		tempHistory: new(util.SliceArray[*chat.Message]),
 	}
-	if l.history0.IsEmpty() {
-		msgs, err := l.historyStore.LoadHistory(l.sessionId)
-		if err != nil {
-			return err
-		}
-		for i := range msgs {
-			l.history0.Append(&msgs[i])
-		}
-	}
-	return nil
-}
-
-// History 返回当前全量历史消息快照。
-func (l *Store0) History() []*chat.Message {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	result := make([]*chat.Message, l.history0.Len()+l.tempHistory.Len())
-	copy(result, l.history0.Slice())
-	copy(result[l.history0.Len():], l.tempHistory.Slice())
-	return result
-}
-
-// AppendHistory 将一条消息追加到内存历史。
-// 自动计算 Start（该消息关联的第一个事件位置）和 Offset（关联的事件数量）。
-func (l *Store0) AppendHistory(msg *chat.Message) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	//msg.Offset = l.pending
-	//if l.pending > 0 {
-	//	msg.Start = l.seq - l.pending
-	//}
-	//l.pending = 0
-	l.tempHistory.Append(msg)
-}
-
-// HistoryLen 返回当前历史消息数量。
-func (l *Store0) HistoryLen() int {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	return l.history0.Len() + l.tempHistory.Len()
 }

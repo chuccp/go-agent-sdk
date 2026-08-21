@@ -65,7 +65,7 @@ func (s *ChatSessionService) GetSessionMessages(sessionId uint) ([]*entity.ChatM
 // LoadHistory loads the chat history for a session from the database,
 // converting stored rows back to SDK chat.Message format.
 // Implements agent.HistoryStore interface.
-func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, error) {
+func (s *ChatSessionService) LoadHistory(sessionID string) ([]*chat.Message, error) {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
 	if err != nil {
 		return nil, nil // invalid sessionID, treat as new session
@@ -82,9 +82,9 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 		return nil, nil
 	}
 
-	messages := make([]chat.Message, 0, len(rows))
+	messages := make([]*chat.Message, 0, len(rows))
 	for _, row := range rows {
-		msg := chat.Message{
+		msg := &chat.Message{
 			Role:   chat.Role(row.Role),
 			Start:  row.Start,
 			Offset: row.Offset,
@@ -105,7 +105,7 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]chat.Message, erro
 
 // AppendMessages persists new messages for a session to the database (incremental insert).
 // Implements chat.HistoryStore interface.
-func (s *ChatSessionService) AppendMessages(sessionID string, messages []chat.Message) error {
+func (s *ChatSessionService) AppendMessages(sessionID string, messages []*chat.Message) error {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
 	if err != nil {
 		return nil

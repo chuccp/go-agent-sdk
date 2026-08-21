@@ -13,10 +13,9 @@ import (
 )
 
 type LoopContext interface {
-	context.Context
 	GetSeq() uint64
 	ID() string
-	SendBlock(no uint64, block chat.Block)
+	SendBlock(no uint64, block chat.Block) uint64
 	GetService(provider string) chat.Service
 }
 
@@ -31,7 +30,7 @@ type Loop struct {
 	pContext      context.Context
 	pCancel       context.CancelFunc
 	runLock       sync.Mutex
-	store         *Store0
+	store         *Store
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	provider      string
@@ -51,10 +50,6 @@ func (b *LoopBuilder) Options(Option ...chat.Option) *LoopBuilder {
 	}
 	return b
 }
-func (b *LoopBuilder) HistoryStore(historyStore HistoryStore) *LoopBuilder {
-	b.loop.store.SetHistoryStore(historyStore)
-	return b
-}
 func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 	b.loop.provider = provider
 	return b
@@ -62,8 +57,8 @@ func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
-func NewLoopBuilder(store *Store0, No uint64, loopContext LoopContext) *LoopBuilder {
-	pContext, plCancel := context.WithCancel(loopContext)
+func NewLoopBuilder(ctx context.Context, loopContext LoopContext, No uint64, store *Store) *LoopBuilder {
+	pContext, plCancel := context.WithCancel(ctx)
 	return &LoopBuilder{loop: &Loop{
 		no:            No,
 		loopContext:   loopContext,

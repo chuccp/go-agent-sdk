@@ -63,51 +63,51 @@ go-agent-sdk/
 package main
 
 import (
-    "fmt"
+	"fmt"
 
-    "github.com/chuccp/go-agent-sdk/agent"
-    "github.com/chuccp/go-agent-sdk/chat"
-    "github.com/chuccp/go-agent-sdk/tools"
+	"github.com/chuccp/go-agent-sdk/agent"
+	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/tools"
 )
 
 func main() {
-    // 1. 创建 Agent
-    a := agent.NewAgent()
-    a.ChatOption(
-        chat.WithModel("deepseek-v4-flash"),
-        chat.WithMaxTokens(4096),
-        chat.WithThinking(chat.ThinkingLow),
-    )
+	// 1. 创建 Agent
+	a := agent.NewAgent()
+	a.ChatOption(
+		chat.WithModel("deepseek-v4-flash"),
+		chat.WithMaxTokens(4096),
+		chat.WithThinking(chat.ThinkingLow),
+	)
 
-    // 2. 注册 LLM 提供商
-    a.RegisterChat("my-provider", myChatService, true)
+	// 2. 注册 LLM 提供商
+	a.RegisterChat("my-provider", myChatService, true)
 
-    // 3. 注册工具（可选）
-    a.AddTools(tools.NewCommandTool())
+	// 3. 注册工具（可选）
+	a.AddTools(tools.NewCommandTool())
 
-    // 4. 设置持久化（可选）
-    a.SetHistoryStore(myHistoryStore)
+	// 4. 设置持久化（可选）
+	a.SetHistoryStore(myHistoryStore)
 
-    // 5. 获取客户端（session_id + 起始偏移）
-    client, _ := a.GetClient("session-1", 0)
+	// 5. 获取客户端（session_id + 起始偏移）
+	client, _ := a.GetClient("session-1", 0)
 
-    // 6. 发送消息
-    client.SendText("你好，帮我查看当前目录")
+	// 6. 发送消息
+	client.WriteText("你好，帮我查看当前目录")
 
-    // 7. 读取事件流（Event.Block 按 type 字段多态分发）
-    for {
-        event := client.ReadEvent()
-        if event == nil {
-            break
-        }
-        switch b := event.Block.(type) {
-        case *chat.DeltaBlock:
-            fmt.Print(b.Content) // 流式增量
-        case *chat.DoneBlock:
-            fmt.Println()
-            return
-        }
-    }
+	// 7. 读取事件流（Event.Block 按 type 字段多态分发）
+	for {
+		event := client.ReadEvent()
+		if event == nil {
+			break
+		}
+		switch b := event.Block.(type) {
+		case *chat.DeltaBlock:
+			fmt.Print(b.Content) // 流式增量
+		case *chat.DoneBlock:
+			fmt.Println()
+			return
+		}
+	}
 }
 ```
 

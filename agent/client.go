@@ -7,36 +7,49 @@ import (
 
 // handler 会话处理接口，由 session 实现
 type handler interface {
-	SendMessage(message *chat.RevMessage, opt ...chat.Option) error
-	History() []*chat.Message
-	ReadEvent(position *Position) *Event
-	DeleteClient(client *Client)
+	WriteBlocks(block ...chat.Block) error
 	Stop()
+}
+
+type readEvents interface {
+	readEvents(cl *Client) []*Event
+	deleteClient(client *Client)
+	history() []*chat.Message
 }
 
 // Client 面向调用方的客户端句柄
 type Client struct {
-	handler  handler
-	queue    *util.Queue[bool]
-	position *Position
+	handler    handler
+	queue      *util.Queue[bool]
+	start      uint64
+	readEvents readEvents
 }
 
-func (c *Client) SendText(message string, opt ...chat.Option) error {
-	return c.handler.SendMessage(&chat.RevMessage{Text: message}, opt...)
+func (c *Client) WriteText(message string) error {
+	return c.handler.WriteBlocks(chat.NewFullTextBlock(message))
 }
 
-func (c *Client) SendMessage(message *chat.RevMessage, opt ...chat.Option) error {
-	return c.handler.SendMessage(message, opt...)
+func (c *Client) WriteMessage(block ...chat.Block) error {
+	return c.handler.WriteBlocks(block...)
 }
 
-func (c *Client) ReadEvent() *Event {
+func (c *Client) ReadEvents() []*Event {
 	for {
 		_, hasValue := c.queue.Dequeue()
 		if !hasValue {
 			return nil
 		}
-		if event := c.handler.ReadEvent(c.position); event != nil {
-			return event
+		allEvents := make([]*Event, 0)
+		for {
+			events := c.readEvents.readEvents(c)
+			if len(events) > 0 {
+				allEvents = append(allEvents, events...)
+			} else {
+				if len(allEvents) == 0 {
+					return nil
+				}
+				return allEvents
+			}
 		}
 	}
 }
@@ -46,5 +59,5 @@ func (c *Client) Stop() {
 }
 
 func (c *Client) Close() {
-	c.handler.DeleteClient(c)
+	c.readEvents.deleteClient(c)
 }

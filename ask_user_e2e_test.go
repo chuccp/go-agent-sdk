@@ -64,7 +64,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	defer client.Close()
 
 	// ── 第一轮：触发 ask_user_question ──
-	if err := client.SendText("帮我选个颜色"); err != nil {
+	if err := client.WriteText("帮我选个颜色"); err != nil {
 		t.Fatal(err)
 	}
 	events := collectUntilDone(t, client)
@@ -85,7 +85,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	// 工具输出已流式推送（TextBlock），不再单独发 ToolExecutionBlock
 
 	// ── 第二轮：用户回答作为普通消息 ──
-	if err := client.SendText("Red"); err != nil {
+	if err := client.WriteText("Red"); err != nil {
 		t.Fatal(err)
 	}
 	events2 := collectUntilDone(t, client)

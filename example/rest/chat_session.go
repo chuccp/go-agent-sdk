@@ -115,35 +115,38 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	sdkutil.Go(func() {
 		var lastSeq uint64
 		for {
-			event := session.ReadEvent()
-			if event == nil {
+			events := session.ReadEvent()
+			if events == nil {
 				log.Info("[RELAY] ReadEvent returned nil, exiting")
 				return
 			}
-			// 跳过重复事件
-			if event.Seq != 0 && event.Seq <= lastSeq {
-				log.Info("[RELAY] skipping duplicate", zap.Uint64("seq", (event.Seq)), zap.Uint64("lastSeq", (lastSeq)), zap.String("type", blockTypeName(event.Block)))
-				continue
+			for _, event := range events {
+				// 跳过重复事件
+				if event.Start != 0 && event.Start <= lastSeq {
+					//log.Info("[RELAY] skipping duplicate", zap.Uint64("seq", (event.Start)), zap.Uint64("lastSeq", (lastSeq)), zap.String("type", blockTypeName(event.Block)))
+					continue
+				}
+				lastSeq = event.Start
+				//blockType := blockTypeName(event.Block)
+				//// 跳过内部元数据块（UsageBlock 等无前端意义的块）
+				//if blockType == "usage" || blockType == "unknown" {
+				//	continue
+				//}
+				//log.Info("[RELAY] sending event", zap.Uint64("seq", event.Start), zap.String("type", blockType))
+				//if blockType == "done" {
+				//	log.Info("[RELAY] sending DONE event", zap.Uint64("seq", event.Start))
+				//}
+				data, err := json.Marshal(event)
+				if err != nil {
+					writeError(stream, err)
+					continue
+				}
+				if err := stream.WriteText(stream.Context(), data); err != nil {
+					log.Debug("WebSocket write ended", zap.Error(err))
+					return
+				}
 			}
-			lastSeq = event.Seq
-			blockType := blockTypeName(event.Block)
-			// 跳过内部元数据块（UsageBlock 等无前端意义的块）
-			if blockType == "usage" || blockType == "unknown" {
-				continue
-			}
-			log.Info("[RELAY] sending event", zap.Uint64("seq", event.Seq), zap.String("type", blockType))
-			if blockType == "done" {
-				log.Info("[RELAY] sending DONE event", zap.Uint64("seq", event.Seq))
-			}
-			data, err := json.Marshal(event)
-			if err != nil {
-				writeError(stream, err)
-				continue
-			}
-			if err := stream.WriteText(stream.Context(), data); err != nil {
-				log.Debug("WebSocket write ended", zap.Error(err))
-				return
-			}
+
 		}
 	})
 
