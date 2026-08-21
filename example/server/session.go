@@ -25,7 +25,8 @@ func (s *Session) HandleChat(message *entity.WsChatMessage) error {
 	if message.Thinking != "" {
 		opts = append(opts, chat.WithThinking(chat.ThinkingLevel(message.Thinking)))
 	}
-	return s.chatClient.WriteText(message.Message)
+	s.chatClient.WriteText(message.Message)
+	return nil
 }
 func (s *Session) CreateChat(message *entity.WsCreateMessage) error {
 	err := s.getChatClient(message.GetSessionId(), message.Start)

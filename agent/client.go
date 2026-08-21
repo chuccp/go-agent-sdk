@@ -7,7 +7,7 @@ import (
 
 // handler 会话处理接口，由 session 实现
 type handler interface {
-	WriteBlocks(block ...chat.Block) error
+	WriteBlocks(block ...chat.Block)
 	Stop()
 }
 
@@ -25,12 +25,12 @@ type Client struct {
 	readEvents readEvents
 }
 
-func (c *Client) WriteText(message string) error {
-	return c.handler.WriteBlocks(chat.NewFullTextBlock(message))
+func (c *Client) WriteText(message string) {
+	c.handler.WriteBlocks(chat.NewFullTextBlock(message))
 }
 
-func (c *Client) WriteMessage(block ...chat.Block) error {
-	return c.handler.WriteBlocks(block...)
+func (c *Client) WriteMessage(block ...chat.Block) {
+	c.handler.WriteBlocks(block...)
 }
 
 func (c *Client) ReadEvents() []*Event {

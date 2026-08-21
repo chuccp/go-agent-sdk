@@ -49,6 +49,12 @@ type Block interface {
 	ForContext() bool
 }
 
+type BlockGroup struct {
+	Start   uint64 `json:"-"`
+	Offset  uint64 `json:"-"`
+	Content Blocks `json:"content"` // content block 数组
+}
+
 type Blocks []Block
 
 // UnmarshalJSON 按每个元素的 type 字段分发，还原为对应的具体 Block 类型。
@@ -148,6 +154,14 @@ func NewErrorFullTextBlock(text string) *TextBlock {
 		Type:     TextBlockType,
 		TextType: ErrorTextType,
 		Text:     text,
+	}
+}
+func NewToolsErrorFullTextBlock(toolUseId string, text string) *TextBlock {
+	return &TextBlock{
+		Type:      TextBlockType,
+		TextType:  ErrorTextType,
+		Text:      text,
+		ToolUseId: toolUseId,
 	}
 }
 func NewFullTextBlock(text string) *TextBlock {

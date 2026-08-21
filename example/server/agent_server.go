@@ -92,10 +92,7 @@ func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
 }
 
 func (r *Agent) HandleChat(chat *agent.Client, message *entity.WsChatMessage) error {
-	if err := chat.WriteText(message.Message); err != nil {
-		log.Warn("HandleChat: send failed", zap.Error(err))
-		return err
-	}
+	chat.WriteText(message.Message)
 	return nil
 }
 

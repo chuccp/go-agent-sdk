@@ -38,19 +38,19 @@ func (c *SessionContext) GetService(provider string) chat.Service {
 	return c.registry.GetProvider(provider)
 }
 
-func (c *SessionContext) Stop() {
-
-}
 func (c *SessionContext) Reset() {
 	c.transfer.Reset()
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
 func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
-
 	return c.transfer.GetChatClient(start, handler)
 }
 
 func (c *SessionContext) LoadHistory() error {
 	return c.transfer.LoadHistory()
+}
+
+func (c *SessionContext) History() []*chat.Message {
+	return c.transfer.history()
 }

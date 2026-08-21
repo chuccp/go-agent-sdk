@@ -26,7 +26,7 @@ type Usage struct {
 }
 
 type BlockReceiver interface {
-	SendBlock(block Block)
+	SendBlock(block Block) uint64
 }
 
 type assemblerBlock struct {
@@ -62,11 +62,14 @@ type BlockStream struct {
 	blocks         []Block
 	mu             sync.Mutex
 	assemblerBlock *assemblerBlock
+	firstStart     uint64
+	endStart       uint64
 }
 
 func NewBlockStream(receiver BlockReceiver) *BlockStream {
 	return &BlockStream{
 		receiver: receiver,
+		blocks:   make([]Block, 0),
 		assemblerBlock: &assemblerBlock{
 			stream: value.NewStream(),
 			block:  nil,
@@ -132,16 +135,21 @@ func (s *BlockStream) Usage(usage *Usage) {
 	s.flushAndAdd(NewUsageBlock(usage))
 }
 func (s *BlockStream) flushAndAdd(block Block) {
-	if s.receiver != nil {
-		s.receiver.SendBlock(block)
-	}
+	s.sendBlock(block)
 	s.flush()
 	s.blocks = append(s.blocks, block)
 }
-func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
+func (s *BlockStream) sendBlock(block Block) {
 	if s.receiver != nil {
-		s.receiver.SendBlock(NewStartBlock(block))
+		start := s.receiver.SendBlock(block)
+		if s.firstStart == 0 {
+			s.firstStart = start
+		}
+		s.endStart = start
 	}
+}
+func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
+	s.sendBlock(NewStartBlock(block))
 	s.flush()
 	s.assemblerBlock.start(block)
 
@@ -169,9 +177,7 @@ func (s *BlockStream) isEmptyBlock(block UseDeltaBlock) bool {
 	}
 }
 func (s *BlockStream) delta(content string) {
-	if s.receiver != nil {
-		s.receiver.SendBlock(NewDeltaBlock(content))
-	}
+	s.sendBlock(NewDeltaBlock(content))
 	s.assemblerBlock.delta(content)
 }
 func (s *BlockStream) ReadBlocks() Blocks {
@@ -181,6 +187,17 @@ func (s *BlockStream) ReadBlocks() Blocks {
 	return s.blocks
 }
 
+func (s *BlockStream) ReadBlockGroup() *BlockGroup {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flush()
+	blocks := s.blocks
+	return &BlockGroup{
+		Start:   s.firstStart,
+		Offset:  s.endStart - s.firstStart + 1,
+		Content: blocks,
+	}
+}
 func (s *BlockStream) GetStopReason() StopReason {
 	if s.stopReason == "" {
 		return StopReasonEndTurn
@@ -241,4 +258,7 @@ func (s *ToolResultBlockStream) ReadBlocks() Blocks {
 }
 func (s *ToolResultBlockStream) Block(block Block) {
 	s.blockStream.Block(block)
+}
+func (s *ToolResultBlockStream) ReadBlockGroup() *BlockGroup {
+	return s.blockStream.ReadBlockGroup()
 }

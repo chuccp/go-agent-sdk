@@ -74,8 +74,9 @@ func NewLoopBuilder(ctx context.Context, loopContext LoopContext, No uint64, sto
 		pCancel:       plCancel,
 	}}
 }
-func (l *Loop) SendBlock(block chat.Block) {
-	l.loopContext.SendBlock(l.no, block)
+
+func (l *Loop) SendBlock(block chat.Block) uint64 {
+	return l.loopContext.SendBlock(l.no, block)
 }
 func (l *Loop) UpdateProvider(provider string) {
 	l.provider = provider
@@ -172,7 +173,7 @@ func (l *Loop) buildRequest() *chat.Request {
 		messages.Tools = tools
 	}
 
-	return &chat.Request{}
+	return messages
 }
 
 func (l *Loop) do() {
@@ -189,7 +190,7 @@ LOOP:
 		l.lCancel()
 	}
 	l.lContext, l.lCancel = context.WithCancel(l.pContext)
-	blocks, stopReason, err := l.chatWithStream()
+	blockGroup, stopReason, err := l.chatWithStream()
 	if err != nil {
 		l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 		goto END
@@ -197,13 +198,10 @@ LOOP:
 	if l.roundStopped() {
 		goto END
 	}
-	if blocks == nil {
-		goto END
-	}
-	l.appendAssistantMessage(blocks)
+	l.appendAssistantMessage(blockGroup)
 	if stopReason == chat.StopReasonToolUse {
-		results, toolStop := l.executeTools(blocks)
-		l.store.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: results})
+		results, toolStop := l.executeTools(blockGroup)
+		l.appendUserMessage(results)
 		if l.roundStopped() {
 			goto END
 		}
@@ -231,41 +229,73 @@ func (l *Loop) saveAndReset() {
 	}
 }
 
-func (l *Loop) executeTools(blocks chat.Blocks) (chat.Blocks, chat.StopReason) {
+func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
+
+	var blockGroups []*chat.BlockGroup
 	var results chat.Blocks
 	stopReason := chat.StopReason("")
-	for _, block := range blocks {
+	for _, block := range inputBlockGroup.Content {
 		tu, ok := block.(*chat.ToolUseBlock)
 		if !ok {
 			continue
 		}
 		if l.roundStopped() {
+			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, "（该工具的执行已被用户停止）")
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
-				chat.Blocks{chat.NewFullTextBlock("（该工具的执行已被用户停止）")},
+				chat.Blocks{toolsErrorBlock},
 			))
+			blockGroup := l.SendSingleBlock(toolsErrorBlock)
+			blockGroups = append(blockGroups, blockGroup)
 			continue
 		}
 
 		exec := l.findExecutor(tu.Name)
 		if exec == nil {
+			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("未知工具: %s", tu.Name))
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
-				chat.Blocks{chat.NewErrorFullTextBlock(fmt.Sprintf("未知工具: %s", tu.Name))},
+				chat.Blocks{toolsErrorBlock},
 			))
+			blockGroup := l.SendSingleBlock(toolsErrorBlock)
+			blockGroups = append(blockGroups, blockGroup)
 			continue
 		}
-		blocks, toolStop := l.runTool(tu, exec)
-		results = append(results, chat.NewToolResultBlock(tu.ID, blocks))
+		blockGroup, toolStop := l.runTool(tu, exec)
+		blockGroups = append(blockGroups, blockGroup)
+		results = append(results, chat.NewToolResultBlock(tu.ID, blockGroup.Content))
 		if toolStop == chat.StopReasonUserWait {
 			stopReason = chat.StopReasonUserWait
 		}
 	}
-	return results, stopReason
-
+	return l.mergeBlockGroup(blockGroups), stopReason
 }
 
-func (l *Loop) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (chat.Blocks, chat.StopReason) {
+func (l *Loop) mergeBlockGroup(blockGroups []*chat.BlockGroup) *chat.BlockGroup {
+	if len(blockGroups) == 1 {
+		return blockGroups[0]
+	}
+	var blockGroup chat.BlockGroup
+	blockGroup.Start = blockGroups[0].Start
+	blockGroup.Offset = blockGroups[len(blockGroups)-1].Offset + blockGroups[len(blockGroups)-1].Start - blockGroup.Start
+	for _, bg := range blockGroups {
+		blockGroup.Content = append(blockGroup.Content, bg.Content...)
+	}
+	return &blockGroup
+}
+
+func (l *Loop) SendSingleBlock(block chat.Block) *chat.BlockGroup {
+	start := l.SendBlock(block)
+	return &chat.BlockGroup{
+		Start:  start,
+		Offset: 1,
+		Content: chat.Blocks{
+			block,
+		},
+	}
+}
+
+func (l *Loop) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (*chat.BlockGroup, chat.StopReason) {
 
 	turn := &Turn{ctx: l.loopContext, args: tu.Input}
 
@@ -274,7 +304,7 @@ func (l *Loop) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (chat.Blocks, c
 	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
 	writer.StopReason(chat.StopReasonToolResult)
 	exec.Execute(turn, chat.NewToolResultBlockStream(writer, tu.ID))
-	return writer.ReadBlocks(), writer.GetStopReason()
+	return writer.ReadBlockGroup(), writer.GetStopReason()
 }
 
 // findExecutor 按名称查找已注册的工具执行器。
@@ -288,8 +318,12 @@ func (l *Loop) findExecutor(name string) ToolExecutor {
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (l *Loop) appendAssistantMessage(blocks chat.Blocks) {
-	assistantMsg := &chat.Message{Role: chat.RoleAssistant, Content: blocks}
+func (l *Loop) appendAssistantMessage(blocks *chat.BlockGroup) {
+	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
+	l.store.AppendHistory(assistantMsg)
+}
+func (l *Loop) appendUserMessage(blocks *chat.BlockGroup) {
+	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	l.store.AppendHistory(assistantMsg)
 }
 
@@ -318,7 +352,7 @@ func (l *Loop) UpdateOptions(Option ...chat.Option) {
 	}
 }
 
-func (l *Loop) chatWithStream() (chat.Blocks, chat.StopReason, error) {
+func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
 	stream := chat.NewBlockStream(l)
 	if util.IsBlank(l.provider) {
 		return nil, "", errors.New("blank provider")
@@ -331,5 +365,11 @@ func (l *Loop) chatWithStream() (chat.Blocks, chat.StopReason, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	return stream.ReadBlocks(), stream.GetStopReason(), nil
+	return stream.ReadBlockGroup(), stream.GetStopReason(), nil
+}
+
+func (l *Loop) Stop() {
+	if l.lCancel != nil {
+		l.lCancel()
+	}
 }
