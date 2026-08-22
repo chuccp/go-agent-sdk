@@ -287,7 +287,7 @@ func (t *ActivateFlowTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"flow_id": map[string]any{
 					"type": "string", "enum": t.suite.flowIds(),
-					"description": "要激活的 flow ID",
+					"description": "要激活的 flow SessionId",
 				},
 				"input": map[string]any{
 					"type":        "object",
@@ -343,7 +343,7 @@ func (t *FlowStepDoneTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"step_id": map[string]any{
 					"type":        "string",
-					"description": "已完成的对话步骤 ID",
+					"description": "已完成的对话步骤 SessionId",
 				},
 			},
 			"required": []string{"step_id"},
@@ -486,10 +486,10 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockS
 
 // ==================== 辅助函数 ====================
 
-// sessionIdOf 从工具执行上下文取会话 ID。
+// sessionIdOf 从工具执行上下文取会话 SessionId。
 func sessionIdOf(turn *agent.Turn) string {
 	if ctx := turn.Context(); ctx != nil {
-		return ctx.ID()
+		return ctx.SessionId()
 	}
 	return ""
 }

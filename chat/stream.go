@@ -42,7 +42,7 @@ func (a *assemblerBlock) start(block UseDeltaBlock) {
 }
 func (a *assemblerBlock) flush() (UseDeltaBlock, bool) {
 	if a.active {
-		a.block.ParesStream(a.stream)
+		a.block.ParseStream(a.stream)
 		a.stream.Reset()
 		a.active = false
 		return a.block, true

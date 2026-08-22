@@ -9,7 +9,7 @@ type ThinkingConfig struct {
 
 // Request 是发给 LLM Messages API 的完整请求体。
 type Request struct {
-	Model     string    `json:"model"`      // 模型 ID，如 "claude-opus-4-8"
+	Model     string    `json:"model"`      // 模型 SessionId，如 "claude-opus-4-8"
 	MaxTokens int       `json:"max_tokens"` // 最大生成 token 数
 	Messages  []Message `json:"messages"`   // 对话历史（user/assistant 交替）
 	// 可选字段

@@ -62,8 +62,8 @@ func TestTurn_Context_Nil(t *testing.T) {
 func TestTurn_Context_WithSession(t *testing.T) {
 	ctx := &SessionContext{sessionId: "test"}
 	turn := &Turn{ctx: ctx}
-	if turn.Context().ID() != "test" {
-		t.Errorf("expected sessionId 'test', got %q", turn.Context().ID())
+	if turn.Context().SessionId() != "test" {
+		t.Errorf("expected sessionId 'test', got %q", turn.Context().SessionId())
 	}
 }
 
@@ -83,8 +83,8 @@ type fakeTool struct{}
 func (f *fakeTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{Name: "fake", Description: "a fake tool"}
 }
-func (f *fakeTool) Name() string                         { return "fake" }
-func (f *fakeTool) UsagePrompt() string                  { return "" }
+func (f *fakeTool) Name() string                                   { return "fake" }
+func (f *fakeTool) UsagePrompt() string                            { return "" }
 func (f *fakeTool) Execute(_ *Turn, _ *chat.ToolResultBlockStream) {}
 
 var _ ToolExecutor = (*fakeTool)(nil)

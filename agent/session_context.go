@@ -18,8 +18,8 @@ type SessionContext struct {
 	seq           uint64
 }
 
-// ID 返回会话 ID。
-func (c *SessionContext) ID() string { return c.sessionId }
+// SessionId 返回会话 ID。
+func (c *SessionContext) SessionId() string { return c.sessionId }
 
 func (c *SessionContext) GetSeq() uint64 {
 	return atomic.AddUint64(&c.seq, 1)

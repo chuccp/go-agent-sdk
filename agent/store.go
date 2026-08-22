@@ -38,12 +38,6 @@ func (s *Store) append(c ...*chat.Message) {
 		s.history.Append(m)
 	}
 }
-func (s *Store) ResetAndSave() error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	return nil
-}
 func (s *Store) AppendTemp(c ...*chat.Message) {
 	s.lock.Lock()
 	defer s.lock.Unlock()

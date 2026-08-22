@@ -14,7 +14,7 @@ import (
 
 type LoopContext interface {
 	GetSeq() uint64
-	ID() string
+	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
 	GetService(provider string) chat.Service
 }
@@ -210,13 +210,13 @@ LOOP:
 		if toolStop == chat.StopReasonUserWait {
 			goto END
 		}
-		l.saveAndReset()
+		l.save()
 		goto LOOP
 	}
 	goto END
 
 END:
-	l.saveAndReset()
+	l.save()
 	if l.inbox.IsEmpty() {
 		l.SendBlock(chat.NewDoneBlock())
 		return
@@ -225,8 +225,8 @@ END:
 
 }
 
-func (l *Loop) saveAndReset() {
-	if err := l.store.ResetAndSave(); err != nil {
+func (l *Loop) save() {
+	if err := l.store.Save(l.loopContext.SessionId()); err != nil {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
 }

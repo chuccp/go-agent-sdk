@@ -34,7 +34,7 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"step_id": map[string]any{
 					"type":        "string",
-					"description": "要执行的步骤 ID（卡片中的执行步骤）",
+					"description": "要执行的步骤 SessionId（卡片中的执行步骤）",
 				},
 			},
 			"required": []string{"step_id"},
@@ -56,7 +56,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStr
 		writer.ErrorText(errors.New("exec_node 需要会话上下文"))
 		return
 	}
-	sessionId := sctx.ID()
+	sessionId := sctx.SessionId()
 
 	st := t.suite.store.Get(sessionId)
 	if st == nil {

@@ -42,7 +42,7 @@ func NewErrorBlock(text string) *ErrorBlock {
 
 type UseDeltaBlock interface {
 	Block
-	ParesStream(stream *value.Stream)
+	ParseStream(stream *value.Stream)
 }
 
 type Block interface {
@@ -127,7 +127,7 @@ type TextBlock struct {
 func (b *TextBlock) ForContext() bool {
 	return true
 }
-func (b *TextBlock) ParesStream(stream *value.Stream) {
+func (b *TextBlock) ParseStream(stream *value.Stream) {
 	b.Text = stream.String()
 }
 func NewTextBlock() *TextBlock {
@@ -201,7 +201,7 @@ type ThinkingBlock struct {
 func (b *ThinkingBlock) ForContext() bool {
 	return false
 }
-func (b *ThinkingBlock) ParesStream(stream *value.Stream) {
+func (b *ThinkingBlock) ParseStream(stream *value.Stream) {
 	b.Thinking = stream.String()
 }
 func NewThinkingBlock() *ThinkingBlock {
@@ -235,7 +235,7 @@ type ToolUseBlock struct {
 func (b *ToolUseBlock) ForContext() bool {
 	return true
 }
-func (b *ToolUseBlock) ParesStream(stream *value.Stream) {
+func (b *ToolUseBlock) ParseStream(stream *value.Stream) {
 	b.Input, _ = value.NewObjectFromJson(stream.ToJSON())
 }
 

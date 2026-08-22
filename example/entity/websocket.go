@@ -39,7 +39,7 @@ type WsCreateMessage struct {
 
 func (m *WsCreateMessage) Type() string { return CreateType }
 
-// GetSessionId 返回字符串形式的会话 ID。
+// GetSessionId 返回字符串形式的会话 SessionId。
 func (m *WsCreateMessage) GetSessionId() string {
 	return cast.ToString(m.SessionId)
 }
