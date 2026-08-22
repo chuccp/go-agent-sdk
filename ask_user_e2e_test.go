@@ -38,11 +38,25 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 	return nil
 }
 
-// findAskUserBlock 在事件列表中查找 AskUserBlock。
+// findAskUserBlock 在事件列表中查找 AskUserBlock（可能嵌套在 ToolResultBlock.Content 内）。
 func findAskUserBlock(events []*agent.Event) *tools.AskUserBlock {
 	for _, e := range events {
-		if ab, ok := e.Blocks[0].(*tools.AskUserBlock); ok {
+		if ab := findInBlocks(e.Blocks); ab != nil {
 			return ab
+		}
+	}
+	return nil
+}
+
+func findInBlocks(blocks chat.Blocks) *tools.AskUserBlock {
+	for _, b := range blocks {
+		if ab, ok := b.(*tools.AskUserBlock); ok {
+			return ab
+		}
+		if trb, ok := b.(*chat.ToolResultBlock); ok {
+			if ab := findInBlocks(trb.Content); ab != nil {
+				return ab
+			}
 		}
 	}
 	return nil
@@ -85,9 +99,14 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	// ── 第二轮：用户回答作为普通消息 ──
 	client.WriteText("Red")
 	events2 := collectUntilDone(t, client)
-	// 流式协议产出 StartBlock{TextBlock}，检查是否有包含 TextBlock 的 StartBlock
+	// TextBlock 可能作为顶层事件到达（StartBlock 被 dedup），
+	// 也可能嵌套在 StartBlock 中（取决于时序），两种情况都算通过。
 	hasText := false
 	for _, e := range events2 {
+		if _, ok := e.Blocks[0].(*chat.TextBlock); ok {
+			hasText = true
+			break
+		}
 		if sb, ok := e.Blocks[0].(*chat.StartBlock); ok {
 			if _, ok := sb.Block.(*chat.TextBlock); ok {
 				hasText = true

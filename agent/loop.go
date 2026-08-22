@@ -274,15 +274,15 @@ func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup,
 }
 
 func (l *Loop) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
+	var bg chat.BlockGroup
+	bg.Start = blockGroups[0].Start
 	if len(blockGroups) == 1 {
-		blockGroups[0].Content = results
-		return blockGroups[0]
+		bg.Offset = blockGroups[0].Offset
+	} else {
+		bg.Offset = blockGroups[len(blockGroups)-1].Offset + blockGroups[len(blockGroups)-1].Start - bg.Start
 	}
-	var blockGroup chat.BlockGroup
-	blockGroup.Start = blockGroups[0].Start
-	blockGroup.Offset = blockGroups[len(blockGroups)-1].Offset + blockGroups[len(blockGroups)-1].Start - blockGroup.Start
-	blockGroup.Content = results
-	return &blockGroup
+	bg.Content = results
+	return &bg
 }
 
 func (l *Loop) SendSingleBlock(block chat.Block) *chat.BlockGroup {

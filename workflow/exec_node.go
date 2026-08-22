@@ -16,16 +16,6 @@ import (
 
 // ==================== ExecNodeTool：零上下文执行核 ====================
 
-// EventTypeFlowProgress 是 flow 步骤进度事件类型，由 ExecNodeTool 推送，
-// content 为 JSON（flowId/stepId/phase/output）。
-//const EventTypeFlowProgress chat.EventType = "flow_progress"
-//
-//// NewFlowProgressEvent 创建一个 flow 步骤进度事件，content 为 JSON：
-//// {"flowId", "stepId", "phase": "start"|"item"|"done"|"error", "output"}。
-//func NewFlowProgressEvent(content string) *chat.ClientEvent {
-//	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeFlowProgress, Content: content}
-//}
-
 type ExecNodeTool struct{ suite *FlowToolSuite }
 
 func (t *ExecNodeTool) Name() string { return t.Definition().Name }

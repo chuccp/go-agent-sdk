@@ -140,8 +140,6 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 // 并置 user_wait 停止原因后立即返回，不阻塞等待回答；tool_result 文本作为历史上下文，
 // 告知后续轮次的 LLM 已提问、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
 func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
-	ctx := turn.Context()
-
 	questions, err := parseQuestions(turn.Args())
 	if err != nil {
 		writer.ErrorText(err)
@@ -149,12 +147,14 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultB
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
+	//    经 writer.Block() 写入 BlockStream，AskUserBlock 随 ToolResultBlock 进入会话历史；
+	//    前端通过扫描 ToolResultBlock.Content 中的 AskUserBlock 识别提问事件。
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
 		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	ctx.SendBlock(0, NewAskUserBlock(string(questionsJSON)))
+	writer.Block(NewAskUserBlock(string(questionsJSON)))
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮
