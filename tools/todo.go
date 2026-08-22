@@ -66,7 +66,7 @@ func (t *TaskCreateTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{
 		Name: "task_create",
 		Description: "创建一个新的待办任务。新任务初始状态为 pending。" +
-			"返回任务 SessionId 供 task_update / task_get 使用。",
+			"返回任务 ID 供 task_update / task_get 使用。",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -152,7 +152,7 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"task_id": map[string]any{
 					"type":        "string",
-					"description": "要更新的任务 SessionId（必需）",
+					"description": "要更新的任务 ID（必需）",
 				},
 				"subject": map[string]any{
 					"type":        "string",
@@ -173,22 +173,22 @@ func (t *TaskUpdateTool) Definition() *chat.ToolFunction {
 				},
 				"add_blocks": map[string]any{
 					"type":        "array",
-					"description": "此任务阻塞哪些任务 SessionId（双向同步: 同时更新对方的 blocked_by）",
+					"description": "此任务阻塞哪些任务 ID（双向同步: 同时更新对方的 blocked_by）",
 					"items":       map[string]any{"type": "string"},
 				},
 				"remove_blocks": map[string]any{
 					"type":        "array",
-					"description": "从此任务的 blocks 列表中移除这些任务 SessionId（双向同步）",
+					"description": "从此任务的 blocks 列表中移除这些任务 ID（双向同步）",
 					"items":       map[string]any{"type": "string"},
 				},
 				"add_blocked_by": map[string]any{
 					"type":        "array",
-					"description": "哪些任务 SessionId 阻塞此任务（双向同步: 同时更新对方的 blocks）",
+					"description": "哪些任务 ID 阻塞此任务（双向同步: 同时更新对方的 blocks）",
 					"items":       map[string]any{"type": "string"},
 				},
 				"remove_blocked_by": map[string]any{
 					"type":        "array",
-					"description": "从此任务的 blocked_by 列表中移除这些任务 SessionId（双向同步）",
+					"description": "从此任务的 blocked_by 列表中移除这些任务 ID（双向同步）",
 					"items":       map[string]any{"type": "string"},
 				},
 				"owner": map[string]any{
@@ -354,7 +354,7 @@ func (t *TaskListTool) Definition() *chat.ToolFunction {
 		Description: "列出所有活跃任务（不含已删除）及其状态摘要。" +
 			" 返回每个任务的 id、status、subject、owner、blocked_by。" +
 			" blocked_by 中已完成的任务会被自动过滤。" +
-			" 按 SessionId 数字顺序排列。",
+			" 按 ID 数字顺序排列。",
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -418,7 +418,7 @@ func (t *TaskGetTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"task_id": map[string]any{
 					"type":        "string",
-					"description": "要查询的任务 SessionId",
+					"description": "要查询的任务 ID",
 				},
 			},
 			"required": []string{"task_id"},

@@ -99,7 +99,7 @@ func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 // ── WebSocket handler ──────────────────────────────────────────────────
 
 // HandleWebSocket is the entry point for web WebSocket connections.
-// Each connection gets a unique session SessionId; all chat messages within
+// Each connection gets a unique session ID; all chat messages within
 // one connection share the same conversation context.
 func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	stream, err := webSocket.OpenStream(web.WithOriginPatterns("*"))

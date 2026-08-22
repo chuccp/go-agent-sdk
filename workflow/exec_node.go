@@ -34,7 +34,7 @@ func (t *ExecNodeTool) Definition() *chat.ToolFunction {
 			"properties": map[string]any{
 				"step_id": map[string]any{
 					"type":        "string",
-					"description": "要执行的步骤 SessionId（卡片中的执行步骤）",
+					"description": "要执行的步骤 ID（卡片中的执行步骤）",
 				},
 			},
 			"required": []string{"step_id"},

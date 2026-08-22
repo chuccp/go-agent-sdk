@@ -62,7 +62,7 @@ func WithModel(model string) Option {
 	return func(o *Options) { o.Model = model }
 }
 
-// WithSystemPrompt 设置 LLM 请求的模型名称。
+// WithSystemPrompt 设置 LLM 请求的系统提示。
 func WithSystemPrompt(systemPrompt string) Option {
 	return func(o *Options) { o.SystemPrompt = systemPrompt }
 }

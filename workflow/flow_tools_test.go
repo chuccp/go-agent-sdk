@@ -207,7 +207,7 @@ func TestFlowStepDoneOnExecStep(t *testing.T) {
 	}
 }
 
-// TestFlowStepDoneUnknownStep flow_step_done 传入不存在的步骤 SessionId 应报错。
+// TestFlowStepDoneUnknownStep flow_step_done 传入不存在的步骤 ID 应报错。
 func TestFlowStepDoneUnknownStep(t *testing.T) {
 	_, _, stepDone, _, _ := newTestTools("s1", map[string]any{"topic": "太空", "audience": "儿童"})
 	out := execText(t, stepDone, newTurn("s1", map[string]any{"step_id": "nonexistent"}))
