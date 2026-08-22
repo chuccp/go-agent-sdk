@@ -31,6 +31,10 @@ func (r *ProviderRegistry) GetProvider(provider string) Service {
 	if r.providerMap == nil {
 		return nil
 	}
+	// 空 provider 名回退到默认 provider（与历史 registry.DefaultProvider() 语义一致）
+	if provider == "" {
+		provider = r.provider
+	}
 	return r.providerMap[provider]
 }
 
