@@ -226,7 +226,7 @@ END:
 }
 
 func (l *Loop) save() {
-	if err := l.store.Save(l.loopContext.SessionId()); err != nil {
+	if err := l.store.Save(); err != nil {
 		log.Printf("[chatSession] save history failed: %v", err)
 	}
 }

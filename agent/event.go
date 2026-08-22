@@ -25,7 +25,6 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 }
 
 type Transfer struct {
-	sessionId    string
 	seq          uint64
 	mu           sync.RWMutex
 	entries      *util.SliceArray[*Event]
@@ -36,14 +35,9 @@ type Transfer struct {
 
 func NewTransfer(sessionId string, historyStore HistoryStore) *Transfer {
 	return &Transfer{
-		sessionId:   sessionId,
-		entries:     new(util.SliceArray[*Event]),
-		chatClients: new(util.SliceArray[*Client]),
-		messageStore: &Store{
-			history:      new(util.SliceArray[*chat.Message]),
-			tempHistory:  new(util.SliceArray[*chat.Message]),
-			historyStore: historyStore,
-		},
+		entries:      new(util.SliceArray[*Event]),
+		chatClients:  new(util.SliceArray[*Client]),
+		messageStore: NewStore(sessionId, historyStore),
 	}
 
 }
@@ -54,7 +48,7 @@ func (l *Transfer) GetStore() *Store {
 func (l *Transfer) LoadHistory() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.messageStore.loadHistory(l.sessionId)
+	return l.messageStore.loadHistory()
 }
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
@@ -89,20 +83,6 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	return reverseNew(events)
 }
 
-type Events struct {
-	events []*Event
-}
-
-func (e *Events) addEvent(event *Event) {
-	e.events = append(e.events, event)
-}
-
-func NewEvents() *Events {
-	return &Events{
-		events: make([]*Event, 0),
-	}
-}
-
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
 func messageToEvent(m *chat.Message) *Event {
 	return &Event{Start: m.Start, Offset: m.Offset, Blocks: m.Content}
@@ -122,51 +102,36 @@ func (l *Transfer) greaterStart(start uint64) []*Event {
 		}
 	}
 
-	// 2. 从 tempHistory 取数据（本轮对话产生的消息，倒序）
-	tempLen := l.messageStore.tempHistory.Len()
-	if tempLen > 0 {
-		firstMsg := l.messageStore.tempHistory.Get(0)
-		lastMsg := l.messageStore.tempHistory.Get(tempLen - 1)
-		// 去重：entries 中与 tempHistory 重叠区间的事件被持久化版本取代
-		for i := cache.Len() - 1; i >= 0; i-- {
-			ev := cache.Get(i)
-			if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
-				cache.Delete(i)
-			}
-		}
-		for index := tempLen - 1; index >= 0; index-- {
-			msg := l.messageStore.tempHistory.Get(index)
-			if msg.Start+msg.Offset > start {
-				cache.Append(messageToEvent(msg))
-			} else {
-				break
-			}
-		}
-	}
-
-	// 3. 从 history 取数据（持久化的历史消息，倒序）
-	hLen := l.messageStore.history.Len()
-	if hLen > 0 {
-		firstMsg := l.messageStore.history.Get(0)
-		lastMsg := l.messageStore.history.Get(hLen - 1)
-		// 去重：cache 中与 history 重叠区间的事件被持久化版本取代
-		for i := cache.Len() - 1; i >= 0; i-- {
-			ev := cache.Get(i)
-			if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
-				cache.Delete(i)
-			}
-		}
-		for index := hLen - 1; index >= 0; index-- {
-			msg := l.messageStore.history.Get(index)
-			if msg.Start+msg.Offset > start {
-				cache.Append(messageToEvent(msg))
-			} else {
-				break
-			}
-		}
-	}
+	// 2 & 3. 合并 tempHistory 和 history（持久化消息优先于运行时事件）
+	mergeMessages(cache, l.messageStore.tempHistory, start)
+	mergeMessages(cache, l.messageStore.history, start)
 
 	return cache.Slice()
+}
+
+// mergeMessages 去重后将 messages 中 >start 的消息合并进 cache。
+func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*chat.Message], start uint64) {
+	msgLen := messages.Len()
+	if msgLen == 0 {
+		return
+	}
+	firstMsg := messages.Get(0)
+	lastMsg := messages.Get(msgLen - 1)
+	// 去重：cache 中与 messages 重叠区间的事件被持久化版本取代
+	for i := cache.Len() - 1; i >= 0; i-- {
+		ev := cache.Get(i)
+		if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
+			cache.Delete(i)
+		}
+	}
+	for index := msgLen - 1; index >= 0; index-- {
+		msg := messages.Get(index)
+		if msg.Start+msg.Offset > start {
+			cache.Append(messageToEvent(msg))
+		} else {
+			break
+		}
+	}
 }
 
 func (l *Transfer) GetChatClient(start uint64, handler handler) *Client {

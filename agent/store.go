@@ -23,6 +23,7 @@ type Store struct {
 	tempHistory  *util.SliceArray[*chat.Message]
 	lock         sync.RWMutex
 	historyStore HistoryStore
+	sessionId    string
 }
 
 func (s *Store) IsEmpty() bool {
@@ -54,12 +55,12 @@ func (s *Store) History() []*chat.Message {
 	copy(result[s.history.Len():], s.tempHistory.Slice())
 	return result
 }
-func (s *Store) loadHistory(sessionId string) error {
+func (s *Store) loadHistory() error {
 	if s.historyStore == nil {
 		return nil
 	}
 	if s.history.IsEmpty() {
-		messages, err := s.historyStore.LoadHistory(sessionId)
+		messages, err := s.historyStore.LoadHistory(s.sessionId)
 		if err != nil {
 			return err
 		}
@@ -68,19 +69,19 @@ func (s *Store) loadHistory(sessionId string) error {
 	return nil
 }
 
-func (s *Store) Save(sessionId string) error {
+func (s *Store) Save() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.historyStore != nil {
 		allTemp := s.tempHistory.Slice()
 		if len(allTemp) > 0 {
-			msgs := make([]*chat.Message, len(allTemp))
+			megs := make([]*chat.Message, len(allTemp))
 			for i, m := range allTemp {
-				msgs[i] = m
+				megs[i] = m
 				s.history.Append(m)
 			}
 			s.tempHistory.Reset()
-			err := s.historyStore.AppendMessages(sessionId, msgs)
+			err := s.historyStore.AppendMessages(s.sessionId, megs)
 			if err != nil {
 				return err
 			}
@@ -95,9 +96,11 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	s.tempHistory.Append(c)
 
 }
-func NewStore() *Store {
+func NewStore(sessionId string, historyStore HistoryStore) *Store {
 	return &Store{
-		history:     new(util.SliceArray[*chat.Message]),
-		tempHistory: new(util.SliceArray[*chat.Message]),
+		sessionId:    sessionId,
+		historyStore: historyStore,
+		history:      new(util.SliceArray[*chat.Message]),
+		tempHistory:  new(util.SliceArray[*chat.Message]),
 	}
 }
