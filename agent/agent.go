@@ -74,7 +74,9 @@ func (m *Agent) getOrCreateSession(id string) *session {
 		toolExecutors: tools,
 		opts:          m.opts,
 	}
-	session := newSession(sessionContext)
+	session := newSession(sessionContext, func(sessionsId string) {
+		m.RemoveSession(sessionsId)
+	})
 	m.sessions[id] = session
 	return session
 }
@@ -106,12 +108,12 @@ func (m *Agent) SessionContext(id string) *SessionContext {
 	return m.getOrCreateSession(id).sessionContext
 }
 
-// RemoveChat 关闭并移除指定会话。若会话不存在则无操作。
-func (m *Agent) RemoveChat(id string) {
+// RemoveSession 关闭并移除指定会话。若会话不存在则无操作。
+func (m *Agent) RemoveSession(sessionsId string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	if session, ok := m.sessions[id]; ok {
+	if session, ok := m.sessions[sessionsId]; ok {
 		session.Stop()
-		delete(m.sessions, id)
+		delete(m.sessions, sessionsId)
 	}
 }

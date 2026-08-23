@@ -11,17 +11,25 @@ import (
 type session struct {
 	sessionContext *SessionContext
 	loop           *Loop
+	ctx            context.Context
+	cancel         context.CancelFunc
+	removeSession  func(sessionsId string)
 }
 
 func (s *session) WriteBlocks(blocks ...chat.Block) {
 	s.loop.HandleMessage(blocks)
 }
 
-func newSession(sessionContext *SessionContext) *session {
+func newSession(sessionContext *SessionContext, removeSession func(sessionsId string)) *session {
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &session{
 		sessionContext: sessionContext,
+		ctx:            ctx,
+		cancel:         cancel,
+		removeSession:  removeSession,
 	}
-	loopBuilder := NewLoopBuilder(context.Background(), sessionContext, 0, sessionContext.GetStore())
+
+	loopBuilder := NewLoopBuilder(ctx, sessionContext, 0, sessionContext.GetStore())
 	loopBuilder.ToolExecutor(sessionContext.toolExecutors...)
 	loopBuilder.Provider(sessionContext.registry.DefaultProvider())
 	loopBuilder.Done(func() {
@@ -51,4 +59,10 @@ func (s *session) newClient(start uint64) *Client {
 // Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。
 func (s *session) Stop() {
 	s.loop.Stop()
+}
+
+// Destroy 停止当前轮次（只对单轮生效），后续用户消息不受影响。
+func (s *session) Destroy() {
+	s.cancel()
+	s.removeSession(s.sessionContext.sessionId)
 }
