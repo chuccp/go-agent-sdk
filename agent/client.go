@@ -5,7 +5,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// handler 会话处理接口，由 session 实现
+// handler 会话处理接口，由 Session 实现
 type handler interface {
 	WriteBlocks(block ...chat.Block)
 	Stop()

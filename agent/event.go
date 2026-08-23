@@ -156,7 +156,7 @@ func (l *Transfer) flush() {
 	for _, sub := range clients {
 		err := sub.queue.Offer(true)
 		if err != nil {
-			log.Printf("Error offering chat session: %v", err)
+			log.Printf("Error offering chat Session: %v", err)
 		}
 	}
 }

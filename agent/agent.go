@@ -8,7 +8,7 @@ import (
 
 // Agent agent管理器
 type Agent struct {
-	sessions      map[string]*session
+	sessions      map[string]*Session
 	lock          *sync.RWMutex
 	registry      *chat.ProviderRegistry
 	toolExecutors []ToolExecutor
@@ -19,7 +19,7 @@ type Agent struct {
 
 func NewAgent() *Agent {
 	return &Agent{
-		sessions:      make(map[string]*session),
+		sessions:      make(map[string]*Session),
 		lock:          new(sync.RWMutex),
 		registry:      chat.NewProviderRegistry(),
 		toolExecutors: make([]ToolExecutor, 0),
@@ -59,11 +59,11 @@ func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefaul
 }
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
-func (m *Agent) getOrCreateSession(id string) *session {
+func (m *Agent) getOrCreateSession(id string) *Session {
 	if c, ok := m.sessions[id]; ok {
 		return c
 	}
-	// copy toolExecutors 快照，避免 session 运行期间 AddTool 引发 data race
+	// copy toolExecutors 快照，避免 Session 运行期间 AddTool 引发 data race
 	tools := make([]ToolExecutor, len(m.toolExecutors))
 	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
@@ -101,11 +101,11 @@ func (m *Agent) GetClient(id string, start uint64) (*Client, error) {
 	return session.newClient(start), nil
 }
 
-// SessionContext 返回指定会话的上下文（不存在则创建）。测试/集成用。
-func (m *Agent) SessionContext(id string) *SessionContext {
+func (m *Agent) GetSession(sessionId string) (*Session, bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	return m.getOrCreateSession(id).sessionContext
+	s, ok := m.sessions[sessionId]
+	return s, ok
 }
 
 // RemoveSession 关闭并移除指定会话。若会话不存在则无操作。
