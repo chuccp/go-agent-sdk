@@ -121,8 +121,6 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 		}
 		data := strings.TrimPrefix(line, "data: ")
 
-		fmt.Println("[SSE]", data)
-
 		var raw sseEvent
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			continue
@@ -158,12 +156,8 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 			}
 
 		case "message_delta":
-			fmt.Println("[parseSSE] message_delta raw=", data)
 			if raw.Usage != nil {
-				fmt.Printf("[parseSSE] message_delta usage: in=%d out=%d\n", raw.Usage.InputTokens, raw.Usage.OutputTokens)
 				resp.MessageDelta(raw.Usage.toChatUsage())
-			} else {
-				fmt.Println("[parseSSE] message_delta: raw.Usage is NIL")
 			}
 			if raw.Delta != nil && raw.Delta.StopReason != "" {
 				resp.StopReason(chat.StopReason(raw.Delta.StopReason))

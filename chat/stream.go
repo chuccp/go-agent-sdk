@@ -178,6 +178,8 @@ func (s *BlockStream) flushAndAdd(block Block) {
 func (s *BlockStream) sendBlock(block Block) {
 	if s.receiver != nil {
 		start := s.receiver.SendBlock(block)
+		// 记录 block 在事件流中的序号，供 relay 按 block 粒度去重
+		block.SetStart(start)
 		if s.firstStart == 0 {
 			s.firstStart = start
 		}

@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"sync/atomic"
 	"testing"
@@ -139,6 +140,14 @@ func eventHasBlock(evt *agent.Event, target chat.Block) bool {
 			}
 		case *chat.StartBlock:
 			if _, ok := b.(*chat.StartBlock); ok {
+				return true
+			}
+		case *chat.MessageDeltaBlock:
+			if _, ok := b.(*chat.MessageDeltaBlock); ok {
+				return true
+			}
+		case *chat.MessageStartBlock:
+			if _, ok := b.(*chat.MessageStartBlock); ok {
 				return true
 			}
 		}
@@ -426,4 +435,40 @@ func TestMaxTokensStopReason(t *testing.T) {
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
+}
+
+// usageProvider 每轮发送 MessageStart + text + MessageDelta（模拟 SSE parser 的 usage 事件）。
+type usageProvider struct {
+	idx atomic.Int32
+}
+
+func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
+	n := int(f.idx.Add(1))
+	w.MessageStart(&chat.Usage{InputTokens: 100, OutputTokens: 0})
+	w.BlockTextStart()
+	w.Delta(fmt.Sprintf("response %d", n))
+	w.MessageDelta(&chat.Usage{InputTokens: 100, OutputTokens: 50})
+	w.StopReason(chat.StopReasonEndTurn)
+	return nil
+}
+
+// TestMessageDeltaTwoRounds 验证两轮对话都能读到 MessageDeltaBlock（usage 元数据）。
+func TestMessageDeltaTwoRounds(t *testing.T) {
+	manager := agent.NewAgent()
+	manager.RegisterChat("fake", &usageProvider{}, true)
+
+	client, err := manager.GetClient("s_usage", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 第一轮
+	client.WriteText("round 1")
+	events1 := collectEvents(t, client)
+	hasBlockTypeInEvents(t, events1, &chat.MessageDeltaBlock{})
+
+	// 第二轮
+	client.WriteText("round 2")
+	events2 := collectEvents(t, client)
+	hasBlockTypeInEvents(t, events2, &chat.MessageDeltaBlock{})
 }

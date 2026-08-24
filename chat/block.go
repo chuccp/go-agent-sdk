@@ -27,6 +27,7 @@ const (
 )
 
 type ErrorBlock struct {
+	BaseBlock
 	Text string    `json:"text"`
 	Type BlockType `json:"type"`
 }
@@ -47,8 +48,20 @@ type UseDeltaBlock interface {
 	ParseStream(stream *value.Stream)
 }
 
+// BaseBlock 是所有 Block 的公共基类，Start 记录该 block 在事件流中的序号，
+// 供 relay 按 block 粒度去重（比按 Event 粒度更精确，避免 message 合并后
+// 因 Event.Start 为旧值而被整体跳过）。
+type BaseBlock struct {
+	Start uint64 `json:"start,omitempty"`
+}
+
+func (b *BaseBlock) GetStart() uint64    { return b.Start }
+func (b *BaseBlock) SetStart(s uint64)   { b.Start = s }
+
 type Block interface {
 	ForContext() bool
+	GetStart() uint64
+	SetStart(uint64)
 }
 
 type BlockGroup struct {
@@ -122,6 +135,7 @@ const (
 )
 
 type TextBlock struct {
+	BaseBlock
 	Text      string    `json:"text"`
 	Type      BlockType `json:"type"`
 	TextType  TextType  `json:"text_type"`
@@ -183,6 +197,7 @@ func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
 }
 
 type MessageStartBlock struct {
+	BaseBlock
 	Usage *Usage
 	Type  BlockType `json:"type"`
 }
@@ -198,6 +213,7 @@ func NewMessageStartBlock(usage *Usage) *MessageStartBlock {
 }
 
 type MessageDeltaBlock struct {
+	BaseBlock
 	Usage *Usage
 	Type  BlockType `json:"type"`
 }
@@ -213,6 +229,7 @@ func NewMessageDeltaBlock(usage *Usage) *MessageDeltaBlock {
 }
 
 type ThinkingBlock struct {
+	BaseBlock
 	Thinking string    `json:"thinking,omitempty"`
 	Type     BlockType `json:"type"`
 }
@@ -236,6 +253,7 @@ type ImageSource struct {
 }
 
 type ImageBlock struct {
+	BaseBlock
 	Source *ImageSource `json:"source,omitempty"`
 	Type   BlockType    `json:"type"`
 }
@@ -245,6 +263,7 @@ func (b *ImageBlock) ForContext() bool {
 }
 
 type ToolUseBlock struct {
+	BaseBlock
 	ID    string        `json:"id"`
 	Name  string        `json:"name"`
 	Input *value.Object `json:"input,omitempty"`
@@ -265,6 +284,7 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 		Name  string          `json:"name"`
 		Input json.RawMessage `json:"input"`
 		Type  BlockType       `json:"type"`
+		Start uint64          `json:"start"`
 	}
 	var a toolUseAlias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -273,6 +293,7 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 	b.ID = a.ID
 	b.Name = a.Name
 	b.Type = a.Type
+	b.Start = a.Start
 	if len(a.Input) > 0 {
 		obj, err := value.NewObjectFromJson(a.Input)
 		if err != nil {
@@ -291,6 +312,7 @@ func NewToolUseBlock(id string, name string) *ToolUseBlock {
 }
 
 type ToolExecutionBlock struct {
+	BaseBlock
 	ToolName string    `json:"tool_name"`
 	Args     string    `json:"args"`
 	Output   string    `json:"output"`
@@ -310,6 +332,7 @@ func NewToolExecutionBlock(toolName string, args string, Output string) *ToolExe
 }
 
 type ToolResultBlock struct {
+	BaseBlock
 	ToolUseID string    `json:"tool_use_id"`
 	Content   Blocks    `json:"content,omitempty"` // string 或 []Block
 	Type      BlockType `json:"type"`
@@ -327,6 +350,7 @@ func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
 }
 
 type StartBlock struct {
+	BaseBlock
 	Type  BlockType     `json:"type"`
 	Block UseDeltaBlock `json:"block"`
 }
@@ -343,6 +367,7 @@ func NewStartBlock(block UseDeltaBlock) *StartBlock {
 }
 
 type DeltaBlock struct {
+	BaseBlock
 	Type    BlockType `json:"type"`
 	Content string    `json:"content"`
 }
@@ -358,6 +383,7 @@ func NewDeltaBlock(content string) *DeltaBlock {
 }
 
 type DoneBlock struct {
+	BaseBlock
 	Type  BlockType `json:"type"`
 	Usage *Usage    `json:"usage,omitempty"`
 }
@@ -386,6 +412,7 @@ const (
 )
 
 type UserBlock struct {
+	BaseBlock
 	ID            uint64        `json:"id,omitempty"` // 用户消息稳定 ID：sent/queued/consume 同一条消息共享
 	Type          BlockType     `json:"type"`
 	BlockUserType BlockUserType `json:"block_user_type"`

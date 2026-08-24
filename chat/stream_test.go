@@ -110,7 +110,7 @@ func TestBlockStream_MultipleBlocks(t *testing.T) {
 func TestBlockStream_StopReasonAndUsage(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.StopReason(StopReasonToolUse)
-	stream.Usage(&Usage{InputTokens: 10, OutputTokens: 20})
+	stream.MessageDelta(&Usage{InputTokens: 10, OutputTokens: 20})
 
 	if stream.GetStopReason() != StopReasonToolUse {
 		t.Errorf("expected tool_use, got %s", stream.GetStopReason())

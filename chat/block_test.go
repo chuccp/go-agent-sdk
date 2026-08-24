@@ -140,7 +140,7 @@ func TestBlocks_MarshalImage(t *testing.T) {
 
 func TestBlocks_MarshalMetadata(t *testing.T) {
 	orig := Blocks{
-		NewUsageBlock(&Usage{InputTokens: 10, OutputTokens: 20}),
+		NewMessageStartBlock(&Usage{InputTokens: 10, OutputTokens: 20}),
 	}
 	data, err := json.Marshal(orig)
 	if err != nil {
@@ -170,7 +170,7 @@ func TestBlocks_MarshalErrorText(t *testing.T) {
 
 func TestBlocks_RoundTrip(t *testing.T) {
 	orig := Blocks{
-		NewUsageBlock(&Usage{InputTokens: 104, OutputTokens: 0}),
+		NewMessageStartBlock(&Usage{InputTokens: 104, OutputTokens: 0}),
 		&ThinkingBlock{Thinking: "思考中", Type: ThinkingBlockType},
 		NewFullTextBlock("你好"),
 		func() *ToolUseBlock {
@@ -194,8 +194,8 @@ func TestBlocks_RoundTrip(t *testing.T) {
 		t.Fatalf("length mismatch: got %d want %d", len(got), len(orig))
 	}
 
-	if u, ok := got[0].(*UsageBlock); !ok {
-		t.Errorf("block[0] = %T, want *UsageBlock", got[0])
+	if u, ok := got[0].(*MessageStartBlock); !ok {
+		t.Errorf("block[0] = %T, want *MessageStartBlock", got[0])
 	} else if u.Usage == nil || u.Usage.InputTokens != 104 {
 		t.Errorf("usage mismatch: %+v", u.Usage)
 	}
@@ -240,7 +240,7 @@ func TestBlocks_ForContext(t *testing.T) {
 		{NewToolUseBlock("tu_1", "tool"), true},
 		{NewToolResultBlock("tu_1", Blocks{NewFullTextBlock("result")}), true},
 		{NewThinkingBlock(), false},
-		{NewUsageBlock(&Usage{InputTokens: 1}), false},
+		{NewMessageStartBlock(&Usage{InputTokens: 1}), false},
 		{NewDoneBlock(), false},
 	}
 	for _, c := range cases {
