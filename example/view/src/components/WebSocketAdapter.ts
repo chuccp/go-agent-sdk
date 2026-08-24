@@ -88,6 +88,7 @@ let runCounter = 0  // 调试：追踪第几轮 run
 export interface UsageInfo {
   inputTokens: number
   outputTokens: number
+  cacheInputTokens: number
 }
 
 let latestUsage: UsageInfo | null = null
@@ -98,8 +99,9 @@ function setLatestUsage(u: UsageInfo): void {
   // 非零字段才更新，避免中间态（output=0）覆盖已有完整数据。
   const prev = latestUsage
   latestUsage = {
-    inputTokens:  u.inputTokens  || prev?.inputTokens  || 0,
-    outputTokens: u.outputTokens || prev?.outputTokens  || 0,
+    inputTokens:      u.inputTokens      || prev?.inputTokens      || 0,
+    outputTokens:     u.outputTokens     || prev?.outputTokens     || 0,
+    cacheInputTokens: u.cacheInputTokens || prev?.cacheInputTokens || 0,
   }
   for (const cb of usageListeners) cb(latestUsage)
 }
@@ -305,6 +307,7 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
           setLatestUsage({
             inputTokens: usage.input_tokens ?? 0,
             outputTokens: usage.output_tokens ?? 0,
+            cacheInputTokens: usage.cache_input_tokens ?? 0,
           })
         }
         return
