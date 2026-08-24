@@ -85,8 +85,17 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 }
 
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
-func messageToEvent(m *chat.Message) *Event {
-	return &Event{Start: m.Start, Offset: m.Offset, Blocks: m.Content}
+// 过滤掉 block.start < start 的 block：客户端已消费到 start，这些 block 无需再发。
+// block.start == 0 表示未记录序号（如 TextBlock 经 StartBlock 包装），保留。
+func messageToEvent(m *chat.Message, start uint64) *Event {
+	blocks := make(chat.Blocks, 0, len(m.Content))
+	for _, b := range m.Content {
+		if s := b.GetStart(); s != 0 && s < start {
+			continue
+		}
+		blocks = append(blocks, b)
+	}
+	return &Event{Start: m.Start, Offset: m.Offset, Blocks: blocks}
 }
 
 func (l *Transfer) greaterStart(start uint64) []*Event {
@@ -136,7 +145,7 @@ func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*ch
 				}
 			}
 		}
-		cache.Append(messageToEvent(msg))
+		cache.Append(messageToEvent(msg, start))
 	}
 }
 
