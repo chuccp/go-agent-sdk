@@ -55,6 +55,7 @@ func (l *Transfer) LoadHistory() error {
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	event := NewEvent(no, l.seq, block)
+	block.SetStart(event.Start)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
