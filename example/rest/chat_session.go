@@ -209,8 +209,10 @@ func blockTypeName(b chat.Block) string {
 		return "done"
 	case *chat.ErrorBlock:
 		return "error"
-	case *chat.UsageBlock:
-		return "usage"
+	case *chat.MessageStartBlock:
+		return "message_start"
+	case *chat.MessageDeltaBlock:
+		return "message_delta"
 	case *chat.StartBlock:
 		return "start"
 	case *chat.DeltaBlock:

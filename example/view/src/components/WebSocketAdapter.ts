@@ -297,7 +297,8 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         console.log('[bridge] ask_user block received')
         if (askUserHandler && block.text) askUserHandler(block.text as string)
         return
-      case 'usage': {
+      case 'message_start':
+      case 'message_delta': {
         // token 用量元数据，不产生流事件，但提取用量信息供 UI 展示
         const usage = block.Usage as Record<string, number> | undefined
         if (usage) {

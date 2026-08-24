@@ -64,8 +64,8 @@ function toolResultToText(blocks: ContentBlock[]): string {
 function blocksToText(blocks: ContentBlock[]): string {
   const parts: string[] = []
   for (const b of blocks) {
-    // 跳过元数据块：usage/token 统计、User 消息状态、Start/Delta 流式标记
-    if (b.type === 'usage' || b.type === 'User' || b.type === 'start' || b.type === 'delta' || b.type === 'done') continue
+    // 跳过元数据块：token 统计、User 消息状态、Start/Delta 流式标记
+    if (b.type === 'message_start' || b.type === 'message_delta' || b.type === 'User' || b.type === 'start' || b.type === 'delta' || b.type === 'done') continue
     if (b.type === 'thinking' && b.thinking) {
       parts.push(`⟪think⟫${b.thinking}⟪/think⟫`)
     } else if (b.type === 'text' && b.text) {

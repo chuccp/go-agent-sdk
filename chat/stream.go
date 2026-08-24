@@ -63,13 +63,18 @@ type BlockStream struct {
 	blocks         []Block
 	mu             sync.Mutex
 	assemblerBlock *assemblerBlock
-	usageBlock     *UsageBlock
 	firstStart     uint64
-	endStart       uint64
+	maxEndStart    uint64 // 追踪所有 sendBlock 的最大 endStart，ReadBlockGroup 用它算 Offset
+	usage          *Usage
 }
 
 func NewBlockStream(receiver BlockReceiver) *BlockStream {
 	return &BlockStream{
+		usage: &Usage{
+			InputTokens:      0,
+			OutputTokens:     0,
+			CacheInputTokens: 0,
+		},
 		receiver: receiver,
 		blocks:   make([]Block, 0),
 		assemblerBlock: &assemblerBlock{
@@ -131,21 +136,39 @@ func (s *BlockStream) StopReason(stopReason StopReason) {
 	defer s.mu.Unlock()
 	s.stopReason = stopReason
 }
-func (s *BlockStream) Usage(usage *Usage) {
+func (s *BlockStream) deltaUsage(usage *Usage) {
+	if usage.InputTokens > s.usage.InputTokens {
+		s.usage.InputTokens = usage.InputTokens
+	}
+	if usage.InputTokens == 0 {
+		usage.InputTokens = s.usage.InputTokens
+	}
+	if usage.CacheInputTokens > s.usage.CacheInputTokens {
+		s.usage.CacheInputTokens = usage.CacheInputTokens
+	}
+	if usage.CacheInputTokens == 0 {
+		usage.CacheInputTokens = s.usage.CacheInputTokens
+	}
+	if usage.OutputTokens > s.usage.OutputTokens {
+		s.usage.OutputTokens = usage.OutputTokens
+	}
+	if usage.OutputTokens == 0 {
+		usage.OutputTokens = s.usage.OutputTokens
+	}
+}
+func (s *BlockStream) MessageStart(usage *Usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.usageBlock != nil {
-		// 累加：多个 Usage 事件（如 message_start + message_delta）合并为一条，
-		// 非零字段才覆盖，避免中间态（output_tokens=0）覆盖完整数据。
-		if usage.InputTokens > 0 {
-			s.usageBlock.Usage.InputTokens = usage.InputTokens
-		}
-		if usage.OutputTokens > 0 {
-			s.usageBlock.Usage.OutputTokens = usage.OutputTokens
-		}
-	}
-	s.usageBlock = NewUsageBlock(usage)
-	s.flushAndAdd(s.usageBlock)
+	s.deltaUsage(usage)
+	messageStart := NewMessageStartBlock(usage)
+	s.flushAndAdd(messageStart)
+}
+func (s *BlockStream) MessageDelta(usage *Usage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deltaUsage(usage)
+	messageDelta := NewMessageDeltaBlock(usage)
+	s.flushAndAdd(messageDelta)
 }
 func (s *BlockStream) flushAndAdd(block Block) {
 	s.sendBlock(block)
@@ -158,7 +181,9 @@ func (s *BlockStream) sendBlock(block Block) {
 		if s.firstStart == 0 {
 			s.firstStart = start
 		}
-		s.endStart = start
+		if start > s.maxEndStart {
+			s.maxEndStart = start
+		}
 	}
 }
 func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
@@ -205,9 +230,13 @@ func (s *BlockStream) ReadBlockGroup() *BlockGroup {
 	defer s.mu.Unlock()
 	s.flush()
 	blocks := s.blocks
+	// 用 maxEndStart 而非 endStart：后续的 MessageDelta 等调用会更新 endStart，
+	// 但 ReadBlockGroup 在它们之前调用，此时 endStart 只反映最后一个 content delta 的位置。
+	// maxEndStart 追踪所有 sendBlock 的最大位置，确保 Offset 覆盖完整的消息范围。
+	offset := s.maxEndStart - s.firstStart + 1
 	return &BlockGroup{
 		Start:   s.firstStart,
-		Offset:  s.endStart - s.firstStart + 1,
+		Offset:  offset,
 		Content: blocks,
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -122,7 +121,7 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 		}
 		data := strings.TrimPrefix(line, "data: ")
 
-		log.Printf(data)
+		fmt.Println("[SSE]", data)
 
 		var raw sseEvent
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {
@@ -132,8 +131,7 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 		switch raw.Type {
 		case "message_start":
 			if raw.Message != nil {
-				usage := raw.Message.Usage
-				resp.Usage(&usage)
+				resp.MessageStart(raw.Message.Usage.toChatUsage())
 			}
 
 		case "content_block_start":
@@ -160,13 +158,16 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 			}
 
 		case "message_delta":
+			fmt.Println("[parseSSE] message_delta raw=", data)
+			if raw.Usage != nil {
+				fmt.Printf("[parseSSE] message_delta usage: in=%d out=%d\n", raw.Usage.InputTokens, raw.Usage.OutputTokens)
+				resp.MessageDelta(raw.Usage.toChatUsage())
+			} else {
+				fmt.Println("[parseSSE] message_delta: raw.Usage is NIL")
+			}
 			if raw.Delta != nil && raw.Delta.StopReason != "" {
 				resp.StopReason(chat.StopReason(raw.Delta.StopReason))
 			}
-			if raw.Usage != nil {
-				resp.Usage(raw.Usage)
-			}
-
 		case "message_stop":
 			return nil // 流正常结束
 		}

@@ -18,10 +18,12 @@ const (
 	StartBlockType         BlockType = "start"
 	DeltaBlockType         BlockType = "delta"
 	DoneBlockType          BlockType = "done"
-	UsageBlockType         BlockType = "usage"
 	UserBlockType          BlockType = "User"
 	ErrorBlockType         BlockType = "error"
 	ToolExecutionBlockType BlockType = "tool_execution"
+
+	MessageStartBlockType BlockType = "message_start"
+	MessageDeltaBlockType BlockType = "message_delta"
 )
 
 type ErrorBlock struct {
@@ -85,8 +87,10 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &ToolUseBlock{}
 		case ToolResultBlockType:
 			block = &ToolResultBlock{}
-		case UsageBlockType:
-			block = &UsageBlock{}
+		case MessageStartBlockType:
+			block = &MessageStartBlock{}
+		case MessageDeltaBlockType:
+			block = &MessageDeltaBlock{}
 		case ErrorBlockType:
 			block = &ErrorBlock{}
 		case DoneBlockType:
@@ -178,18 +182,33 @@ func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
 	}
 }
 
-type UsageBlock struct {
+type MessageStartBlock struct {
 	Usage *Usage
 	Type  BlockType `json:"type"`
 }
 
-func (b *UsageBlock) ForContext() bool {
+func (b *MessageStartBlock) ForContext() bool {
 	return false
 }
-func NewUsageBlock(usage *Usage) *UsageBlock {
-	return &UsageBlock{
+func NewMessageStartBlock(usage *Usage) *MessageStartBlock {
+	return &MessageStartBlock{
 		Usage: usage,
-		Type:  UsageBlockType,
+		Type:  MessageStartBlockType,
+	}
+}
+
+type MessageDeltaBlock struct {
+	Usage *Usage
+	Type  BlockType `json:"type"`
+}
+
+func (b *MessageDeltaBlock) ForContext() bool {
+	return false
+}
+func NewMessageDeltaBlock(usage *Usage) *MessageDeltaBlock {
+	return &MessageDeltaBlock{
+		Usage: usage,
+		Type:  MessageDeltaBlockType,
 	}
 }
 
@@ -339,12 +358,19 @@ func NewDeltaBlock(content string) *DeltaBlock {
 }
 
 type DoneBlock struct {
-	Type BlockType `json:"type"`
+	Type  BlockType `json:"type"`
+	Usage *Usage    `json:"usage,omitempty"`
 }
 
 func NewDoneBlock() *DoneBlock {
 	return &DoneBlock{
 		Type: DoneBlockType,
+	}
+}
+func NewDoneBlockWithUsage(usage *Usage) *DoneBlock {
+	return &DoneBlock{
+		Type:  DoneBlockType,
+		Usage: usage,
 	}
 }
 func (b *DoneBlock) ForContext() bool {
