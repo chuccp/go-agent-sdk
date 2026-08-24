@@ -48,38 +48,40 @@ ws.onmessage = async (evt) => {
     }, 3000)
     return
   }
-  // 事件格式：{seq, block: {type, ...}}
-  const block = msg.block
-  if (!block) return
-  const blockType = block.type
+  // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
+  const blocks = msg.blocks
+  if (!Array.isArray(blocks)) return
+  for (const block of blocks) {
+    const blockType = block.type
 
-  if (blockType === 'error') {
-    gotError = true
-    console.error('[FAIL] 收到 error 事件:', block.text)
-  }
-  if (blockType === 'delta') {
-    deltas++
-    if (stopped) deltasAfterStop++
-  }
-  if (blockType === 'done') {
-    if (phase === 'generating') {
-      if (!stoppedByTimer) {
-        // 生成在 stop 前就已结束，本次未验证到停止，直接判失败（重试）
-        console.error('[FAIL] 生成在 stop 之前已完成，未验证到停止语义')
-        process.exit(1)
-      }
-      console.log(`[ok] 被停轮以 done 结束（stop 后残留 delta: ${deltasAfterStop}）`)
-      phase = 'second'
-      deltas = 0
-      ws.send(JSON.stringify({ type: 'chat', message: '用一句话回答：1+1 等于几？' }))
-      return
+    if (blockType === 'error') {
+      gotError = true
+      console.error('[FAIL] 收到 error 事件:', block.text)
     }
-    if (phase === 'second') {
-      clearTimeout(timeout)
-      console.log(`[ok] stop 后的新一轮正常完成（${deltas} 个 delta）`)
-      ws.close()
-      await verifyHistory()
-      process.exit(0)
+    if (blockType === 'delta') {
+      deltas++
+      if (stopped) deltasAfterStop++
+    }
+    if (blockType === 'done') {
+      if (phase === 'generating') {
+        if (!stoppedByTimer) {
+          // 生成在 stop 前就已结束，本次未验证到停止，直接判失败（重试）
+          console.error('[FAIL] 生成在 stop 之前已完成，未验证到停止语义')
+          process.exit(1)
+        }
+        console.log(`[ok] 被停轮以 done 结束（stop 后残留 delta: ${deltasAfterStop}）`)
+        phase = 'second'
+        deltas = 0
+        ws.send(JSON.stringify({ type: 'chat', message: '用一句话回答：1+1 等于几？' }))
+        return
+      }
+      if (phase === 'second') {
+        clearTimeout(timeout)
+        console.log(`[ok] stop 后的新一轮正常完成（${deltas} 个 delta）`)
+        ws.close()
+        await verifyHistory()
+        process.exit(0)
+      }
     }
   }
 }

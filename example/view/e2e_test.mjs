@@ -22,7 +22,7 @@ const events = []
 let gotCreated = false
 const timeout = setTimeout(() => {
   console.error('[FAIL] 60s 超时未收到 done')
-  console.log('[events]', JSON.stringify(events.map(e => `${e.seq}:${e.block?.type}`), null, 0))
+  console.log('[events]', JSON.stringify(events.map(e => `${e.start}:${e.block?.type}`), null, 0))
   process.exit(1)
 }, 60000)
 
@@ -40,17 +40,19 @@ ws.onmessage = (evt) => {
     ws.send(JSON.stringify({ type: 'chat', message: '用一句话介绍你自己' }))
     return
   }
-  // 事件格式：{seq, block: {type, ...}}
-  const block = msg.block
-  if (!block) return
-  const blockType = block.type
-  events.push(msg)
-  if (blockType === 'delta') process.stdout.write(block.content || '')
-  if (blockType === 'done') {
-    clearTimeout(timeout)
-    console.log('\n[ws] 收到 done, seq=' + msg.seq)
-    verify()
-    ws.close()
+  // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
+  const blocks = msg.blocks
+  if (!Array.isArray(blocks)) return
+  for (const block of blocks) {
+    const blockType = block.type
+    events.push({ start: msg.start, block })
+    if (blockType === 'delta') process.stdout.write(block.content || '')
+    if (blockType === 'done') {
+      clearTimeout(timeout)
+      console.log('\n[ws] 收到 done, start=' + msg.start)
+      verify()
+      ws.close()
+    }
   }
 }
 
@@ -66,11 +68,11 @@ async function verify() {
 
   if (!gotCreated) fail('未收到 created 回执')
 
-  // seq 必须从 start 开始且单调连续
-  const seqs = events.map(e => e.seq)
-  if (seqs[0] !== start) fail(`首个事件 seq=${seqs[0]}, 期望 start=${start}`)
+  // start 必须从历史末尾开始且单调连续
+  const seqs = events.map(e => e.start)
+  if (seqs[0] !== start) fail(`首个事件 start=${seqs[0]}, 期望 start=${start}`)
   for (let i = 1; i < seqs.length; i++) {
-    if (seqs[i] !== seqs[i - 1] + 1) fail(`seq 不连续: ${seqs[i - 1]} -> ${seqs[i]}`)
+    if (seqs[i] !== seqs[i - 1] + 1) fail(`start 不连续: ${seqs[i - 1]} -> ${seqs[i]}`)
   }
 
   // 事件序列结构（block.type）
@@ -86,15 +88,15 @@ async function verify() {
   const uniqueTypes = [...new Set(types)]
   console.log(`[events] 共 ${events.length} 个: ${uniqueTypes.join(', ')}`)
 
-  // done 归属校验：最后一条 assistant 历史消息的 start+offset 应 = done.seq + 1
+  // done 归属校验：最后一条 assistant 历史消息的 start+offset 应 = done.start + 1
   const res2 = await fetch(`${BASE}/api/chat/sessions/${SESSION_ID}/messages`)
   const msgs2 = (await res2.json()).data ?? []
   const lastAssistant = [...msgs2].reverse().find(m => m.role === 'assistant')
   if (!lastAssistant) fail('历史中没有 assistant 消息')
   else {
     const end = lastAssistant.start + lastAssistant.offset
-    const doneSeq = events[events.length - 1].seq
-    if (end !== doneSeq + 1) fail(`done 未被历史 offset 覆盖: last.start+offset=${end}, done.seq+1=${doneSeq + 1}`)
+    const doneStart = events[events.length - 1].start
+    if (end !== doneStart + 1) fail(`done 未被历史 offset 覆盖: last.start+offset=${end}, done.start+1=${doneStart + 1}`)
     else console.log(`[history] done 已归属 assistant 消息 offset (start=${lastAssistant.start}, offset=${lastAssistant.offset})`)
   }
 

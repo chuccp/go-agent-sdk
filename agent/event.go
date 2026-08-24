@@ -12,7 +12,7 @@ type Event struct {
 	No     uint64      `json:"no"`
 	Start  uint64      `json:"start"`
 	Offset uint64      `json:"offset"`
-	Blocks chat.Blocks `json:"block"`
+	Blocks chat.Blocks `json:"blocks"`
 }
 
 func NewEvent(no uint64, seq uint64, block chat.Block) *Event {

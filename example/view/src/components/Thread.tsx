@@ -1,3 +1,4 @@
+import React from 'react'
 import {
   ThreadPrimitive,
   MessagePrimitive,
@@ -11,6 +12,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MarkdownTextPrimitive } from '@assistant-ui/react-markdown'
 import { useMessageQueue } from './ChatRuntimeProvider'
+import { getLatestUsage, subscribeUsage, type UsageInfo } from './WebSocketAdapter'
 
 export function Thread() {
   return (
@@ -68,6 +70,9 @@ export function Thread() {
 
       {/* ── Ask User Question Card ── */}
       <AskUserCard />
+
+      {/* ── Token Usage ── */}
+      <UsageBar />
 
       {/* ── Composer ── */}
       <div style={{ padding: '0 24px 24px', flexShrink: 0 }}>
@@ -175,6 +180,36 @@ function AskUserCard() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── Token Usage Bar ──
+
+function UsageBar() {
+  const [usage, setUsage] = React.useState<UsageInfo | null>(getLatestUsage)
+
+  React.useEffect(() => subscribeUsage(setUsage), [])
+
+  if (!usage) return null
+
+  const parts: string[] = []
+  if (usage.inputTokens > 0) parts.push(`↑ ${usage.inputTokens.toLocaleString()} in`)
+  if (usage.outputTokens > 0) parts.push(`↓ ${usage.outputTokens.toLocaleString()} out`)
+  if (parts.length === 0) return null
+
+  return (
+    <div style={{
+      padding: '4px 24px', flexShrink: 0,
+      display: 'flex', justifyContent: 'center',
+    }}>
+      <span style={{
+        fontSize: 11, color: '#9aa0a6',
+        fontFamily: "'SF Mono', 'Fira Code', monospace",
+        letterSpacing: 0.3,
+      }}>
+        {parts.join(' · ')}
+      </span>
     </div>
   )
 }

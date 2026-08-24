@@ -39,24 +39,26 @@ ws.onmessage = (evt) => {
     ws.send(JSON.stringify({ type: 'chat', message: '给我 5 岁孩子写一个关于太空的故事，短一点，100字以内' }))
     return
   }
-  // 事件格式：{seq, block: {type, ...}}
-  const block = msg.block
-  if (!block) return
-  const blockType = block.type
+  // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
+  const blocks = msg.blocks
+  if (!Array.isArray(blocks)) return
+  for (const block of blocks) {
+    const blockType = block.type
 
-  if (blockType === 'error') {
-    console.error('[FAIL] error 事件:', block.text)
-    process.exit(1)
-  }
-  if (blockType === 'tool_execution') toolExecs.push({ name: block.tool_name, output: block.output })
-  // flow_progress 是 TextBlock with text_type="flow_progress"
-  if (blockType === 'text' && block.text_type === 'flow_progress') flowProgress.push(JSON.parse(block.text))
-  if (blockType === 'delta') process.stdout.write(block.content || '')
-  if (blockType === 'done') {
-    sawDone = true
-    clearTimeout(timeout)
-    verify()
-    ws.close()
+    if (blockType === 'error') {
+      console.error('[FAIL] error 事件:', block.text)
+      process.exit(1)
+    }
+    if (blockType === 'tool_execution') toolExecs.push({ name: block.tool_name, output: block.output })
+    // flow_progress 是 TextBlock with text_type="flow_progress"
+    if (blockType === 'text' && block.text_type === 'flow_progress') flowProgress.push(JSON.parse(block.text))
+    if (blockType === 'delta') process.stdout.write(block.content || '')
+    if (blockType === 'done') {
+      sawDone = true
+      clearTimeout(timeout)
+      verify()
+      ws.close()
+    }
   }
 }
 

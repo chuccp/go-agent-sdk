@@ -62,6 +62,7 @@ type BlockStream struct {
 	blocks         []Block
 	mu             sync.Mutex
 	assemblerBlock *assemblerBlock
+	usageBlock     *UsageBlock
 	firstStart     uint64
 	endStart       uint64
 }
@@ -132,7 +133,19 @@ func (s *BlockStream) StopReason(stopReason StopReason) {
 func (s *BlockStream) Usage(usage *Usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.flushAndAdd(NewUsageBlock(usage))
+	if s.usageBlock != nil {
+		// 累加：多个 Usage 事件（如 message_start + message_delta）合并为一条，
+		// 非零字段才覆盖，避免中间态（output_tokens=0）覆盖完整数据。
+		if usage.InputTokens > 0 {
+			s.usageBlock.Usage.InputTokens = usage.InputTokens
+		}
+		if usage.OutputTokens > 0 {
+			s.usageBlock.Usage.OutputTokens = usage.OutputTokens
+		}
+	} else {
+		s.usageBlock = NewUsageBlock(usage)
+		s.flushAndAdd(s.usageBlock)
+	}
 }
 func (s *BlockStream) flushAndAdd(block Block) {
 	s.sendBlock(block)

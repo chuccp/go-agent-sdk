@@ -129,8 +129,10 @@ func (l *Loop) buildRequest() *chat.Request {
 	values, fa := l.inbox.ReadAll()
 	if fa {
 		for _, qm := range values {
-			qm.BlockUserType = chat.Consume
-			l.SendBlock(qm)
+			// 不复用 qm（已作为 sent/queued 事件发送），而是新建 consume 块：
+			// 否则 mutate qm.BlockUserType 会同时改写之前事件的序列化结果，
+			// 前端可能收到两条 consume 而把用户消息显示两遍。
+			l.SendBlock(chat.NewUserBlock(qm.ID, qm.Content, chat.Consume))
 			l.store.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: qm.Content})
 		}
 	}

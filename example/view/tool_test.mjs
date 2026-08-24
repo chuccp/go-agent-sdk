@@ -17,7 +17,7 @@ let done = false
 
 const timeout = setTimeout(() => {
   console.error('[FAIL] 90s 超时未收到 done')
-  console.log('[events]', events.map(e => `${e.seq}:${e.block?.type}`).join(', '))
+  console.log('[events]', events.map(e => `${e.start}:${e.block?.type}`).join(', '))
   process.exit(1)
 }, 90000)
 
@@ -33,24 +33,26 @@ ws.onmessage = (evt) => {
     ws.send(JSON.stringify({ type: 'chat', message: '请使用 execute_command 工具执行命令 go version，然后根据工具返回的结果告诉我版本号' }))
     return
   }
-  // 事件格式：{seq, block: {type, ...}}
-  const block = msg.block
-  if (!block) return
-  const blockType = block.type
-  events.push(msg)
-  if (blockType === 'delta') process.stdout.write(block.content || '')
-  if (blockType === 'tool_execution') {
-    console.log(`\n[tool_execution] ${block.tool_name} | args=${block.args} | output=${(block.output || '').slice(0, 120)}`)
-  }
-  if (blockType === 'error') {
-    console.error('[FAIL] error 事件:', block.text)
-    process.exit(1)
-  }
-  if (blockType === 'done') {
-    done = true
-    clearTimeout(timeout)
-    verify()
-    ws.close()
+  // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
+  const blocks = msg.blocks
+  if (!Array.isArray(blocks)) return
+  for (const block of blocks) {
+    const blockType = block.type
+    events.push({ start: msg.start, block })
+    if (blockType === 'delta') process.stdout.write(block.content || '')
+    if (blockType === 'tool_execution') {
+      console.log(`\n[tool_execution] ${block.tool_name} | args=${block.args} | output=${(block.output || '').slice(0, 120)}`)
+    }
+    if (blockType === 'error') {
+      console.error('[FAIL] error 事件:', block.text)
+      process.exit(1)
+    }
+    if (blockType === 'done') {
+      done = true
+      clearTimeout(timeout)
+      verify()
+      ws.close()
+    }
   }
 }
 

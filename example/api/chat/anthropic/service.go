@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -120,6 +121,8 @@ func (s *serviceImpl) parseSSE(ctx context.Context, body io.ReadCloser, resp *ch
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
+
+		log.Printf(data)
 
 		var raw sseEvent
 		if err := json.Unmarshal([]byte(data), &raw); err != nil {

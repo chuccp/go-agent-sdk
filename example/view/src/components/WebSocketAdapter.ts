@@ -8,15 +8,18 @@ import type { ChatModelAdapter, ChatModelRunResult } from '@assistant-ui/react'
  *   - This adapter only consumes streaming events (chunk / thinking / done / error)
  *     and yields them as assistant content.
  *   - The trigger mechanism ensures the adapter starts processing only after
- *     the backend has consumed the user message (message_consumed).
+ *     the backend has consumed the user message (User block with block_user_type="consume").
  *
- * Protocol (receive only):
- *   { type: "chunk",           content: "text" }
- *   { type: "thinking",        content: "..." }
- *   { type: "command",         message: "cmd", content: "output" }  // 命令执行，输出可增量到达
- *   { type: "tool_execution",  message: "toolName", args: "input", content: "output" }
- *   { type: "done",            done: true }
- *   { type: "error",           message: "error text" }
+ * Protocol (receive only) — 后端事件统一为 {no, start, offset, blocks: [...]}：
+ *   { no, start, offset, blocks: [{ type: "start",          block: { type, ... } }] }  // 流式块开始
+ *   { no, start, offset, blocks: [{ type: "delta",          content: "..." }] }        // 流式增量
+ *   { no, start, offset, blocks: [{ type: "text",           text: "..." }] }           // 完整文本块
+ *   { no, start, offset, blocks: [{ type: "thinking",       thinking: "..." }] }       // 思考块
+ *   { no, start, offset, blocks: [{ type: "tool_execution", tool_name, args, output }] }
+ *   { no, start, offset, blocks: [{ type: "User",           block_user_type, ... }] }  // 用户消息状态
+ *   { no, start, offset, blocks: [{ type: "done" }] }                                  // 本轮结束
+ *   { no, start, offset, blocks: [{ type: "error",          text: "..." }] }           // 错误
+ *   { no, start, offset, blocks: [{ type: "usage" }] }                                 // 元数据，不产生事件
  */
 
 // ── Module-level streaming bridge ──
@@ -80,6 +83,42 @@ function parseCommand(json: string): string {
 
 let runCounter = 0  // 调试：追踪第几轮 run
 
+// ── Token 用量跟踪 ──
+
+export interface UsageInfo {
+  inputTokens: number
+  outputTokens: number
+}
+
+let latestUsage: UsageInfo | null = null
+let usageListeners: Array<(u: UsageInfo | null) => void> = []
+
+function setLatestUsage(u: UsageInfo): void {
+  // 后端在流开始（output=0）和流结束各发一次 Usage。
+  // 非零字段才更新，避免中间态（output=0）覆盖已有完整数据。
+  const prev = latestUsage
+  latestUsage = {
+    inputTokens:  u.inputTokens  || prev?.inputTokens  || 0,
+    outputTokens: u.outputTokens || prev?.outputTokens  || 0,
+  }
+  for (const cb of usageListeners) cb(latestUsage)
+}
+
+/** resetUsage 清除用量数据（新一轮开始时调用）。 */
+export function resetUsage(): void {
+  latestUsage = null
+  for (const cb of usageListeners) cb(null)
+}
+
+export function getLatestUsage(): UsageInfo | null {
+  return latestUsage
+}
+
+export function subscribeUsage(cb: (u: UsageInfo | null) => void): () => void {
+  usageListeners.push(cb)
+  return () => { usageListeners = usageListeners.filter(l => l !== cb) }
+}
+
 /**
  * setStopCallback 设置取消时的回调（用于发送 stop 消息到后端）。
  */
@@ -102,6 +141,8 @@ export function setAskUserHandler(cb: (questionsJson: string) => void): void {
  */
 export function triggerStream(): void {
   console.log('[adapter] triggerStream called')
+  // 新一轮开始，清除上一轮的 token 用量（本轮 LLM 返回后会重新填充）
+  resetUsage()
   // 丢弃触发前缓冲的终结性事件（上一轮残留的 done/error：
   // 当前轮在 message_consumed 之前不可能产生本轮的终结事件）
   pendingBuffer = pendingBuffer.filter(e => e.kind !== 'done' && e.kind !== 'error')
@@ -110,6 +151,11 @@ export function triggerStream(): void {
     directDispatch = (evt: StreamEvent) => {
       pendingBuffer.push(evt)
     }
+  }
+  // 若上一轮已消费掉 trigger（triggerResolve 为 null），为本轮重建，
+  // 否则本轮的 adapter run 拿不到 trigger，会越过等待直接进入空循环而卡死。
+  if (!triggerResolve) {
+    pendingTrigger = new Promise<void>(resolve => { triggerResolve = resolve })
   }
   if (triggerResolve) {
     triggerResolve()
@@ -146,8 +192,8 @@ function resetStreamBlockState(): void {
 function streamHandler(evt: MessageEvent): void {
   try {
     const msg = JSON.parse(evt.data)
-    // 后端发送 {no, start, offset, block: [{type, ...}, ...]} 格式
-    const blocks = msg.block
+    // 后端发送 {no, start, offset, blocks: [{type, ...}, ...]} 格式
+    const blocks = msg.blocks
     if (!Array.isArray(blocks)) return
     for (const block of blocks) {
       processBlock(block, msg)
@@ -251,9 +297,17 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         console.log('[bridge] ask_user block received')
         if (askUserHandler && block.text) askUserHandler(block.text as string)
         return
-      case 'usage':
-        // token 用量元数据，不产生事件
+      case 'usage': {
+        // token 用量元数据，不产生流事件，但提取用量信息供 UI 展示
+        const usage = block.Usage as Record<string, number> | undefined
+        if (usage) {
+          setLatestUsage({
+            inputTokens: usage.input_tokens ?? 0,
+            outputTokens: usage.output_tokens ?? 0,
+          })
+        }
         return
+      }
       case 'User':
         // User block 由 ChatRuntimeProvider 处理，此处跳过
         return

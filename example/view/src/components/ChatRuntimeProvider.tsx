@@ -64,6 +64,8 @@ function toolResultToText(blocks: ContentBlock[]): string {
 function blocksToText(blocks: ContentBlock[]): string {
   const parts: string[] = []
   for (const b of blocks) {
+    // 跳过元数据块：usage/token 统计、User 消息状态、Start/Delta 流式标记
+    if (b.type === 'usage' || b.type === 'User' || b.type === 'start' || b.type === 'delta' || b.type === 'done') continue
     if (b.type === 'thinking' && b.thinking) {
       parts.push(`⟪think⟫${b.thinking}⟪/think⟫`)
     } else if (b.type === 'text' && b.text) {
@@ -302,6 +304,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
 
   // ── consumeMessage: 后端确认消费后，将用户消息加入对话框并启动流 ──
   const consumeMessageRef = useRef<(text: string) => void>(() => {})
+  // 已处理过的 consume 消息 id：防止同一条用户消息被重复消费导致回显两遍
+  const consumedIdsRef = useRef<Set<string>>(new Set())
 
   // ── WebSocket 连接 + 事件处理 ──
   useEffect(() => {
@@ -347,8 +351,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
             pendingChatRef.current = []
             return
           }
-          // 事件格式：{no, start, offset, block: [{type, ...}, ...]}
-          const blocks = msg.block
+          // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
+          const blocks = msg.blocks
           if (!Array.isArray(blocks)) return
           for (const block of blocks) {
             if (block.type === 'User') {
@@ -369,6 +373,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
                 setTimeout(() => {
                   setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
                 }, 600)
+                // 同一条用户消息只显示一次：重复的 consume 回执直接忽略
+                const consumeKey = String(msgId)
+                if (consumedIdsRef.current.has(consumeKey)) {
+                  return
+                }
+                consumedIdsRef.current.add(consumeKey)
                 if (content) {
                   consumeMessageRef.current(content)
                 }
