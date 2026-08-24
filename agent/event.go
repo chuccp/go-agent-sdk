@@ -85,17 +85,37 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 }
 
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
-// 过滤掉 block.start < start 的 block：客户端已消费到 start，这些 block 无需再发。
-// block.start == 0 表示未记录序号（如 TextBlock 经 StartBlock 包装），保留。
+// 过滤逻辑：从「最后一个 start <= start 的 block」作为起点往后取——起点之前的 block
+// 已被客户端消费，起点（含等于 start）及之后的 block 需重发，保证内容不丢。
+// start == 0 的 block（未记录序号）不参与起点定位，始终保留。
 func messageToEvent(m *chat.Message, start uint64) *Event {
-	blocks := make(chat.Blocks, 0, len(m.Content))
-	for _, b := range m.Content {
-		if s := b.GetStart(); s != 0 && s < start {
-			continue
+	from := 0
+	for i, b := range m.Content {
+		if s := b.GetStart(); s != 0 && s <= start {
+			from = i
 		}
-		blocks = append(blocks, b)
 	}
-	return &Event{Start: m.Start, Offset: m.Offset, Blocks: blocks}
+	blocks := m.Content[from:]
+
+	// 按过滤后的 blocks 重新计算 Start/Offset：
+	// Start 取最小 start，Offset = 最大 start - 最小 start + 1。
+	var minStart, maxStart uint64
+	for _, b := range blocks {
+		if s := b.GetStart(); s != 0 {
+			if minStart == 0 || s < minStart {
+				minStart = s
+			}
+			if s > maxStart {
+				maxStart = s
+			}
+		}
+	}
+	evStart, evOffset := m.Start, m.Offset
+	if minStart > 0 {
+		evStart = minStart
+		evOffset = maxStart - minStart + 1
+	}
+	return &Event{Start: evStart, Offset: evOffset, Blocks: blocks}
 }
 
 func (l *Transfer) greaterStart(start uint64) []*Event {

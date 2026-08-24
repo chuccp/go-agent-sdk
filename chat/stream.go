@@ -31,14 +31,16 @@ type BlockReceiver interface {
 }
 
 type assemblerBlock struct {
-	stream *value.Stream
-	block  UseDeltaBlock
-	active bool
+	stream     *value.Stream
+	block      UseDeltaBlock
+	active     bool
+	blockStart uint64
 }
 
-func (a *assemblerBlock) start(block UseDeltaBlock) {
+func (a *assemblerBlock) start(blockStart uint64, block UseDeltaBlock) {
 	a.block = block
 	a.active = true
+	a.blockStart = blockStart
 	a.stream.Reset()
 }
 func (a *assemblerBlock) flush() (UseDeltaBlock, bool) {
@@ -46,6 +48,8 @@ func (a *assemblerBlock) flush() (UseDeltaBlock, bool) {
 		a.block.ParseStream(a.stream)
 		a.stream.Reset()
 		a.active = false
+		a.block.SetStart(a.blockStart)
+		a.blockStart = 0
 		return a.block, true
 	}
 	return nil, false
@@ -175,7 +179,7 @@ func (s *BlockStream) flushAndAdd(block Block) {
 	s.flush()
 	s.blocks = append(s.blocks, block)
 }
-func (s *BlockStream) sendBlock(block Block) {
+func (s *BlockStream) sendBlock(block Block) uint64 {
 	if s.receiver != nil {
 		start := s.receiver.SendBlock(block)
 		// 记录 block 在事件流中的序号，供 relay 按 block 粒度去重
@@ -186,12 +190,14 @@ func (s *BlockStream) sendBlock(block Block) {
 		if start > s.maxEndStart {
 			s.maxEndStart = start
 		}
+		return start
 	}
+	return 0
 }
 func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
-	s.sendBlock(NewStartBlock(block))
+	start := s.sendBlock(NewStartBlock(block))
 	s.flush()
-	s.assemblerBlock.start(block)
+	s.assemblerBlock.start(start, block)
 
 }
 func (s *BlockStream) flush() {
