@@ -111,13 +111,13 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 	// entries 有2个事件 (Start=0,1)
 	tr.entries.Append(&Event{Start: 0, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(0)}})
 	tr.entries.Append(&Event{Start: 1, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(1)}})
-	// tempHistory 有1条消息 (Start=2) — 来自 buildRequest 写入
+	// tempHistory 有1条消息 (Start=2)——save 前 tempHistory 不读取，entries 兜底
 	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 
-	// start=0: entries 返回2个 + tempHistory 返回1个 = 3个
+	// start=0: 只读 entries 2个（tempHistory 不读）
 	events := tr.greaterStart(0)
-	if len(events) != 3 {
-		t.Fatalf("greaterStart(0) = %d events, want 3", len(events))
+	if len(events) != 2 {
+		t.Fatalf("greaterStart(0) = %d events, want 2", len(events))
 	}
 }
 
@@ -137,41 +137,41 @@ func TestGreaterStart_OnlyHistory(t *testing.T) {
 	}
 }
 
-func TestGreaterStart_DedupEntriesVsTempHistory(t *testing.T) {
-	// entries 和 tempHistory 有重叠区间：entries 的事件被 tempHistory 覆盖
+func TestGreaterStart_DedupEntriesVsHistory(t *testing.T) {
+	// entries 和 history 有重叠区间：entries 的事件被 history 覆盖
 	tr := newTestTransfer()
 	// entries: Start=0,1,2 (旧的运行时事件)
 	for i := uint64(0); i < 3; i++ {
 		tr.entries.Append(&Event{Start: i, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(i)}})
 	}
-	// tempHistory: Start=0,1 (持久化的用户/助手消息，覆盖 entries 中的前两个)
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
+	// history: Start=0,1 (持久化的用户/助手消息，覆盖 entries 中的前两个)
+	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
 	events := tr.greaterStart(0)
-	// entries 中 Start=0,1 被 tempHistory 覆盖（删除），Start=2 保留
-	// tempHistory 的 Start=0,1 追加
-	// 总计: entries 保留1个 + tempHistory 2个 = 3个
+	// entries 中 Start=0,1 被 history 覆盖（删除），Start=2 保留
+	// history 的 Start=0,1 追加
+	// 总计: entries 保留1个 + history 2个 = 3个
 	if len(events) != 3 {
 		t.Fatalf("greaterStart(0) dedup = %d events, want 3", len(events))
 	}
 }
 
 func TestGreaterStart_AllSources(t *testing.T) {
-	// 三个数据源都有数据，验证完整合并
+	// history 与 entries 两个数据源，验证完整合并（tempHistory 不读取）
 	tr := newTestTransfer()
 	// history: Start=0,1
 	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
 	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
-	// tempHistory: Start=2
+	// tempHistory: Start=2（save 前不读）
 	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 	// entries: Start=3
 	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(3)}})
 
 	events := tr.greaterStart(0)
-	// entries 1个 + tempHistory 1个 + history 2个 = 4个
-	if len(events) != 4 {
-		t.Fatalf("greaterStart(0) all-sources = %d events, want 4", len(events))
+	// entries 1个 + history 2个 = 3个（tempHistory 不读）
+	if len(events) != 3 {
+		t.Fatalf("greaterStart(0) all-sources = %d events, want 3", len(events))
 	}
 }
 

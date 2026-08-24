@@ -132,8 +132,10 @@ func (l *Transfer) greaterStart(start uint64) []*Event {
 		}
 	}
 
-	// 2 & 3. 合并 tempHistory 和 history（持久化消息优先于运行时事件）
-	mergeMessages(cache, l.messageStore.tempHistory, start)
+	// 2. 合并 history（持久化消息优先于运行时事件）。
+	// tempHistory 无需读取：save() 在 Reset() 之前执行，tempHistory 非空时
+	// entries 尚未被 Reset 清理、仍保有全量 live 事件，可由上方 entries 兜底；
+	// save() 之后 message 已移入 history。
 	mergeMessages(cache, l.messageStore.history, start)
 
 	// 4. mergeMessages 追加 message 会破坏降序，重新按 Start 降序排列，
