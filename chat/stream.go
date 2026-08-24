@@ -21,8 +21,9 @@ const (
 
 // Usage 记录本次请求的 token 消耗。
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	CacheInputTokens int `json:"cache_input_tokens"`
 }
 
 type BlockReceiver interface {
@@ -142,10 +143,9 @@ func (s *BlockStream) Usage(usage *Usage) {
 		if usage.OutputTokens > 0 {
 			s.usageBlock.Usage.OutputTokens = usage.OutputTokens
 		}
-	} else {
-		s.usageBlock = NewUsageBlock(usage)
-		s.flushAndAdd(s.usageBlock)
 	}
+	s.usageBlock = NewUsageBlock(usage)
+	s.flushAndAdd(s.usageBlock)
 }
 func (s *BlockStream) flushAndAdd(block Block) {
 	s.sendBlock(block)
