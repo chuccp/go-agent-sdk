@@ -342,11 +342,19 @@ func (b *ToolResultBlock) ForContext() bool {
 	return true
 }
 func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
-	return &ToolResultBlock{
+	b := &ToolResultBlock{
 		ToolUseID: id,
 		Content:   content,
 		Type:      ToolResultBlockType,
 	}
+	// 取 content 里 block 的最小 start（>0）作为 ToolResultBlock 的 start，
+	// 供 relay 按 block 粒度去重。
+	for _, c := range content {
+		if s := c.GetStart(); s > 0 && (b.Start == 0 || s < b.Start) {
+			b.Start = s
+		}
+	}
+	return b
 }
 
 type StartBlock struct {

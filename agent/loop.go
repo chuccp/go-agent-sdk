@@ -132,8 +132,10 @@ func (l *Loop) buildRequest() *chat.Request {
 			// 不复用 qm（已作为 sent/queued 事件发送），而是新建 consume 块：
 			// 否则 mutate qm.BlockUserType 会同时改写之前事件的序列化结果，
 			// 前端可能收到两条 consume 而把用户消息显示两遍。
-			l.SendBlock(chat.NewUserBlock(qm.ID, qm.Content, chat.Consume))
-			l.store.AppendHistory(&chat.Message{Role: chat.RoleUser, Content: qm.Content})
+			start := l.SendBlock(chat.NewUserBlock(qm.ID, qm.Content, chat.Consume))
+			// 记录 Start/Offset，供 mergeMessages 精确去重；否则 user 消息的
+			// Start/Offset 为 0，会把去重区间错误地扩展到 [0, ...) 覆盖所有事件。
+			l.store.AppendHistory(&chat.Message{Start: start, Offset: 1, Role: chat.RoleUser, Content: qm.Content})
 		}
 	}
 	// 注入历史上下文

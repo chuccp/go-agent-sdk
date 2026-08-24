@@ -17,6 +17,13 @@ func newTestTransfer() *Transfer {
 	}
 }
 
+// textBlockWithStart 构造一个带 start（事件流序号）的文本 block，模拟真实场景。
+func textBlockWithStart(start uint64) *chat.TextBlock {
+	b := chat.NewFullTextBlock("")
+	b.SetStart(start)
+	return b
+}
+
 func TestGreaterStart_OnlyEntries(t *testing.T) {
 	tr := newTestTransfer()
 	// 写入 5 个事件 (Start=0..4, Offset=1)
@@ -102,10 +109,10 @@ func TestGreaterStart_LargeOffset(t *testing.T) {
 func TestGreaterStart_WithTempHistory(t *testing.T) {
 	tr := newTestTransfer()
 	// entries 有2个事件 (Start=0,1)
-	tr.entries.Append(&Event{Start: 0, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
-	tr.entries.Append(&Event{Start: 1, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+	tr.entries.Append(&Event{Start: 0, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(0)}})
+	tr.entries.Append(&Event{Start: 1, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(1)}})
 	// tempHistory 有1条消息 (Start=2) — 来自 buildRequest 写入
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("hello")}})
+	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 
 	// start=0: entries 返回2个 + tempHistory 返回1个 = 3个
 	events := tr.greaterStart(0)
@@ -117,8 +124,8 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 func TestGreaterStart_OnlyHistory(t *testing.T) {
 	// 模拟纯历史场景：entries 为空，history 有持久化消息
 	tr := newTestTransfer()
-	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("msg1")}})
-	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{chat.NewFullTextBlock("msg2")}})
+	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
 	events := tr.greaterStart(0)
 	if len(events) != 2 {
@@ -135,11 +142,11 @@ func TestGreaterStart_DedupEntriesVsTempHistory(t *testing.T) {
 	tr := newTestTransfer()
 	// entries: Start=0,1,2 (旧的运行时事件)
 	for i := uint64(0); i < 3; i++ {
-		tr.entries.Append(&Event{Start: i, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+		tr.entries.Append(&Event{Start: i, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(i)}})
 	}
 	// tempHistory: Start=0,1 (持久化的用户/助手消息，覆盖 entries 中的前两个)
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("u")}})
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{chat.NewFullTextBlock("a")}})
+	tr.messageStore.tempHistory.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.messageStore.tempHistory.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
 	events := tr.greaterStart(0)
 	// entries 中 Start=0,1 被 tempHistory 覆盖（删除），Start=2 保留
@@ -154,16 +161,56 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	// 三个数据源都有数据，验证完整合并
 	tr := newTestTransfer()
 	// history: Start=0,1
-	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("")}})
-	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{chat.NewFullTextBlock("")}})
+	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 	// tempHistory: Start=2
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("")}})
+	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 	// entries: Start=3
-	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(3)}})
 
 	events := tr.greaterStart(0)
 	// entries 1个 + tempHistory 1个 + history 2个 = 4个
 	if len(events) != 4 {
 		t.Fatalf("greaterStart(0) all-sources = %d events, want 4", len(events))
+	}
+}
+
+// TestMessageDeltaSurvivesMergeAndDedup 模拟第一轮 message 持久化后，
+// readEvents + relay block 去重流程，验证 MessageDeltaBlock 不丢失。
+func TestMessageDeltaSurvivesMergeAndDedup(t *testing.T) {
+	tr := newTestTransfer()
+
+	// entries：live MessageDeltaBlock(274) + DoneBlock(275)
+	md := chat.NewMessageDeltaBlock(&chat.Usage{InputTokens: 100, OutputTokens: 50})
+	md.SetStart(274)
+	tr.entries.Append(&Event{Start: 274, Offset: 1, Blocks: chat.Blocks{md}})
+	done := chat.NewDoneBlock()
+	done.SetStart(275)
+	tr.entries.Append(&Event{Start: 275, Offset: 1, Blocks: chat.Blocks{done}})
+
+	// history：assistant message，Content 含 MessageDeltaBlock(start=274)
+	md2 := chat.NewMessageDeltaBlock(&chat.Usage{InputTokens: 100, OutputTokens: 50})
+	md2.SetStart(274)
+	tr.messageStore.history.Append(&chat.Message{
+		Start: 2, Offset: 273, Role: chat.RoleAssistant,
+		Content: chat.Blocks{md2},
+	})
+
+	events := tr.greaterStart(0)
+
+	// 验证 MessageDeltaBlock 在结果里（relay 不再按 lastSeq 去重，直接转发）
+	found := false
+	for _, ev := range events {
+		for _, b := range ev.Blocks {
+			if mb, ok := b.(*chat.MessageDeltaBlock); ok {
+				found = true
+				if mb.GetStart() != 274 {
+					t.Errorf("MessageDeltaBlock start=%d, want 274", mb.GetStart())
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("MessageDeltaBlock not found in greaterStart result")
 	}
 }

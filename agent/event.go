@@ -2,6 +2,7 @@ package agent
 
 import (
 	"log"
+	"sort"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -106,31 +107,36 @@ func (l *Transfer) greaterStart(start uint64) []*Event {
 	mergeMessages(cache, l.messageStore.tempHistory, start)
 	mergeMessages(cache, l.messageStore.history, start)
 
-	return cache.Slice()
+	// 4. mergeMessages 追加 message 会破坏降序，重新按 Start 降序排列，
+	//    保证 readEvents 里 events[0] 是最大 Start（cl.start 才能正确推进）。
+	events := cache.Slice()
+	sort.Slice(events, func(i, j int) bool { return events[i].Start > events[j].Start })
+	return events
 }
 
 // mergeMessages 去重后将 messages 中 >start 的消息合并进 cache。
+// 逐条 message 去重，且按 block 级别区间过滤：对 cache 中每个 event 的每个 block，
+// 判断其 start 是否落在该 message 覆盖区间 [Start, Start+Offset) 内，是则删除整个
+// event（被持久化版本取代）。用 block.start 而非 event.Start，避免 message 合并后
+// event.Start 为旧值导致判断错位。
 func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*chat.Message], start uint64) {
-	msgLen := messages.Len()
-	if msgLen == 0 {
-		return
-	}
-	firstMsg := messages.Get(0)
-	lastMsg := messages.Get(msgLen - 1)
-	// 去重：cache 中与 messages 重叠区间的事件被持久化版本取代
-	for i := cache.Len() - 1; i >= 0; i-- {
-		ev := cache.Get(i)
-		if ev.Start >= firstMsg.Start && ev.Start < lastMsg.Start+lastMsg.Offset {
-			cache.Delete(i)
-		}
-	}
-	for index := msgLen - 1; index >= 0; index-- {
+	for index := messages.Len() - 1; index >= 0; index-- {
 		msg := messages.Get(index)
-		if msg.Start+msg.Offset > start {
-			cache.Append(messageToEvent(msg))
-		} else {
-			break
+		if msg.Start+msg.Offset <= start {
+			break // 该消息及更早的消息已全部被消费
 		}
+		msgEnd := msg.Start + msg.Offset
+		for i := cache.Len() - 1; i >= 0; i-- {
+			ev := cache.Get(i)
+			for _, b := range ev.Blocks {
+				bs := b.GetStart()
+				if bs >= msg.Start && bs < msgEnd {
+					cache.Delete(i)
+					break
+				}
+			}
+		}
+		cache.Append(messageToEvent(msg))
 	}
 }
 

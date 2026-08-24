@@ -113,10 +113,9 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	defer session.Release()
 
 	sdkutil.Go(func() {
-		// lastSeq 按 block 粒度去重：每个 Block 带 start（事件流序号）。
-		// message 合并后 Event.Start 是旧值（第一个 block 的序号），不能直接用它去重，
-		// 否则会跳过 message 里后续未发的 block（如 MessageDeltaBlock）。
-		var lastSeq uint64
+		// 事件去重由 Transfer.readEvents（cl.start 递增）与 mergeMessages（block 级别
+		// 精确去重）保证。relay 这里不做 lastSeq 单调递增去重——那会跳过 message 里
+		// 排序后 start 小于已发事件的 block（如 MessageDeltaBlock）。
 		for {
 			events := session.ReadEvent()
 			if events == nil {
@@ -124,21 +123,9 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 				return
 			}
 			for _, event := range events {
-				remaining := make(chat.Blocks, 0, len(event.Blocks))
-				for _, b := range event.Blocks {
-					s := b.GetStart()
-					if s != 0 && s <= lastSeq {
-						continue // 已发送过的 block
-					}
-					if s != 0 {
-						lastSeq = s
-					}
-					remaining = append(remaining, b)
-				}
-				if len(remaining) == 0 {
+				if len(event.Blocks) == 0 {
 					continue
 				}
-				event.Blocks = remaining
 				data, err := json.Marshal(event)
 				if err != nil {
 					writeError(stream, err)
