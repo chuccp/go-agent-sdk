@@ -27,10 +27,11 @@ const (
 // Content 为 Block 接口数组，支持多态 JSON 序列化。
 // Start/Offset 是 SDK 内部的消息序号记账字段，不出现在发给模型的 JSON 中。
 type Message struct {
-	Start   uint64 `json:"-"`
-	Offset  uint64 `json:"-"`
-	Role    Role   `json:"role"`    // "user" | "assistant"
-	Content Blocks `json:"content"` // content block 数组
+	Start        uint64 `json:"-"`
+	Offset       uint64 `json:"-"`
+	IsCompressor bool   `json:"is_compressor,omitempty"` // true = 已被压缩器消费
+	Role         Role   `json:"role"`                    // "user" | "assistant"
+	Content      Blocks `json:"content"`                 // content block 数组
 }
 
 // NewTextMessage 便捷构造：生成一条纯文本 user 消息。

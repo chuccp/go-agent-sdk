@@ -15,6 +15,7 @@ type Agent struct {
 	system        string
 	opts          *chat.Options
 	historyStore  HistoryStore
+	compressor    *CompressorManager
 }
 
 func NewAgent() *Agent {
@@ -52,6 +53,15 @@ func (m *Agent) SetHistoryStore(store HistoryStore) {
 	m.historyStore = store
 }
 
+// SetCompressor 设置上下文压缩策略和持久化实现。
+// 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
+// store 可为 nil（无持久化，重启丢失压缩状态）。
+func (m *Agent) SetCompressor(c Compressor, store CompressorStore) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.compressor = NewCompressorManager(c, store)
+}
+
 func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -67,12 +77,13 @@ func (m *Agent) getOrCreateSession(id string) *Session {
 	tools := make([]ToolExecutor, len(m.toolExecutors))
 	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
-		sessionId:     id,
-		seq:           0,
-		transfer:      NewTransfer(id, m.historyStore),
-		registry:      m.registry,
+		sessionId:  id,
+		seq:        0,
+		transfer:   NewTransfer(id, m.historyStore),
+		registry:   m.registry,
 		toolExecutors: tools,
-		opts:          m.opts,
+		opts:       m.opts,
+		compressor: m.compressor,
 	}
 	session := newSession(sessionContext, func(sessionsId string) {
 		m.RemoveSession(sessionsId)
@@ -106,6 +117,15 @@ func (m *Agent) GetSession(sessionId string) (*Session, bool) {
 	defer m.lock.Unlock()
 	s, ok := m.sessions[sessionId]
 	return s, ok
+}
+
+// SessionContext 获取或创建指定会话的 SessionContext。
+// 用于需要直接访问会话上下文的场景（如工具测试、自定义工具实现）。
+func (m *Agent) SessionContext(id string) *SessionContext {
+	m.lock.Lock()
+	session := m.getOrCreateSession(id)
+	m.lock.Unlock()
+	return session.sessionContext
 }
 
 // RemoveSession 关闭并移除指定会话。若会话不存在则无操作。

@@ -17,6 +17,7 @@ type LoopContext interface {
 	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
 	GetService(provider string) chat.Service
+	GetCompressorStore() CompressorStore
 }
 
 type Loop struct {
@@ -31,6 +32,7 @@ type Loop struct {
 	pCancel       context.CancelFunc
 	runLock       sync.Mutex
 	store         *Store
+	compressor    Compressor
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	provider      string
@@ -57,6 +59,10 @@ func (b *LoopBuilder) Provider(provider string) *LoopBuilder {
 }
 func (b *LoopBuilder) Done(done func()) *LoopBuilder {
 	b.loop.done = done
+	return b
+}
+func (b *LoopBuilder) Compressor(c Compressor) *LoopBuilder {
+	b.loop.compressor = c
 	return b
 }
 func (b *LoopBuilder) Build() *Loop {
@@ -143,19 +149,39 @@ func (l *Loop) buildRequest() *chat.Request {
 	if len(history) == 0 && !fa {
 		return nil
 	}
+
+	// 压缩（压缩器内部自行持久化标记和摘要）
+	var summaryMsg *chat.Message
+	if l.compressor != nil {
+		summaryMsg = l.compressor.Compress(l.loopContext, history)
+	}
+
+	// 倒序过滤：从最新消息往前，跳过已压缩的
 	effective := l.options
 	messages := &chat.Request{
 		System:   l.composeSystem(),
 		Messages: make([]chat.Message, 0, len(history)),
 	}
-	for _, m := range history {
+	for i := len(history) - 1; i >= 0; i-- {
+		m := history[i]
+		if m.IsCompressor {
+			continue
+		}
 		msg := *m
 		msg.Content = l.blocksForContext(m.Content)
-		// 剥离后内容为空的消息不发送（避免空 content 报错）
 		if len(msg.Content) == 0 {
 			continue
 		}
 		messages.Messages = append(messages.Messages, msg)
+	}
+	// 翻转（倒序收集的）
+	for i, j := 0, len(messages.Messages)-1; i < j; i, j = i+1, j-1 {
+		messages.Messages[i], messages.Messages[j] = messages.Messages[j], messages.Messages[i]
+	}
+
+	// 摘要消息插入最前面
+	if summaryMsg != nil {
+		messages.Messages = append([]chat.Message{*summaryMsg}, messages.Messages...)
 	}
 
 	if effective != nil {
@@ -204,6 +230,7 @@ LOOP:
 	if l.roundStopped() {
 		goto END
 	}
+
 	l.appendAssistantMessage(blockGroup)
 	if stopReason == chat.StopReasonToolUse {
 		results, toolStop := l.executeTools(blockGroup)
