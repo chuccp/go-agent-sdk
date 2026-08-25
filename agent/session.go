@@ -61,7 +61,7 @@ func newSession(sessionContext *SessionContext, historyStore HistoryStore, compr
 	}
 	transfer := NewTransfer(sessionContext, compressor, historyStore)
 	sessionContext.transfer = transfer
-	loop := NewLoop(ctx, sessionContext, 0, sessionContext.GetStore())
+	loop := NewLoop(ctx, sessionContext, 0, transfer.GetStore())
 	loop.done = func() {
 		transfer.Reset()
 	}
@@ -82,7 +82,7 @@ func (s *Session) LoadHistory() error {
 
 // newClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
 func (s *Session) newClient(start uint64) *Client {
-	return s.sessionContext.GetChatClient(start, s)
+	return s.transfer.GetChatClient(start, s)
 }
 
 // Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。
