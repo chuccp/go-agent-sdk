@@ -42,6 +42,15 @@ func (c *SessionContext) Reset() {
 	c.transfer.Reset()
 }
 
+func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
+	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
+	c.GetStore().AppendHistory(userMsg)
+}
+func (c *SessionContext) AppendMainAssistantMessage(blocks *chat.BlockGroup) {
+	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
+	c.GetStore().AppendHistory(assistantMsg)
+}
+
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
 func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
 	return c.transfer.GetChatClient(start, handler)

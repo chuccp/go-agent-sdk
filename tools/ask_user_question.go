@@ -23,22 +23,6 @@ type Option struct {
 	Preview     string `json:"preview,omitempty"` // 可选预览内容（markdown/html），用于视觉对比
 }
 
-const AskUserBlockType chat.BlockType = "ask_user" // LLM 向用户提问，需要用户交互后继续
-
-type AskUserBlock struct {
-	chat.Block
-	Text string `json:"text"`
-}
-
-func (a *AskUserBlock) ForContext() bool {
-	return false
-}
-func NewAskUserBlock(Text string) *AskUserBlock {
-	return &AskUserBlock{
-		Text: Text,
-	}
-}
-
 // NewAskUserEvent 创建一个用户提问事件，content 为问题列表的 JSON。
 //func NewAskUserEvent(content string) *chat.ClientEvent {
 //	return &chat.ClientEvent{EventSource: chat.SourceAI, EventType: EventTypeAskUser, Content: content}
@@ -147,14 +131,15 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultB
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
-	//    经 writer.Block() 写入 BlockStream，AskUserBlock 随 ToolResultBlock 进入会话历史；
-	//    前端通过扫描 ToolResultBlock.Content 中的 AskUserBlock 识别提问事件。
+	//    经 writer.Block() 写入 BlockStream，CustomTextBlock(TextType=ask_user) 随
+	//    ToolResultBlock 进入会话历史；前端通过扫描 ToolResultBlock.Content 中的
+	//    CustomTextBlock 且 TextType=="ask_user" 识别提问事件。
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
 		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	writer.Block(NewAskUserBlock(string(questionsJSON)))
+	writer.Block(chat.NewCustomTextBlock(string(questionsJSON), chat.AskUserTextType))
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮

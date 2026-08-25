@@ -123,7 +123,7 @@ func TestBlocks_MarshalToolResult(t *testing.T) {
 }
 
 func TestBlocks_MarshalImage(t *testing.T) {
-	orig := Blocks{&ImageBlock{Type: ImageBlockType, Source: &ImageSource{SourceType: "base64", MediaType: "image/png", Data: "abcd"}}}
+	orig := Blocks{&ImageBlock{BaseBlock: BaseBlock{Type: ImageBlockType}, Source: &ImageSource{SourceType: "base64", MediaType: "image/png", Data: "abcd"}}}
 	data, err := json.Marshal(orig)
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestBlocks_MarshalErrorText(t *testing.T) {
 func TestBlocks_RoundTrip(t *testing.T) {
 	orig := Blocks{
 		NewMessageStartBlock(&Usage{InputTokens: 104, OutputTokens: 0}),
-		&ThinkingBlock{Thinking: "思考中", Type: ThinkingBlockType},
+		&ThinkingBlock{BaseBlock: BaseBlock{Type: ThinkingBlockType}, Thinking: "思考中"},
 		NewFullTextBlock("你好"),
 		func() *ToolUseBlock {
 			tu := NewToolUseBlock("call_00", "execute_command")
@@ -226,6 +226,48 @@ func TestBlocks_RoundTrip(t *testing.T) {
 		t.Errorf("tool_result content[0] = %T, want *TextBlock", tr.Content[0])
 	} else if tb.Text != "Microsoft Windows" {
 		t.Errorf("tool_result content text mismatch: %q", tb.Text)
+	}
+}
+
+// TestBlocks_CustomTextBlockRoundTrip 验证 CustomTextBlock 可随 Blocks 无损往返：
+// 业务自定义内容放进 Text，用 TextType 表达语义，不新增块类型。
+func TestBlocks_CustomTextBlockRoundTrip(t *testing.T) {
+	orig := Blocks{
+		NewCustomTextBlock("card payload", TextType("resource_card")),
+		NewFullTextBlock("普通文本"),
+	}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got Blocks
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("length = %d, want 2", len(got))
+	}
+	card, ok := got[0].(*CustomTextBlock)
+	if !ok {
+		t.Fatalf("block[0] = %T, want *CustomTextBlock", got[0])
+	}
+	if card.Text != "card payload" || card.TextType != TextType("resource_card") {
+		t.Errorf("card round-trip mismatch: %+v", card)
+	}
+	if card.GetType() != CustomTextBlockType {
+		t.Errorf("GetType = %q, want %q", card.GetType(), CustomTextBlockType)
+	}
+	if card.ForContext() {
+		t.Error("CustomTextBlock.ForContext() should stay false after round-trip")
+	}
+}
+
+func TestBlocks_UnknownBlockTypeErrors(t *testing.T) {
+	data := []byte(`[{"type":"does_not_exist","text":"x"}]`)
+	var got Blocks
+	if err := json.Unmarshal(data, &got); err == nil {
+		t.Error("expected error for unknown block type")
 	}
 }
 

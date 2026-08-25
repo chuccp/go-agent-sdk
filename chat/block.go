@@ -24,12 +24,13 @@ const (
 
 	MessageStartBlockType BlockType = "message_start"
 	MessageDeltaBlockType BlockType = "message_delta"
+
+	CustomTextBlockType BlockType = "custom_text"
 )
 
 type ErrorBlock struct {
 	BaseBlock
-	Text string    `json:"text"`
-	Type BlockType `json:"type"`
+	Text string `json:"text"`
 }
 
 func (b *ErrorBlock) ForContext() bool {
@@ -38,8 +39,8 @@ func (b *ErrorBlock) ForContext() bool {
 
 func NewErrorBlock(text string) *ErrorBlock {
 	return &ErrorBlock{
-		Text: text,
-		Type: ErrorBlockType,
+		BaseBlock: BaseBlock{Type: ErrorBlockType},
+		Text:      text,
 	}
 }
 
@@ -48,20 +49,24 @@ type UseDeltaBlock interface {
 	ParseStream(stream *value.Stream)
 }
 
-// BaseBlock 是所有 Block 的公共基类，Start 记录该 block 在事件流中的序号，
+// BaseBlock 是所有 Block 的公共基类：Type 记录块类型（序列化为 `type` 字段，
+// 供 Blocks.UnmarshalJSON 分发还原），Start 记录该 block 在事件流中的序号，
 // 供 relay 按 block 粒度去重（比按 Event 粒度更精确，避免 message 合并后
 // 因 Event.Start 为旧值而被整体跳过）。
 type BaseBlock struct {
-	Start uint64 `json:"start,omitempty"`
+	Start uint64    `json:"start,omitempty"`
+	Type  BlockType `json:"type"`
 }
 
-func (b *BaseBlock) GetStart() uint64    { return b.Start }
-func (b *BaseBlock) SetStart(s uint64)   { b.Start = s }
+func (b *BaseBlock) GetStart() uint64   { return b.Start }
+func (b *BaseBlock) SetStart(s uint64)  { b.Start = s }
+func (b *BaseBlock) GetType() BlockType { return b.Type }
 
 type Block interface {
 	ForContext() bool
 	GetStart() uint64
 	SetStart(uint64)
+	GetType() BlockType
 }
 
 type BlockGroup struct {
@@ -88,6 +93,8 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(item, &t); err != nil {
 			return err
 		}
+		// 按 type 字段硬编码分发。CustomTextBlock 是唯一允许业务扩展文本的载体：
+		// 业务把自定义内容放进 Text，用 TextType 表达语义，不新增块类型。
 		var block Block
 		switch t.Type {
 		case TextBlockType:
@@ -114,6 +121,8 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &ToolExecutionBlock{}
 		case UserBlockType:
 			block = &UserBlock{}
+		case CustomTextBlockType:
+			block = &CustomTextBlock{}
 		default:
 			return fmt.Errorf("unknown block type %q", t.Type)
 		}
@@ -132,14 +141,38 @@ const (
 	ErrorTextType    TextType = "error"
 	CMDTextType      TextType = "cmd"
 	FlowProgressType TextType = "flow_progress"
+	AskUserTextType  TextType = "ask_user" // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
 )
+
+// CustomTextBlock 是唯一允许业务扩展的文本块：不进 LLM 上下文（ForContext=false），
+// 自定义内容放进 Text，用 TextType 表达语义（如 ask_user / resource_card / plan_card）。
+// 业务不要新增自定义块类型，统一走 CustomTextBlock + TextType。
+type CustomTextBlock struct {
+	BaseBlock
+	Text      string   `json:"text"`
+	TextType  TextType `json:"text_type"`
+	ToolUseId string   `json:"tool_use_id,omitempty"`
+}
+
+func (b *CustomTextBlock) ForContext() bool {
+	return false
+}
+func (b *CustomTextBlock) GetType() BlockType {
+	return CustomTextBlockType
+}
+func NewCustomTextBlock(text string, textType TextType) *CustomTextBlock {
+	return &CustomTextBlock{
+		BaseBlock: BaseBlock{Type: CustomTextBlockType},
+		Text:      text,
+		TextType:  textType,
+	}
+}
 
 type TextBlock struct {
 	BaseBlock
-	Text      string    `json:"text"`
-	Type      BlockType `json:"type"`
-	TextType  TextType  `json:"text_type"`
-	ToolUseId string    `json:"tool_use_id,omitempty"`
+	Text      string   `json:"text"`
+	TextType  TextType `json:"text_type"`
+	ToolUseId string   `json:"tool_use_id,omitempty"`
 }
 
 func (b *TextBlock) ForContext() bool {
@@ -150,33 +183,33 @@ func (b *TextBlock) ParseStream(stream *value.Stream) {
 }
 func NewTextBlock() *TextBlock {
 	return &TextBlock{
-		Type: TextBlockType,
+		BaseBlock: BaseBlock{Type: TextBlockType},
 	}
 }
 
 func NewToolResultTextBlock(toolUseId string) *TextBlock {
 	return &TextBlock{
+		BaseBlock: BaseBlock{Type: TextBlockType},
 		ToolUseId: toolUseId,
-		Type:      TextBlockType,
 	}
 }
 
 func NewErrorTextBlock() *TextBlock {
 	return &TextBlock{
-		Type:     TextBlockType,
-		TextType: ErrorTextType,
+		BaseBlock: BaseBlock{Type: TextBlockType},
+		TextType:  ErrorTextType,
 	}
 }
 func NewErrorFullTextBlock(text string) *TextBlock {
 	return &TextBlock{
-		Type:     TextBlockType,
-		TextType: ErrorTextType,
-		Text:     text,
+		BaseBlock: BaseBlock{Type: TextBlockType},
+		TextType:  ErrorTextType,
+		Text:      text,
 	}
 }
 func NewToolsErrorFullTextBlock(toolUseId string, text string) *TextBlock {
 	return &TextBlock{
-		Type:      TextBlockType,
+		BaseBlock: BaseBlock{Type: TextBlockType},
 		TextType:  ErrorTextType,
 		Text:      text,
 		ToolUseId: toolUseId,
@@ -184,22 +217,21 @@ func NewToolsErrorFullTextBlock(toolUseId string, text string) *TextBlock {
 }
 func NewFullTextBlock(text string) *TextBlock {
 	return &TextBlock{
-		Type: TextBlockType,
-		Text: text,
+		BaseBlock: BaseBlock{Type: TextBlockType},
+		Text:      text,
 	}
 }
 func NewFullTextTypeBlock(text string, textType TextType) *TextBlock {
 	return &TextBlock{
-		Type:     TextBlockType,
-		Text:     text,
-		TextType: textType,
+		BaseBlock: BaseBlock{Type: TextBlockType},
+		Text:      text,
+		TextType:  textType,
 	}
 }
 
 type MessageStartBlock struct {
 	BaseBlock
 	Usage *Usage
-	Type  BlockType `json:"type"`
 }
 
 func (b *MessageStartBlock) ForContext() bool {
@@ -207,15 +239,14 @@ func (b *MessageStartBlock) ForContext() bool {
 }
 func NewMessageStartBlock(usage *Usage) *MessageStartBlock {
 	return &MessageStartBlock{
-		Usage: usage,
-		Type:  MessageStartBlockType,
+		BaseBlock: BaseBlock{Type: MessageStartBlockType},
+		Usage:     usage,
 	}
 }
 
 type MessageDeltaBlock struct {
 	BaseBlock
 	Usage *Usage
-	Type  BlockType `json:"type"`
 }
 
 func (b *MessageDeltaBlock) ForContext() bool {
@@ -223,15 +254,14 @@ func (b *MessageDeltaBlock) ForContext() bool {
 }
 func NewMessageDeltaBlock(usage *Usage) *MessageDeltaBlock {
 	return &MessageDeltaBlock{
-		Usage: usage,
-		Type:  MessageDeltaBlockType,
+		BaseBlock: BaseBlock{Type: MessageDeltaBlockType},
+		Usage:     usage,
 	}
 }
 
 type ThinkingBlock struct {
 	BaseBlock
-	Thinking string    `json:"thinking,omitempty"`
-	Type     BlockType `json:"type"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 func (b *ThinkingBlock) ForContext() bool {
@@ -242,7 +272,7 @@ func (b *ThinkingBlock) ParseStream(stream *value.Stream) {
 }
 func NewThinkingBlock() *ThinkingBlock {
 	return &ThinkingBlock{
-		Type: ThinkingBlockType,
+		BaseBlock: BaseBlock{Type: ThinkingBlockType},
 	}
 }
 
@@ -255,7 +285,6 @@ type ImageSource struct {
 type ImageBlock struct {
 	BaseBlock
 	Source *ImageSource `json:"source,omitempty"`
-	Type   BlockType    `json:"type"`
 }
 
 func (b *ImageBlock) ForContext() bool {
@@ -267,7 +296,6 @@ type ToolUseBlock struct {
 	ID    string        `json:"id"`
 	Name  string        `json:"name"`
 	Input *value.Object `json:"input,omitempty"`
-	Type  BlockType     `json:"type"`
 }
 
 func (b *ToolUseBlock) ForContext() bool {
@@ -283,8 +311,8 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 		ID    string          `json:"id"`
 		Name  string          `json:"name"`
 		Input json.RawMessage `json:"input"`
-		Type  BlockType       `json:"type"`
 		Start uint64          `json:"start"`
+		Type  BlockType       `json:"type"`
 	}
 	var a toolUseAlias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -292,8 +320,8 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 	}
 	b.ID = a.ID
 	b.Name = a.Name
-	b.Type = a.Type
-	b.Start = a.Start
+	b.BaseBlock.Start = a.Start
+	b.BaseBlock.Type = a.Type
 	if len(a.Input) > 0 {
 		obj, err := value.NewObjectFromJson(a.Input)
 		if err != nil {
@@ -305,18 +333,17 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 }
 func NewToolUseBlock(id string, name string) *ToolUseBlock {
 	return &ToolUseBlock{
-		ID:   id,
-		Name: name,
-		Type: ToolUseBlockType,
+		BaseBlock: BaseBlock{Type: ToolUseBlockType},
+		ID:        id,
+		Name:      name,
 	}
 }
 
 type ToolExecutionBlock struct {
 	BaseBlock
-	ToolName string    `json:"tool_name"`
-	Args     string    `json:"args"`
-	Output   string    `json:"output"`
-	Type     BlockType `json:"type"`
+	ToolName string `json:"tool_name"`
+	Args     string `json:"args"`
+	Output   string `json:"output"`
 }
 
 func (b *ToolExecutionBlock) ForContext() bool {
@@ -324,18 +351,17 @@ func (b *ToolExecutionBlock) ForContext() bool {
 }
 func NewToolExecutionBlock(toolName string, args string, Output string) *ToolExecutionBlock {
 	return &ToolExecutionBlock{
-		ToolName: toolName,
-		Args:     args,
-		Output:   Output,
-		Type:     ToolExecutionBlockType,
+		BaseBlock: BaseBlock{Type: ToolExecutionBlockType},
+		ToolName:  toolName,
+		Args:      args,
+		Output:    Output,
 	}
 }
 
 type ToolResultBlock struct {
 	BaseBlock
-	ToolUseID string    `json:"tool_use_id"`
-	Content   Blocks    `json:"content,omitempty"` // string 或 []Block
-	Type      BlockType `json:"type"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   Blocks `json:"content,omitempty"` // string 或 []Block
 }
 
 func (b *ToolResultBlock) ForContext() bool {
@@ -343,9 +369,9 @@ func (b *ToolResultBlock) ForContext() bool {
 }
 func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
 	b := &ToolResultBlock{
+		BaseBlock: BaseBlock{Type: ToolResultBlockType},
 		ToolUseID: id,
 		Content:   content,
-		Type:      ToolResultBlockType,
 	}
 	// 取 content 里 block 的最小 start（>0）作为 ToolResultBlock 的 start，
 	// 供 relay 按 block 粒度去重。
@@ -359,7 +385,6 @@ func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
 
 type StartBlock struct {
 	BaseBlock
-	Type  BlockType     `json:"type"`
 	Block UseDeltaBlock `json:"block"`
 }
 
@@ -369,15 +394,14 @@ func (b *StartBlock) ForContext() bool {
 
 func NewStartBlock(block UseDeltaBlock) *StartBlock {
 	return &StartBlock{
-		Type:  StartBlockType,
-		Block: block,
+		BaseBlock: BaseBlock{Type: StartBlockType},
+		Block:     block,
 	}
 }
 
 type DeltaBlock struct {
 	BaseBlock
-	Type    BlockType `json:"type"`
-	Content string    `json:"content"`
+	Content string `json:"content"`
 }
 
 func (b *DeltaBlock) ForContext() bool {
@@ -385,26 +409,25 @@ func (b *DeltaBlock) ForContext() bool {
 }
 func NewDeltaBlock(content string) *DeltaBlock {
 	return &DeltaBlock{
-		Type:    DeltaBlockType,
-		Content: content,
+		BaseBlock: BaseBlock{Type: DeltaBlockType},
+		Content:   content,
 	}
 }
 
 type DoneBlock struct {
 	BaseBlock
-	Type  BlockType `json:"type"`
-	Usage *Usage    `json:"usage,omitempty"`
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 func NewDoneBlock() *DoneBlock {
 	return &DoneBlock{
-		Type: DoneBlockType,
+		BaseBlock: BaseBlock{Type: DoneBlockType},
 	}
 }
 func NewDoneBlockWithUsage(usage *Usage) *DoneBlock {
 	return &DoneBlock{
-		Type:  DoneBlockType,
-		Usage: usage,
+		BaseBlock: BaseBlock{Type: DoneBlockType},
+		Usage:     usage,
 	}
 }
 func (b *DoneBlock) ForContext() bool {
@@ -422,7 +445,6 @@ const (
 type UserBlock struct {
 	BaseBlock
 	ID            uint64        `json:"id,omitempty"` // 用户消息稳定 ID：sent/queued/consume 同一条消息共享
-	Type          BlockType     `json:"type"`
 	BlockUserType BlockUserType `json:"block_user_type"`
 	Content       Blocks        `json:"content,omitempty"` // string 或 []Block
 }
@@ -435,8 +457,8 @@ func NewUserTextBlock(id uint64, text string, blockUserType BlockUserType) *User
 }
 func NewUserBlock(id uint64, blocks Blocks, blockUserType BlockUserType) *UserBlock {
 	return &UserBlock{
+		BaseBlock:     BaseBlock{Type: UserBlockType},
 		ID:            id,
-		Type:          UserBlockType,
 		BlockUserType: blockUserType,
 		Content:       blocks,
 	}

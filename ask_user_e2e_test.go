@@ -38,8 +38,8 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w
 	return nil
 }
 
-// findAskUserBlock 在事件列表中查找 AskUserBlock（可能嵌套在 ToolResultBlock.Content 内）。
-func findAskUserBlock(events []*agent.Event) *tools.AskUserBlock {
+// findAskUserBlock 在事件列表中查找 ask_user 的 CustomTextBlock（可能嵌套在 ToolResultBlock.Content 内）。
+func findAskUserBlock(events []*agent.Event) *chat.CustomTextBlock {
 	for _, e := range events {
 		if ab := findInBlocks(e.Blocks); ab != nil {
 			return ab
@@ -48,10 +48,10 @@ func findAskUserBlock(events []*agent.Event) *tools.AskUserBlock {
 	return nil
 }
 
-func findInBlocks(blocks chat.Blocks) *tools.AskUserBlock {
+func findInBlocks(blocks chat.Blocks) *chat.CustomTextBlock {
 	for _, b := range blocks {
-		if ab, ok := b.(*tools.AskUserBlock); ok {
-			return ab
+		if cb, ok := b.(*chat.CustomTextBlock); ok && cb.TextType == chat.AskUserTextType {
+			return cb
 		}
 		if trb, ok := b.(*chat.ToolResultBlock); ok {
 			if ab := findInBlocks(trb.Content); ab != nil {
@@ -84,11 +84,11 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	// ask_user block 已推送，text 为问题列表 JSON
 	askBlock := findAskUserBlock(events)
 	if askBlock == nil {
-		t.Fatal("未收到 AskUserBlock")
+		t.Fatal("未收到 ask_user CustomTextBlock")
 	}
 	var questions []tools.Question
 	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
-		t.Fatalf("AskUserBlock text 不是问题列表 JSON: %v", err)
+		t.Fatalf("ask_user block text 不是问题列表 JSON: %v", err)
 	}
 	if len(questions) != 1 || questions[0].Question != "What color?" {
 		t.Fatalf("问题内容不符: %+v", questions)

@@ -17,6 +17,8 @@ type LoopContext interface {
 	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
 	GetService(provider string) chat.Service
+	AppendMainAssistantMessage(blocks *chat.BlockGroup)
+	AppendMainUserMessage(blocks *chat.BlockGroup)
 }
 
 type Loop struct {

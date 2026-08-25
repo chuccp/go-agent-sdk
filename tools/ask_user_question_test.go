@@ -271,13 +271,16 @@ func TestExecute_NonBlocking(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("expected ask_user event")
 	}
-	askBlock, ok := events[len(events)-1].Blocks[0].(*AskUserBlock)
+	askBlock, ok := events[len(events)-1].Blocks[0].(*chat.CustomTextBlock)
 	if !ok {
-		t.Fatalf("expected AskUserBlock, got %T", events[len(events)-1].Blocks[0])
+		t.Fatalf("expected CustomTextBlock, got %T", events[len(events)-1].Blocks[0])
+	}
+	if askBlock.TextType != chat.AskUserTextType {
+		t.Errorf("expected TextType=ask_user, got %q", askBlock.TextType)
 	}
 	var questions []Question
 	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
-		t.Fatalf("AskUserBlock text is not question list JSON: %v", err)
+		t.Fatalf("CustomTextBlock text is not question list JSON: %v", err)
 	}
 	if len(questions) != 1 || questions[0].Question != "What color?" {
 		t.Errorf("unexpected questions in block: %+v", questions)
@@ -306,4 +309,52 @@ func TestAskUserQuestion_Definition(t *testing.T) {
 
 func TestAskUserQuestion_ImplementsToolExecutor(t *testing.T) {
 	var _ agent.ToolExecutor = NewAskUserQuestionTool()
+}
+
+// ── CustomTextBlock(ask_user) 序列化与 SetStart 安全 ──
+
+// TestAskUserBlock_SetStartNoPanic 验证 CustomTextBlock 嵌入 BaseBlock 后，
+// BlockStream 写入时调用 SetStart 不再因内嵌接口为 nil 而 panic。
+func TestAskUserBlock_SetStartNoPanic(t *testing.T) {
+	b := chat.NewCustomTextBlock(`[{"question":"What?"}]`, chat.AskUserTextType)
+	b.SetStart(42)
+	if b.GetStart() != 42 {
+		t.Fatalf("GetStart = %d, want 42", b.GetStart())
+	}
+	if b.ForContext() {
+		t.Error("CustomTextBlock.ForContext() should be false (not fed into LLM context)")
+	}
+}
+
+// TestAskUserBlock_RoundTrip 验证 ask_user 自定义文本块随历史持久化无损往返，
+// 且往返后仍是 CustomTextBlock（不再是降级为纯文本块）。
+func TestAskUserBlock_RoundTrip(t *testing.T) {
+	orig := chat.Blocks{chat.NewCustomTextBlock(`[{"question":"What color?"}]`, chat.AskUserTextType)}
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var raw []map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw[0]["type"] != "custom_text" || raw[0]["text_type"] != "ask_user" {
+		t.Fatalf("serialized type/text_type mismatch: %v", raw[0])
+	}
+
+	var got chat.Blocks
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	b, ok := got[0].(*chat.CustomTextBlock)
+	if !ok {
+		t.Fatalf("round-trip type = %T, want *chat.CustomTextBlock", got[0])
+	}
+	if b.Text != `[{"question":"What color?"}]` || b.TextType != chat.AskUserTextType {
+		t.Errorf("round-trip mismatch: %+v", b)
+	}
+	if b.ForContext() {
+		t.Error("CustomTextBlock.ForContext() should remain false after round-trip")
+	}
 }

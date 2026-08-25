@@ -294,9 +294,19 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
       case 'error':
         event = { kind: 'error', message: (block.text as string) || (block.message as string) || 'Unknown error' }
         break
+      case 'custom_text':
+        // CustomTextBlock：按 text_type 路由语义。ask_user = 提问卡片（非流事件）
+        if (block.text_type === 'ask_user') {
+          console.log('[bridge] ask_user (custom_text) block received')
+          if (askUserHandler && block.text) askUserHandler(block.text as string)
+          return
+        }
+        // 其他自定义文本（resource_card / plan_card 等）由业务自行处理
+        console.log('[streamHandler] custom_text block:', block.text_type)
+        return
       case 'ask_user':
-        // ask_user 块：LLM 向用户提问，路由给 UI 渲染问题卡片（非流事件）
-        console.log('[bridge] ask_user block received')
+        // 兼容旧格式：ask_user 块（已迁移到 custom_text + text_type=ask_user）
+        console.log('[bridge] legacy ask_user block received')
         if (askUserHandler && block.text) askUserHandler(block.text as string)
         return
       case 'message_start':
