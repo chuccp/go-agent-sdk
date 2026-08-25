@@ -366,14 +366,49 @@ func (l *Loop) roundStopped() bool {
 	}
 }
 
+// blocksForContext 过滤出可进入 LLM 上下文的块。
+//
+// ToolResultBlock 本身 ForContext()==true，但它的 Content 里可能嵌着
+// ForContext()==false 的子块（如 CustomTextBlock 承载的资源卡片 JSON）。
+// 只判顶层会把这些子块原样带进请求体，既浪费 token，也会因为
+// Anthropic 的 tool_result.content 只接受 text/image 而报 400。
+// 所以这里对 ToolResultBlock 下钻一层，按子块的 ForContext() 再过滤一次。
 func (l *Loop) blocksForContext(blocks chat.Blocks) chat.Blocks {
 	result := make(chat.Blocks, 0, len(blocks))
 	for _, b := range blocks {
+		if tr, ok := b.(*chat.ToolResultBlock); ok {
+			result = append(result, l.toolResultForContext(tr))
+			continue
+		}
 		if b.ForContext() {
 			result = append(result, b)
 		}
 	}
 	return result
+}
+
+// toolResultForContext 返回 tr 的浅拷贝，Content 只保留 ForContext()==true 的子块。
+//
+// 必须拷贝而非原地修改：history 里存的是同一批指针，原地改会同时毁掉
+// 落库内容和断线重连时的回放数据（前端靠回放里的 CustomTextBlock 重建卡片）。
+func (l *Loop) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultBlock {
+	kept := make(chat.Blocks, 0, len(tr.Content))
+	for _, c := range tr.Content {
+		if c.ForContext() {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == len(tr.Content) {
+		return tr // 没有需要剔除的子块，避免无谓拷贝
+	}
+	// 全被剔除时补一句占位：Anthropic 要求每个 tool_use 都有配对且非空的
+	// tool_result，留空会导致整条消息被 buildRequest 跳过、进而 400。
+	if len(kept) == 0 {
+		kept = append(kept, chat.NewFullTextBlock("(结果已输出到前端)"))
+	}
+	cp := *tr
+	cp.Content = kept
+	return &cp
 }
 
 func (l *Loop) UpdateOptions(Option ...chat.Option) {
