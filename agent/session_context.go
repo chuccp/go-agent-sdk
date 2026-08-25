@@ -10,25 +10,16 @@ import (
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
 	LoopContext
-	sessionId  string
-	registry   *chat.ProviderRegistry
+	sessionId     string
+	registry      *chat.ProviderRegistry
 	toolExecutors []ToolExecutor
-	transfer   *Transfer
-	opts       *chat.Options
-	compressor *CompressorManager
-	seq        uint64
+	transfer      *Transfer
+	opts          *chat.Options
+	seq           uint64
 }
 
 // SessionId 返回会话 ID。
 func (c *SessionContext) SessionId() string { return c.sessionId }
-
-// GetCompressorStore 返回压缩器持久化实现。压缩器通过此方法获取存储能力。
-func (c *SessionContext) GetCompressorStore() CompressorStore {
-	if c.compressor == nil {
-		return nil
-	}
-	return c.compressor.GetStore()
-}
 
 func (c *SessionContext) GetSeq() uint64 {
 	return atomic.AddUint64(&c.seq, 1)

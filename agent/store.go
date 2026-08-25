@@ -19,11 +19,13 @@ type HistoryStore interface {
 }
 
 type Store struct {
-	history      *util.SliceArray[*chat.Message]
-	tempHistory  *util.SliceArray[*chat.Message]
-	lock         sync.RWMutex
-	historyStore HistoryStore
-	sessionId    string
+	history           *util.SliceArray[*chat.Message]
+	tempHistory       *util.SliceArray[*chat.Message]
+	useHistory        *util.SliceArray[*chat.Message]
+	lock              sync.RWMutex
+	historyStore      HistoryStore
+	compressorManager *CompressorManager
+	sessionId         string
 }
 
 func (s *Store) IsEmpty() bool {
@@ -96,11 +98,12 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	s.tempHistory.Append(c)
 
 }
-func NewStore(sessionId string, historyStore HistoryStore) *Store {
+func NewStore(sessionId string, compressor Compressor, historyStore HistoryStore) *Store {
 	return &Store{
-		sessionId:    sessionId,
-		historyStore: historyStore,
-		history:      new(util.SliceArray[*chat.Message]),
-		tempHistory:  new(util.SliceArray[*chat.Message]),
+		sessionId:         sessionId,
+		historyStore:      historyStore,
+		compressorManager: NewCompressorManager(compressor),
+		history:           new(util.SliceArray[*chat.Message]),
+		tempHistory:       new(util.SliceArray[*chat.Message]),
 	}
 }

@@ -15,7 +15,7 @@ type Agent struct {
 	system        string
 	opts          *chat.Options
 	historyStore  HistoryStore
-	compressor    *CompressorManager
+	compressor    Compressor
 }
 
 func NewAgent() *Agent {
@@ -56,10 +56,10 @@ func (m *Agent) SetHistoryStore(store HistoryStore) {
 // SetCompressor 设置上下文压缩策略和持久化实现。
 // 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
 // store 可为 nil（无持久化，重启丢失压缩状态）。
-func (m *Agent) SetCompressor(c Compressor, store CompressorStore) {
+func (m *Agent) SetCompressor(c Compressor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.compressor = NewCompressorManager(c, store)
+	m.compressor = c
 }
 
 func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
@@ -77,13 +77,12 @@ func (m *Agent) getOrCreateSession(id string) *Session {
 	tools := make([]ToolExecutor, len(m.toolExecutors))
 	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
-		sessionId:  id,
-		seq:        0,
-		transfer:   NewTransfer(id, m.historyStore),
-		registry:   m.registry,
+		sessionId:     id,
+		seq:           0,
+		transfer:      NewTransfer(id, m.compressor, m.historyStore),
+		registry:      m.registry,
 		toolExecutors: tools,
-		opts:       m.opts,
-		compressor: m.compressor,
+		opts:          m.opts,
 	}
 	session := newSession(sessionContext, func(sessionsId string) {
 		m.RemoveSession(sessionsId)

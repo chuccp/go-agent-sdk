@@ -32,9 +32,6 @@ func newSession(sessionContext *SessionContext, removeSession func(sessionsId st
 	loopBuilder := NewLoopBuilder(ctx, sessionContext, 0, sessionContext.GetStore())
 	loopBuilder.ToolExecutor(sessionContext.toolExecutors...)
 	loopBuilder.Provider(sessionContext.registry.DefaultProvider())
-	if sessionContext.compressor != nil {
-		loopBuilder.Compressor(sessionContext.compressor)
-	}
 	loopBuilder.Done(func() {
 		sessionContext.Reset()
 	})

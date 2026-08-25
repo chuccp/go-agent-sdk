@@ -17,7 +17,6 @@ type LoopContext interface {
 	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
 	GetService(provider string) chat.Service
-	GetCompressorStore() CompressorStore
 }
 
 type Loop struct {
@@ -164,9 +163,6 @@ func (l *Loop) buildRequest() *chat.Request {
 	}
 	for i := len(history) - 1; i >= 0; i-- {
 		m := history[i]
-		if m.IsCompressor {
-			continue
-		}
 		msg := *m
 		msg.Content = l.blocksForContext(m.Content)
 		if len(msg.Content) == 0 {

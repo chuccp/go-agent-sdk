@@ -34,11 +34,11 @@ type Transfer struct {
 	messageStore *Store
 }
 
-func NewTransfer(sessionId string, historyStore HistoryStore) *Transfer {
+func NewTransfer(sessionId string, compressor Compressor, historyStore HistoryStore) *Transfer {
 	return &Transfer{
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
-		messageStore: NewStore(sessionId, historyStore),
+		messageStore: NewStore(sessionId, compressor, historyStore),
 	}
 
 }
