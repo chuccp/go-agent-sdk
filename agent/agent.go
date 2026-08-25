@@ -129,5 +129,8 @@ func (m *Agent) SessionContext(id string) *SessionContext {
 func (m *Agent) RemoveSession(sessionsId string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.sessions.Remove(sessionsId)
+	s, ok := m.sessions.Get(sessionsId)
+	if ok {
+		s.Destroy()
+	}
 }

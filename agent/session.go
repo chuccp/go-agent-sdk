@@ -20,10 +20,6 @@ func (s *Sessions) Add(session *Session) {
 func (s *Sessions) Remove(sessionId string) {
 	s.Lock()
 	defer s.Unlock()
-	ss, ok := s.sessions[sessionId]
-	if ok {
-		ss.Stop()
-	}
 	delete(s.sessions, sessionId)
 }
 func (s *Sessions) Get(sessionId string) (*Session, bool) {
@@ -92,6 +88,6 @@ func (s *Session) Stop() {
 
 // Destroy 停止当前轮次（只对单轮生效），后续用户消息不受影响。
 func (s *Session) Destroy() {
-	s.cancel()
 	s.sessions.Remove(s.sessionContext.sessionId)
+	s.cancel()
 }
