@@ -167,6 +167,14 @@ func NewCustomTextBlock(text string, textType TextType) *CustomTextBlock {
 		TextType:  textType,
 	}
 }
+func NewCustomTextBlockWithTool(toolUseId string, text string, textType TextType) *CustomTextBlock {
+	return &CustomTextBlock{
+		BaseBlock: BaseBlock{Type: CustomTextBlockType},
+		Text:      text,
+		TextType:  textType,
+		ToolUseId: toolUseId,
+	}
+}
 
 type TextBlock struct {
 	BaseBlock
