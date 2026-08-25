@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"sync/atomic"
-
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
@@ -15,15 +13,22 @@ type SessionContext struct {
 	toolExecutors []ToolExecutor
 	transfer      *Transfer
 	opts          *chat.Options
-	seq           uint64
+}
+
+func (c *SessionContext) GetToolExecutor() []ToolExecutor {
+	return c.toolExecutors
+}
+
+func (c *SessionContext) GetOptions() *chat.Options {
+	return c.opts
+}
+
+func (c *SessionContext) DefaultProvider() string {
+	return c.registry.DefaultProvider()
 }
 
 // SessionId 返回会话 ID。
 func (c *SessionContext) SessionId() string { return c.sessionId }
-
-func (c *SessionContext) GetSeq() uint64 {
-	return atomic.AddUint64(&c.seq, 1)
-}
 
 func (c *SessionContext) GetStore() *Store {
 	return c.transfer.GetStore()

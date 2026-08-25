@@ -8,7 +8,7 @@ import (
 
 // Agent agent管理器
 type Agent struct {
-	sessions      map[string]*Session
+	sessions      *Sessions
 	lock          *sync.RWMutex
 	registry      *chat.ProviderRegistry
 	toolExecutors []ToolExecutor
@@ -20,7 +20,7 @@ type Agent struct {
 
 func NewAgent() *Agent {
 	return &Agent{
-		sessions:      make(map[string]*Session),
+		sessions:      NewSessions(),
 		lock:          new(sync.RWMutex),
 		registry:      chat.NewProviderRegistry(),
 		toolExecutors: make([]ToolExecutor, 0),
@@ -70,7 +70,9 @@ func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefaul
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
 func (m *Agent) getOrCreateSession(id string) *Session {
-	if c, ok := m.sessions[id]; ok {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if c, ok := m.sessions.Get(id); ok {
 		return c
 	}
 	// copy toolExecutors 快照，避免 Session 运行期间 AddTool 引发 data race
@@ -78,16 +80,12 @@ func (m *Agent) getOrCreateSession(id string) *Session {
 	copy(tools, m.toolExecutors)
 	sessionContext := &SessionContext{
 		sessionId:     id,
-		seq:           0,
-		transfer:      NewTransfer(id, m.compressor, m.historyStore),
 		registry:      m.registry,
 		toolExecutors: tools,
 		opts:          m.opts,
 	}
-	session := newSession(sessionContext, func(sessionsId string) {
-		m.RemoveSession(sessionsId)
-	})
-	m.sessions[id] = session
+	session := newSession(sessionContext, m.historyStore, m.compressor, m.sessions)
+	m.sessions.Add(session)
 	return session
 }
 
@@ -114,7 +112,7 @@ func (m *Agent) GetClient(id string, start uint64) (*Client, error) {
 func (m *Agent) GetSession(sessionId string) (*Session, bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	s, ok := m.sessions[sessionId]
+	s, ok := m.sessions.Get(sessionId)
 	return s, ok
 }
 
@@ -131,8 +129,5 @@ func (m *Agent) SessionContext(id string) *SessionContext {
 func (m *Agent) RemoveSession(sessionsId string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	if session, ok := m.sessions[sessionsId]; ok {
-		session.Stop()
-		delete(m.sessions, sessionsId)
-	}
+	m.sessions.Remove(sessionsId)
 }

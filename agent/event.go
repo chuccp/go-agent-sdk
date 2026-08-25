@@ -34,11 +34,11 @@ type Transfer struct {
 	messageStore *Store
 }
 
-func NewTransfer(sessionId string, compressor Compressor, historyStore HistoryStore) *Transfer {
+func NewTransfer(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Transfer {
 	return &Transfer{
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
-		messageStore: NewStore(sessionId, compressor, historyStore),
+		messageStore: NewStore(loopContext, compressor, historyStore),
 	}
 
 }
@@ -63,15 +63,6 @@ func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.flush()
 	return event.Start
 }
-
-func reverseNew(s []*Event) []*Event {
-	res := make([]*Event, 0, len(s))
-	for i := len(s) - 1; i >= 0; i-- {
-		res = append(res, s[i])
-	}
-	return res
-}
-
 func (l *Transfer) readEvents(cl *Client) []*Event {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -82,7 +73,8 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	// events 按 Start 降序排列，第一个元素是最新事件。
 	lastEvent := events[0]
 	cl.start = lastEvent.Start + lastEvent.Offset
-	return reverseNew(events)
+	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
+	return events
 }
 
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。

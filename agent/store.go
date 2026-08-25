@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sort"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -25,7 +26,7 @@ type Store struct {
 	lock              sync.RWMutex
 	historyStore      HistoryStore
 	compressorManager *CompressorManager
-	sessionId         string
+	loopContext       LoopContext
 }
 
 func (s *Store) IsEmpty() bool {
@@ -62,10 +63,12 @@ func (s *Store) loadHistory() error {
 		return nil
 	}
 	if s.history.IsEmpty() {
-		messages, err := s.historyStore.LoadHistory(s.sessionId)
+		messages, err := s.historyStore.LoadHistory(s.loopContext.SessionId())
 		if err != nil {
 			return err
 		}
+		sort.Slice(messages, func(i, j int) bool { return messages[i].Start < messages[j].Start })
+
 		s.append(messages...)
 	}
 	return nil
@@ -83,7 +86,7 @@ func (s *Store) Save() error {
 				s.history.Append(m)
 			}
 			s.tempHistory.Reset()
-			err := s.historyStore.AppendMessages(s.sessionId, megs)
+			err := s.historyStore.AppendMessages(s.loopContext.SessionId(), megs)
 			if err != nil {
 				return err
 			}
@@ -98,9 +101,9 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	s.tempHistory.Append(c)
 
 }
-func NewStore(sessionId string, compressor Compressor, historyStore HistoryStore) *Store {
+func NewStore(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Store {
 	return &Store{
-		sessionId:         sessionId,
+		loopContext:       loopContext,
 		historyStore:      historyStore,
 		compressorManager: NewCompressorManager(compressor),
 		history:           new(util.SliceArray[*chat.Message]),
