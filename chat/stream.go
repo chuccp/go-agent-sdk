@@ -299,7 +299,10 @@ func (s *ToolResultBlockStream) FullTextType(content string, textType TextType) 
 	block.TextType = textType
 	s.blockStream.Block(block)
 }
-
+func (s *ToolResultBlockStream) FullCustomTextType(content string, textType TextType) {
+	block := NewCustomTextBlockWithTool(s.ToolUseId, content, textType)
+	s.blockStream.Block(block)
+}
 func (s *ToolResultBlockStream) StopReason(wait StopReason) {
 	s.blockStream.StopReason(wait)
 }

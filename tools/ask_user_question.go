@@ -131,15 +131,15 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultB
 	}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
-	//    经 writer.Block() 写入 BlockStream，CustomTextBlock(TextType=ask_user) 随
-	//    ToolResultBlock 进入会话历史；前端通过扫描 ToolResultBlock.Content 中的
+	//    经 writer.FullCustomTextType() 写入 BlockStream，CustomTextBlock(TextType=ask_user)
+	//    随 ToolResultBlock 进入会话历史；前端通过扫描 ToolResultBlock.Content 中的
 	//    CustomTextBlock 且 TextType=="ask_user" 识别提问事件。
 	questionsJSON, err := json.Marshal(questions)
 	if err != nil {
 		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
 		return
 	}
-	writer.Block(chat.NewCustomTextBlock(string(questionsJSON), chat.AskUserTextType))
+	writer.FullCustomTextType(string(questionsJSON), chat.AskUserTextType)
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮
