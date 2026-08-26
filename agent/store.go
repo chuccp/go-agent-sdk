@@ -19,6 +19,32 @@ type HistoryStore interface {
 	AppendMessages(sessionID string, messages []*chat.Message) error
 }
 
+type splitManifest struct {
+	starts *util.SliceArray[uint64]
+}
+
+func (d *splitManifest) addSplit(lastStart uint64) {
+	d.starts.Append(lastStart)
+}
+
+func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
+
+	returnStart := uint64(0)
+	for {
+		if d.starts.IsEmpty() {
+			return returnStart, returnStart > 0
+		}
+		minStart := d.starts.Get(0)
+		for _, client := range clients {
+			if client.start < minStart {
+				return returnStart, returnStart > 0
+			}
+		}
+		d.starts.Delete(0)
+		returnStart = minStart
+	}
+}
+
 type Store struct {
 	history           *util.SliceArray[*chat.Message]
 	tempHistory       *util.SliceArray[*chat.Message]
@@ -27,6 +53,7 @@ type Store struct {
 	historyStore      HistoryStore
 	compressorManager *CompressorManager
 	loopContext       LoopContext
+	doneManifest      *splitManifest
 }
 
 func (s *Store) IsEmpty() bool {
@@ -73,8 +100,13 @@ func (s *Store) loadHistory() error {
 	}
 	return nil
 }
+func (s *Store) RecordStart(minStart uint64) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	s.doneManifest.addSplit(minStart)
+}
 
-func (s *Store) Save(minStart uint64) error {
+func (s *Store) save(minStart uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.historyStore != nil {
@@ -105,6 +137,10 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	s.tempHistory.Append(c)
 
 }
+
+func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
+	return s.doneManifest.hasSplit(slice)
+}
 func NewStore(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Store {
 	return &Store{
 		loopContext:       loopContext,
@@ -112,5 +148,8 @@ func NewStore(loopContext LoopContext, compressor Compressor, historyStore Histo
 		compressorManager: NewCompressorManager(compressor),
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),
+		doneManifest: &splitManifest{
+			starts: new(util.SliceArray[uint64]),
+		},
 	}
 }
