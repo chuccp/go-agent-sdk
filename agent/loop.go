@@ -38,10 +38,7 @@ type Loop struct {
 	compressor Compressor
 	lContext   context.Context
 	lCancel    context.CancelFunc
-	//provider      string
-	seq       uint64
-	lastStart uint64
-	done      func(lastStart uint64)
+	seq        uint64
 }
 
 func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Store) *Loop {
@@ -58,9 +55,6 @@ func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Sto
 
 func (l *Loop) SendBlock(block chat.Block) uint64 {
 	start := l.loopContext.SendBlock(l.no, block)
-	if start > l.lastStart {
-		l.lastStart = start
-	}
 	return start
 }
 
@@ -81,9 +75,6 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 			defer l.runLock.Unlock()
 			l.do()
 			l.running = false
-			if l.done != nil {
-				l.done(l.lastStart)
-			}
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
 			l.SendBlock(evt)
@@ -230,7 +221,7 @@ LOOP:
 END:
 	//l.save()
 	if l.inbox.IsEmpty() {
-		l.SendBlock(chat.NewDoneBlock())
+		l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
 		return
 	}
 	goto LOOP

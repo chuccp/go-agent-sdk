@@ -19,20 +19,16 @@ const (
 	DefaultThinkingBudget = 10000
 )
 
-// Service 定义 Anthropic 聊天服务接口，嵌入通用的 chat.Service。
-type Service interface {
-	chat.Service
-}
-
 // serviceImpl 是 Service 的具体实现，封装 HTTP 客户端与配置。
 type serviceImpl struct {
+	chat.Service
 	config      *Config
 	restyClient *resty.Client
 }
 
 // NewService 根据给定配置创建一个 Anthropic 聊天服务实例。
 // 若 BaseURL 为空则默认使用 Anthropic 官方 API 地址。
-func NewService(config *Config) Service {
+func NewService(config *Config) chat.Service {
 	baseURL := config.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
@@ -41,6 +37,9 @@ func NewService(config *Config) Service {
 		config:      config,
 		restyClient: resty.New().SetBaseURL(baseURL),
 	}
+}
+func (s *serviceImpl) Options(config *chat.Config) {
+
 }
 
 // ChatWithStream 向 Anthropic Messages API 发送流式请求，

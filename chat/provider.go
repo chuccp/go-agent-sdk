@@ -5,10 +5,31 @@ import (
 	"sync"
 )
 
+type Config struct {
+	opts *Options
+}
+
+func (m *Config) Option(opt ...Option) {
+	for _, o := range opt {
+		o(m.opts)
+	}
+}
+
 // Service 是 LLM 提供方的流式对话接口。
 // 每个 provider（如 OpenAI、Anthropic）实现此接口。
 type Service interface {
 	ChatWithStream(ctx context.Context, chatMessages *Request, response *BlockStream) error
+	Options(config *Config)
+}
+
+type Chat struct {
+	providerRegistry *ProviderRegistry
+	provider         string
+}
+
+func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Request, response *BlockStream) error {
+
+	return nil
 }
 
 // ProviderRegistry 管理多个 LLM provider 的注册与路由。

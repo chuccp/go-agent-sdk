@@ -9,12 +9,12 @@ import (
 
 func newTestTransfer() *Transfer {
 	return &Transfer{
-		doneManifest: &doneManifest{starts: new(util.SliceArray[uint64])},
-		entries:      new(util.SliceArray[*Event]),
-		chatClients:  new(util.SliceArray[*Client]),
+		entries:     new(util.SliceArray[*Event]),
+		chatClients: new(util.SliceArray[*Client]),
 		messageStore: &Store{
-			history:     new(util.SliceArray[*chat.Message]),
-			tempHistory: new(util.SliceArray[*chat.Message]),
+			history:      new(util.SliceArray[*chat.Message]),
+			tempHistory:  new(util.SliceArray[*chat.Message]),
+			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 		},
 	}
 }

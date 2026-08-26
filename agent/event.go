@@ -25,47 +25,18 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	}
 }
 
-type doneManifest struct {
-	starts *util.SliceArray[uint64]
-}
-
-func (d *doneManifest) AddDone(lastStart uint64) {
-	d.starts.Append(lastStart)
-}
-
-func (d *doneManifest) IsDone(clients []*Client) (uint64, bool) {
-
-	returnStart := uint64(0)
-	for {
-		if d.starts.IsEmpty() {
-			return returnStart, returnStart > 0
-		}
-		minStart := d.starts.Get(0)
-		for _, client := range clients {
-			if client.start < minStart {
-				return returnStart, returnStart > 0
-			}
-		}
-		d.starts.Delete(0)
-		returnStart = minStart
-	}
-}
-
 type Transfer struct {
 	seq          uint64
 	mu           sync.RWMutex
+	resetLock    sync.RWMutex
 	entries      *util.SliceArray[*Event]
 	pending      uint64
 	chatClients  *util.SliceArray[*Client]
 	messageStore *Store
-	doneManifest *doneManifest
 }
 
 func NewTransfer(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Transfer {
 	return &Transfer{
-		doneManifest: &doneManifest{
-			starts: new(util.SliceArray[uint64]),
-		},
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
 		messageStore: NewStore(loopContext, compressor, historyStore),
@@ -107,10 +78,14 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	lastEvent := events[len(events)-1]
 
 	cl.start = lastEvent.Start + lastEvent.Offset
-	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
+
+	l.resetLock.Lock()
+	defer l.resetLock.Unlock()
+
+	lastStart, fa := l.messageStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
-		err := l.save(lastStart)
+		err := l.messageStore.save(lastStart)
 		if err != nil {
 			lastEvent.Blocks = append(lastEvent.Blocks, chat.NewErrorBlock(err.Error()))
 		}
@@ -129,9 +104,6 @@ func (l *Transfer) reset(minStart uint64) {
 			return
 		}
 	}
-}
-func (l *Transfer) save(minStart uint64) error {
-	return l.messageStore.Save(minStart)
 }
 
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
@@ -260,10 +232,12 @@ func (l *Transfer) flush() {
 }
 func (l *Transfer) deleteClient(client *Client) {
 	l.chatClients.Remove(client)
-	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
+	l.resetLock.Lock()
+	defer l.resetLock.Unlock()
+	lastStart, fa := l.messageStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
-		err := l.save(lastStart)
+		err := l.messageStore.save(lastStart)
 		if err != nil {
 			log.Printf("Error offering chat Session: %v", err)
 		}
@@ -271,11 +245,6 @@ func (l *Transfer) deleteClient(client *Client) {
 }
 func (l *Transfer) history() []*chat.Message {
 	return l.messageStore.History()
-}
-func (l *Transfer) Record(lastStart uint64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.doneManifest.AddDone(lastStart)
 }
 
 func (l *Transfer) minPosition() uint64 {
