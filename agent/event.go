@@ -92,14 +92,25 @@ func messageToEvent(m *chat.Message, start uint64) *Event {
 
 	// 按过滤后的 blocks 重新计算 Start/Offset：
 	// Start 取最小 start，Offset = 最大 start - 最小 start + 1。
+	// ToolResultBlock 等内容跨多个 start 的复合块，顶层 GetStart() 只返回内容里的最小
+	// start，若不下钻会漏掉末尾子块、把 Offset 算小（导致 cl.start 推进不足、消息被重复发送）。
 	var minStart, maxStart uint64
+	consider := func(s uint64) {
+		if s == 0 {
+			return
+		}
+		if minStart == 0 || s < minStart {
+			minStart = s
+		}
+		if s > maxStart {
+			maxStart = s
+		}
+	}
 	for _, b := range blocks {
-		if s := b.GetStart(); s != 0 {
-			if minStart == 0 || s < minStart {
-				minStart = s
-			}
-			if s > maxStart {
-				maxStart = s
+		consider(b.GetStart())
+		if tr, ok := b.(*chat.ToolResultBlock); ok {
+			for _, c := range tr.Content {
+				consider(c.GetStart())
 			}
 		}
 	}

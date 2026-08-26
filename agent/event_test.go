@@ -175,6 +175,58 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	}
 }
 
+// TestMessageToEvent_ToolResultBlockPreservesOffset 验证 ToolResultBlock 消息
+// 的 event 沿用 message 自身 Offset（2），不被重算缩成 1——否则 cl.start 推进不足、
+// 消息会被 relay 反复重发（前端看到 tool_result 重复输出）。
+func TestMessageToEvent_ToolResultBlockPreservesOffset(t *testing.T) {
+	tr := newTestTransfer()
+	customText := chat.NewCustomTextBlock(`[{"question":"Q"}]`, chat.AskUserTextType)
+	customText.SetStart(1622)
+	text := chat.NewFullTextBlock("已向用户提出问题")
+	text.SetStart(1623)
+	trb := chat.NewToolResultBlock("call_1", chat.Blocks{customText, text})
+
+	tr.messageStore.history.Append(&chat.Message{
+		Start: 1622, Offset: 2, Role: chat.RoleUser, Content: chat.Blocks{trb},
+	})
+
+	ev := messageToEvent(tr.messageStore.history.Get(0), 0)
+	if ev.Start != 1622 || ev.Offset != 2 {
+		t.Fatalf("messageToEvent = Start %d / Offset %d, want 1622 / 2（不应缩成 1）", ev.Start, ev.Offset)
+	}
+}
+
+// TestReadEvents_ToolResultBlockNotReEmitted 验证去重后 tool_result 消息只发一次：
+// entries 里的 standalone custom_text/text 被 history 覆盖，且 cl.start 正确推进到 1624，
+// 第二次 readEvents 不再重复返回该消息。
+func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
+	tr := newTestTransfer()
+	customText := chat.NewCustomTextBlock(`[{"question":"Q"}]`, chat.AskUserTextType)
+	customText.SetStart(1622)
+	text := chat.NewFullTextBlock("已向用户提出问题")
+	text.SetStart(1623)
+
+	tr.entries.Append(&Event{Start: 1622, Offset: 1, Blocks: chat.Blocks{customText}})
+	tr.entries.Append(&Event{Start: 1623, Offset: 1, Blocks: chat.Blocks{text}})
+
+	trb := chat.NewToolResultBlock("call_1", chat.Blocks{customText, text})
+	tr.messageStore.history.Append(&chat.Message{Start: 1622, Offset: 2, Role: chat.RoleUser, Content: chat.Blocks{trb}})
+
+	cl := &Client{start: 0, readEvents: tr}
+
+	events := tr.readEvents(cl)
+	if len(events) != 1 {
+		t.Fatalf("第一次 readEvents = %d 事件, want 1（entries 被去重，仅剩 tool_result 消息）", len(events))
+	}
+	if cl.start != 1624 {
+		t.Fatalf("cl.start = %d, want 1624（应推进到消息终点，否则会重复发送）", cl.start)
+	}
+
+	if second := tr.readEvents(cl); len(second) != 0 {
+		t.Fatalf("第二次 readEvents = %d 事件, want 0（tool_result 不应重复发送）", len(second))
+	}
+}
+
 // TestMessageDeltaSurvivesMergeAndDedup 模拟第一轮 message 持久化后，
 // readEvents + relay block 去重流程，验证 MessageDeltaBlock 不丢失。
 func TestMessageDeltaSurvivesMergeAndDedup(t *testing.T) {
