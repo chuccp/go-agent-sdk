@@ -4,14 +4,14 @@
 
 ## 核心特性
 
-- **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 Position 独立追踪读取进度，互不阻塞
+- **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 `start` 独立追踪读取进度，互不阻塞
 - **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
 - **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
 - **流式对话** — SSE 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
 - **多提供商** — Provider Registry 支持注册多个 LLM 后端，运行时选择
-- **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result
+- **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text
 
 ## 架构概览
 
@@ -22,18 +22,21 @@
 │  ├── ToolExecutors (工具注册)                                     │
 │  └── map[id] → session                                        │
 │                  └── SessionContext (状态中心)                    │
-│                       ├── inbox (消息队列, runLock 保护)            │
-│                       ├── messageProcessor (会话编排器)            │
-│                       │    ├── HandleRevMessage (入队+启动主循环)    │
+│                       ├── Loop (会话编排器, runLock 保护)         │
+│                       │    ├── inbox (消息队列)                 │
+│                       │    ├── HandleMessage (入队+启动主循环)    │
 │                       │    └── doLoop                         │
 │                       │    │    ├── executeRound (构建请求+LLM)   │
 │                       │    │    └── executeTools (tool_result)│
-│                       ├── Store                               │
+│                       ├── Transfer (事件中转层)                  │
 │                       │    ├── entries (活跃事件缓冲区)              │
-│                       │    ├── history0 + tempHistory          │
+│                       │    ├── seq (事件序号, 单调递增)               │
+│                       │    ├── doneManifest (消费进度追踪)           │
+│                       │    ├── resetLock (reset/save 串行锁)       │
+│                       │    └── chatClients (客户端订阅列表)          │
+│                       ├── Store                               │
+│                       │    ├── history + tempHistory           │
 │                       │    │   (全量消息: 已持久化 + 待保存)          │
-│                       │    ├── positions (客户端读取位置列表)          │
-│                       │    └── seq (事件序号, 单调递增)               │
 │                       └── Client[] (轻量订阅句柄)                   │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -42,8 +45,8 @@
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：Agent, SessionContext, Client, messageProcessor,
-│                   #   ToolExecutor, Turn, Store, HistoryStore, Position
+├── agent/          # Agent 层：Agent, SessionContext, Client, Loop,
+│                   #   Transfer, ToolExecutor, Turn, Store, HistoryStore
 ├── chat/           # 协议层：Block, Event, Message, Request, Service, Options
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
@@ -94,18 +97,22 @@ func main() {
 	// 6. 发送消息
 	client.WriteText("你好，帮我查看当前目录")
 
-	// 7. 读取事件流（Event.Block 按 type 字段多态分发）
+	// 7. 读取事件流（Event.Blocks 按 type 字段多态分发）
 	for {
-		event := client.ReadEvent()
-		if event == nil {
+		events := client.ReadEvents()
+		if events == nil {
 			break
 		}
-		switch b := event.Block.(type) {
-		case *chat.DeltaBlock:
-			fmt.Print(b.Content) // 流式增量
-		case *chat.DoneBlock:
-			fmt.Println()
-			return
+		for _, event := range events {
+			for _, b := range event.Blocks {
+				switch block := b.(type) {
+				case *chat.DeltaBlock:
+					fmt.Print(block.Content) // 流式增量
+				case *chat.DoneBlock:
+					fmt.Println()
+					return
+				}
+			}
 		}
 	}
 }
@@ -118,22 +125,33 @@ func main() {
 消息的 `Content` 是 `Blocks`（`[]Block` 接口数组），支持多态 JSON 序列化。每个具体块都带 `Type BlockType` 字段，反序列化时按 `type` 分发还原（`Blocks` 实现自定义 `UnmarshalJSON`），历史持久化加载后可无损往返。
 
 ```go
-type Block interface { ForContext() bool }  // 声明该块是否进入 LLM 上下文
+type Block interface {
+    ForContext() bool       // 声明该块是否进入 LLM 上下文
+    GetStart() uint64       // 该块在事件流中的序号（供 relay 按 block 粒度去重）
+    SetStart(uint64)
+    GetType() BlockType
+}
 
-// 具体类型（均带 Type BlockType 字段）
+// BaseBlock 是所有 Block 的公共基类，Start 记录事件序号，Type 记录块类型
+type BaseBlock struct {
+    Start uint64    `json:"start,omitempty"`
+    Type  BlockType `json:"type"`
+}
+
+// 具体类型（均嵌入 BaseBlock）
 TextBlock       { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / flow_progress
 ThinkingBlock   { Thinking string }
 ImageBlock      { Source *ImageSource }
 ToolUseBlock    { ID, Name string; Input *value.Object }
 ToolResultBlock { ToolUseID string; Content Blocks }
-UsageBlock      { Usage *Usage }                    // token 用量元数据（不进上下文、不发前端）
+CustomTextBlock { Text string; TextType TextType; ToolUseId string }  // 业务扩展文本块（不进上下文），TextType: ask_user 等
 ```
 
 ### 事件流与断线续传
 
-每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `Reset` 裁掉（同时把待保存历史迁入持久层），`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
+每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——`doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，该点之前的旧事件被裁掉（`reset`），同时待保存历史迁入持久层（`save`）；`resetLock` 串行化 reset/save 操作，消除并发 reader 下的数据竞争。`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
 
-多个 Client 同时订阅时，每个 Client 通过 Position 独立推进读取进度，互不阻塞。
+多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。
 
 ## 工具系统
 
@@ -144,13 +162,13 @@ type ToolExecutor interface {
     Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
     Name() string                                       // 工具唯一名称
     UsagePrompt() string                                // 工具引导提示词（随每轮 System 注入）
-    Execute(turn *Turn, writer *chat.BlockStream)     // 执行逻辑（错误经 ErrorText 以文本写入）
+    Execute(turn *Turn, writer *chat.ToolResultBlockStream) // 执行逻辑（错误经 ErrorText 以文本写入）
 }
 ```
 
-`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`SessionContext`）。
-执行结果通过 `writer`（统一的 `chat.BlockStream`）写出，支持逐块输出内容；
-LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统一为 Block 收集，错误经 ErrorText 以文本写入）。
+`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`LoopContext`）。
+执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`，支持逐块输出内容；
+`ToolResultBlockStream` 包装底层 `BlockStream`，提供 `FullText`、`FullCustomTextType`、`ErrorText` 等便捷方法。
 
 ### 内置工具
 
@@ -166,8 +184,8 @@ LLM 流式输出与工具输出共用同一 BlockStream（停止原因/用量统
 
 ```go
 type HistoryStore interface {
-    LoadHistory(sessionID string) ([]chat.Message, error)     // 懒加载历史
-    AppendMessages(sessionID string, messages []chat.Message) error // 增量追加
+    LoadHistory(sessionID string) ([]*chat.Message, error)     // 懒加载历史
+    AppendMessages(sessionID string, messages []*chat.Message) error // 增量追加
 }
 ```
 
@@ -209,8 +227,8 @@ type HistoryStore interface {
 {"seq": 7, "block": {"type": "start", "block": {"type": "text", "tool_use_id": "call_00"}}}
 {"seq": 8, "block": {"type": "delta", "content": "OS Name: ..."}}
 
-# LLM 向用户提问（AskUserQuestion 工具）
-{"seq": 9, "block": {"type": "ask_user", "text": "[...问题列表 JSON...]"}}
+# LLM 向用户提问（AskUserQuestion 工具，经 CustomTextBlock 发送）
+{"seq": 9, "block": {"type": "custom_text", "text_type": "ask_user", "text": "[...问题列表 JSON...]"}}
 
 # 本轮结束
 {"seq": 10, "block": {"type": "done"}}
