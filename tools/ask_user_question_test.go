@@ -242,7 +242,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 		},
 	}
 
-	w := chat.NewBlockStream(nil)
+	w := chat.NewBlockStream(&ctxReceiver{ctx: ctx})
 	done := make(chan struct{}, 1)
 	go func() {
 		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))
@@ -267,16 +267,21 @@ func TestExecute_NonBlocking(t *testing.T) {
 	}
 
 	// 前端收到 ask_user block，包含问题列表 JSON
-	events := client.ReadEvents()
-	if len(events) == 0 {
-		t.Fatal("expected ask_user event")
+	events := readEventsUntilIdle(client, 300*time.Millisecond)
+	var askBlock *chat.CustomTextBlock
+	for _, ev := range events {
+		for _, b := range ev.Blocks {
+			if cb, ok := b.(*chat.CustomTextBlock); ok && cb.TextType == chat.AskUserTextType {
+				askBlock = cb
+				break
+			}
+		}
+		if askBlock != nil {
+			break
+		}
 	}
-	askBlock, ok := events[len(events)-1].Blocks[0].(*chat.CustomTextBlock)
-	if !ok {
-		t.Fatalf("expected CustomTextBlock, got %T", events[len(events)-1].Blocks[0])
-	}
-	if askBlock.TextType != chat.AskUserTextType {
-		t.Errorf("expected TextType=ask_user, got %q", askBlock.TextType)
+	if askBlock == nil {
+		t.Fatalf("expected ask_user CustomTextBlock, got %d events", len(events))
 	}
 	var questions []Question
 	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {

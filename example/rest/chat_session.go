@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -175,7 +176,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 
 		}
 
-		log.Debug("WebSocket read", zap.String("type", string(messageType)), zap.Any("message", message))
+		log.Debug("WebSocket read", zap.String("type", strconv.Itoa(int(messageType))), zap.Any("message", message))
 	}
 	return nil
 }

@@ -18,10 +18,13 @@ import (
 type fakeLoopContext struct{ id string }
 
 func (f *fakeLoopContext) SessionId() string                            { return f.id }
-func (f *fakeLoopContext) GetSeq() uint64                               { return 0 }
 func (f *fakeLoopContext) SendBlock(_ uint64, _ chat.Block) uint64      { return 0 }
 func (f *fakeLoopContext) GetService(_ string) chat.Service             { return nil }
-func (f *fakeLoopContext) GetCompressorStore() agent.CompressorStore    { return nil }
+func (f *fakeLoopContext) GetToolExecutor() []agent.ToolExecutor        { return nil }
+func (f *fakeLoopContext) DefaultProvider() string                      { return "" }
+func (f *fakeLoopContext) AppendMainAssistantMessage(_ *chat.BlockGroup) {}
+func (f *fakeLoopContext) AppendMainUserMessage(_ *chat.BlockGroup)     {}
+func (f *fakeLoopContext) GetOptions() *chat.Options                    { return nil }
 
 // newTestTools 创建工具组并激活默认 storyWorkflow，返回五个工具。
 func newTestTools(sessionId string, input map[string]any) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {

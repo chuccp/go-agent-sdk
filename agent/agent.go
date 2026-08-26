@@ -70,8 +70,6 @@ func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefaul
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
 func (m *Agent) getOrCreateSession(id string) *Session {
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	if c, ok := m.sessions.Get(id); ok {
 		return c
 	}
