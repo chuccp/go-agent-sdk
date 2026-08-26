@@ -54,6 +54,7 @@ func (d *doneManifest) IsDone(clients []*Client) (uint64, bool) {
 type Transfer struct {
 	seq          uint64
 	mu           sync.RWMutex
+	resetLock    sync.RWMutex
 	entries      *util.SliceArray[*Event]
 	pending      uint64
 	chatClients  *util.SliceArray[*Client]
@@ -107,6 +108,10 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 	lastEvent := events[len(events)-1]
 
 	cl.start = lastEvent.Start + lastEvent.Offset
+
+	l.resetLock.Lock()
+	defer l.resetLock.Unlock()
+
 	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
@@ -260,6 +265,8 @@ func (l *Transfer) flush() {
 }
 func (l *Transfer) deleteClient(client *Client) {
 	l.chatClients.Remove(client)
+	l.resetLock.Lock()
+	defer l.resetLock.Unlock()
 	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
