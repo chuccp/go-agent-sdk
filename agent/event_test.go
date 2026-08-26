@@ -9,7 +9,7 @@ import (
 
 func newTestTransfer() *Transfer {
 	return &Transfer{
-		doneManifest: &doneManifest{starts: new(util.SliceArray[uint64])},
+		doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
 		messageStore: &Store{
