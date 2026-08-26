@@ -25,21 +25,15 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	}
 }
 
-type DoneManifest struct {
+type doneManifest struct {
 	starts *util.SliceArray[uint64]
 }
 
-func NewDoneManifest() *DoneManifest {
-	return &DoneManifest{
-		starts: new(util.SliceArray[uint64]),
-	}
-}
-
-func (d *DoneManifest) AddDone(lastStart uint64) {
+func (d *doneManifest) AddDone(lastStart uint64) {
 	d.starts.Append(lastStart)
 }
 
-func (d *DoneManifest) IsDone(clients []*Client) (uint64, bool) {
+func (d *doneManifest) IsDone(clients []*Client) (uint64, bool) {
 
 	returnStart := uint64(0)
 	for {
@@ -64,12 +58,14 @@ type Transfer struct {
 	pending      uint64
 	chatClients  *util.SliceArray[*Client]
 	messageStore *Store
-	doneManifest *DoneManifest
+	doneManifest *doneManifest
 }
 
 func NewTransfer(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Transfer {
 	return &Transfer{
-		doneManifest: NewDoneManifest(),
+		doneManifest: &doneManifest{
+			starts: new(util.SliceArray[uint64]),
+		},
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
 		messageStore: NewStore(loopContext, compressor, historyStore),
