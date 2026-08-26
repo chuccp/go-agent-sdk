@@ -25,6 +25,38 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	}
 }
 
+type DoneManifest struct {
+	starts *util.SliceArray[uint64]
+}
+
+func NewDoneManifest() *DoneManifest {
+	return &DoneManifest{
+		starts: new(util.SliceArray[uint64]),
+	}
+}
+
+func (d *DoneManifest) AddDone(lastStart uint64) {
+	d.starts.Append(lastStart)
+}
+
+func (d *DoneManifest) IsDone(clients []*Client) (uint64, bool) {
+
+	returnStart := uint64(0)
+	for {
+		if d.starts.IsEmpty() {
+			return returnStart, returnStart > 0
+		}
+		minStart := d.starts.Get(0)
+		for _, client := range clients {
+			if client.start < minStart {
+				return returnStart, returnStart > 0
+			}
+		}
+		d.starts.Delete(0)
+		returnStart = minStart
+	}
+}
+
 type Transfer struct {
 	seq          uint64
 	mu           sync.RWMutex
@@ -32,10 +64,12 @@ type Transfer struct {
 	pending      uint64
 	chatClients  *util.SliceArray[*Client]
 	messageStore *Store
+	doneManifest *DoneManifest
 }
 
 func NewTransfer(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Transfer {
 	return &Transfer{
+		doneManifest: NewDoneManifest(),
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
 		messageStore: NewStore(loopContext, compressor, historyStore),
@@ -71,10 +105,37 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 		return nil
 	}
 	// events 按 Start 降序排列，第一个元素是最新事件。
-	lastEvent := events[0]
-	cl.start = lastEvent.Start + lastEvent.Offset
+
 	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
+
+	lastEvent := events[len(events)-1]
+
+	cl.start = lastEvent.Start + lastEvent.Offset
+	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
+	if fa {
+		l.reset(lastStart)
+		err := l.save(lastStart)
+		if err != nil {
+			lastEvent.Blocks = append(lastEvent.Blocks, chat.NewErrorBlock(err.Error()))
+		}
+	}
 	return events
+}
+func (l *Transfer) reset(minStart uint64) {
+	for {
+		if l.entries.IsEmpty() {
+			return
+		}
+		firstSeq := l.entries.Get(0).Start
+		if minStart >= firstSeq {
+			l.entries.Delete(0)
+		} else {
+			return
+		}
+	}
+}
+func (l *Transfer) save(minStart uint64) error {
+	return l.messageStore.Save(minStart)
 }
 
 // messageToEvent 将 chat.Message 包装为 Event，供 greaterStart 统一返回。
@@ -203,22 +264,24 @@ func (l *Transfer) flush() {
 }
 func (l *Transfer) deleteClient(client *Client) {
 	l.chatClients.Remove(client)
+	lastStart, fa := l.doneManifest.IsDone(l.chatClients.Slice())
+	if fa {
+		l.reset(lastStart)
+		err := l.save(lastStart)
+		if err != nil {
+			log.Printf("Error offering chat Session: %v", err)
+		}
+	}
 }
 func (l *Transfer) history() []*chat.Message {
 	return l.messageStore.History()
 }
-func (l *Transfer) Reset() {
+func (l *Transfer) Record(lastStart uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.entries.IsEmpty() {
-		firstSeq := l.entries.Get(0).Start
-		minStart := l.minPosition()
-		if minStart > firstSeq {
-			removeCount := min(int(minStart-firstSeq), l.entries.Len())
-			l.entries.RemoveFront(removeCount)
-		}
-	}
+	l.doneManifest.AddDone(lastStart)
 }
+
 func (l *Transfer) minPosition() uint64 {
 	// 调用方已持有 l.mu，无需再加锁
 	if l.chatClients.Len() == 0 {

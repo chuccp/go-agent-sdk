@@ -9,7 +9,9 @@ import (
 
 func newTestTransfer() *Transfer {
 	return &Transfer{
-		entries: new(util.SliceArray[*Event]),
+		doneManifest: NewDoneManifest(),
+		entries:      new(util.SliceArray[*Event]),
+		chatClients:  new(util.SliceArray[*Client]),
 		messageStore: &Store{
 			history:     new(util.SliceArray[*chat.Message]),
 			tempHistory: new(util.SliceArray[*chat.Message]),

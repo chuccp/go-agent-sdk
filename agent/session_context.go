@@ -43,10 +43,6 @@ func (c *SessionContext) GetService(provider string) chat.Service {
 	return c.registry.GetProvider(provider)
 }
 
-func (c *SessionContext) Reset() {
-	c.transfer.Reset()
-}
-
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
 	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	c.GetStore().AppendHistory(userMsg)

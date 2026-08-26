@@ -59,8 +59,8 @@ func newSession(sessionContext *SessionContext, historyStore HistoryStore, compr
 	sessionContext.transfer = transfer
 	s.transfer = transfer
 	loop := NewLoop(ctx, sessionContext, 0, transfer.GetStore())
-	loop.done = func() {
-		transfer.Reset()
+	loop.done = func(lastStart uint64) {
+		transfer.Record(lastStart)
 	}
 	s.loop = loop
 	return s

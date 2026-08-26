@@ -74,23 +74,27 @@ func (s *Store) loadHistory() error {
 	return nil
 }
 
-func (s *Store) Save() error {
+func (s *Store) Save(minStart uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.historyStore != nil {
 		allTemp := s.tempHistory.Slice()
 		if len(allTemp) > 0 {
-			megs := make([]*chat.Message, len(allTemp))
-			for i, m := range allTemp {
-				megs[i] = m
-				s.history.Append(m)
+			var megs []*chat.Message
+			for _, m := range allTemp {
+				if m.Start <= minStart {
+					megs = append(megs, m)
+					s.history.Append(m)
+				}
 			}
-			s.tempHistory.Reset()
-			err := s.historyStore.AppendMessages(s.loopContext.SessionId(), megs)
-			if err != nil {
-				return err
+			for _, m := range megs {
+				s.tempHistory.Remove(m)
 			}
-			return err
+			if len(megs) > 0 {
+				if err := s.historyStore.AppendMessages(s.loopContext.SessionId(), megs); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil

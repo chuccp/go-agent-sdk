@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,8 +39,9 @@ type Loop struct {
 	lContext   context.Context
 	lCancel    context.CancelFunc
 	//provider      string
-	seq  uint64
-	done func()
+	seq       uint64
+	lastStart uint64
+	done      func(lastStart uint64)
 }
 
 func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Store) *Loop {
@@ -57,7 +57,11 @@ func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Sto
 }
 
 func (l *Loop) SendBlock(block chat.Block) uint64 {
-	return l.loopContext.SendBlock(l.no, block)
+	start := l.loopContext.SendBlock(l.no, block)
+	if start > l.lastStart {
+		l.lastStart = start
+	}
+	return start
 }
 
 func (l *Loop) getSeq() uint64 {
@@ -78,7 +82,7 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 			l.do()
 			l.running = false
 			if l.done != nil {
-				l.done()
+				l.done(l.lastStart)
 			}
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
@@ -218,13 +222,13 @@ LOOP:
 		if toolStop == chat.StopReasonUserWait {
 			goto END
 		}
-		l.save()
+		//l.save()
 		goto LOOP
 	}
 	goto END
 
 END:
-	l.save()
+	//l.save()
 	if l.inbox.IsEmpty() {
 		l.SendBlock(chat.NewDoneBlock())
 		return
@@ -233,11 +237,11 @@ END:
 
 }
 
-func (l *Loop) save() {
-	if err := l.store.Save(); err != nil {
-		log.Printf("[chatSession] save history failed: %v", err)
-	}
-}
+//func (l *Loop) save() {
+//	if err := l.store.Save(); err != nil {
+//		log.Printf("[chatSession] save history failed: %v", err)
+//	}
+//}
 
 func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
 

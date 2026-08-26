@@ -55,4 +55,5 @@ func (c *Client) Stop() {
 
 func (c *Client) Close() {
 	c.readEvents.deleteClient(c)
+
 }

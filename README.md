@@ -131,7 +131,7 @@ UsageBlock      { Usage *Usage }                    // token 用量元数据（�
 
 ### 事件流与断线续传
 
-每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `ResetAndSave` 裁掉（同时把待保存历史迁入持久层），`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
+每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——已被所有客户端读过的旧事件随 `Reset` 裁掉（同时把待保存历史迁入持久层），`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
 
 多个 Client 同时订阅时，每个 Client 通过 Position 独立推进读取进度，互不阻塞。
 
