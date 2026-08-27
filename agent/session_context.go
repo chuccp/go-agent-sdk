@@ -39,7 +39,7 @@ func (c *SessionContext) SendBlock(no uint64, block chat.Block) uint64 {
 	return c.transfer.SendBlock(no, block)
 }
 
-func (c *SessionContext) GetService(provider string) chat.Service {
+func (c *SessionContext) GetService(provider string) chat.Provider {
 	return c.registry.GetProvider(provider)
 }
 

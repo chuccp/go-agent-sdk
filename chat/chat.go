@@ -7,7 +7,7 @@ type Chat struct {
 	provider         string
 }
 
-func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Request, response *BlockStream) error {
+func (c *Chat) ChatWithStream(ctx context.Context, messages *Messages, response *BlockStream) error {
 
 	return nil
 }

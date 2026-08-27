@@ -62,7 +62,7 @@ func (m *Agent) SetCompressor(c Compressor) {
 	m.compressor = c
 }
 
-func (m *Agent) RegisterChat(provider string, chatService chat.Service, isDefault bool) {
+func (m *Agent) RegisterChat(provider string, chatService chat.Provider, isDefault bool) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.registry.Register(provider, chatService, isDefault)

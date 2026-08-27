@@ -37,10 +37,6 @@ func (l ThinkingLevel) ToThinkingConfig() *ThinkingConfig {
 type Options struct {
 	Model         string
 	MaxTokens     int
-	MaxContext    int // 最大上下文消息条数，超出时截断早期历史（0 表示不限制）
-	Temperature   *float64
-	TopP          *float64
-	TopK          *int
 	StopSequences []string
 	Stream        bool
 	Thinking      ThinkingLevel // 扩展思考级别：off / low / medium / high
@@ -70,27 +66,6 @@ func WithSystemPrompt(systemPrompt string) Option {
 // WithMaxTokens 设置最大生成 token 数。
 func WithMaxTokens(maxTokens int) Option {
 	return func(o *Options) { o.MaxTokens = maxTokens }
-}
-
-// WithMaxContext 设置最大上下文消息条数。
-// 当历史记录超过此限制时，仅保留最近的 N 条消息发送给模型（0 表示不限制）。
-func WithMaxContext(maxContext int) Option {
-	return func(o *Options) { o.MaxContext = maxContext }
-}
-
-// WithTemperature 设置采样温度 (0,1]。
-func WithTemperature(temp float64) Option {
-	return func(o *Options) { o.Temperature = &temp }
-}
-
-// WithTopP 设置 nucleus 采样参数。
-func WithTopP(topP float64) Option {
-	return func(o *Options) { o.TopP = &topP }
-}
-
-// WithTopK 设置 top-k 采样参数。
-func WithTopK(topK int) Option {
-	return func(o *Options) { o.TopK = &topK }
 }
 
 // WithStopSequences 设置停止序列。

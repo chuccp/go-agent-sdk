@@ -19,16 +19,16 @@ const (
 	DefaultThinkingBudget = 10000
 )
 
-// serviceImpl 是 Service 的具体实现，封装 HTTP 客户端与配置。
+// serviceImpl 是 Provider 的具体实现，封装 HTTP 客户端与配置。
 type serviceImpl struct {
-	chat.Service
+	chat.Provider
 	config      *Config
 	restyClient *resty.Client
 }
 
 // NewService 根据给定配置创建一个 Anthropic 聊天服务实例。
 // 若 BaseURL 为空则默认使用 Anthropic 官方 API 地址。
-func NewService(config *Config) chat.Service {
+func NewService(config *Config) chat.Provider {
 	baseURL := config.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL

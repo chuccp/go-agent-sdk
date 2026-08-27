@@ -47,7 +47,8 @@ func Text(text string) Message {
 }
 
 type Messages struct {
-	Messages []Message      `json:"messages"`
-	System   string         `json:"system,omitempty"`
-	Tools    []ToolFunction `json:"tools,omitempty"` // 可用工具列表
+	Messages []Message
+	System   string
+	Tools    []ToolFunction
+	Options  []Option
 }

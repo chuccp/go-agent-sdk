@@ -16,7 +16,7 @@ type LoopContext interface {
 	GetToolExecutor() []ToolExecutor
 	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
-	GetService(provider string) chat.Service
+	GetService(provider string) chat.Provider
 	DefaultProvider() string
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
@@ -27,7 +27,7 @@ type Loop struct {
 	no          uint64
 	inbox       *util.SliceQueue[*chat.UserBlock]
 	loopContext LoopContext
-	service     chat.Service
+	service     chat.Provider
 	running     bool
 	pContext    context.Context
 	pCancel     context.CancelFunc
@@ -171,9 +171,6 @@ func (l *Loop) buildRequest() *chat.Request {
 	if effective != nil {
 		messages.Model = effective.Model
 		messages.MaxTokens = effective.MaxTokens
-		messages.Temperature = effective.Temperature
-		messages.TopP = effective.TopP
-		messages.TopK = effective.TopK
 		messages.StopSequences = effective.StopSequences
 		messages.Stream = effective.Stream
 		messages.Thinking = effective.Thinking.ToThinkingConfig()
