@@ -14,6 +14,7 @@ import {
   setStopCallback,
   setAskUserHandler,
   setSkipNextStop,
+  setLatestUsage,
 } from './WebSocketAdapter'
 import { getSessionMessages, type ChatMessage } from '../api/chat'
 
@@ -88,6 +89,28 @@ function extractExecCommand(blocks: ContentBlock[]): string | null {
   if (lastToolUse?.name !== 'execute_command') return null
   const input = lastToolUse.input as Record<string, unknown> | undefined
   return input?.command ? String(input.command) : ''
+}
+
+/** extractUsageFromHistory 从最后一条 assistant 消息的 content 块中提取 Usage 并设置。 */
+function extractUsageFromHistory(msgs: ChatMessage[]): void {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.role !== 'assistant') continue
+    try {
+      const blocks = JSON.parse(m.content) as { type: string; Usage?: { input_tokens: number; output_tokens: number; cache_input_tokens: number } }[]
+      // 优先取 message_delta（最终用量），其次 message_start
+      for (const b of [...blocks].reverse()) {
+        if ((b.type === 'message_delta' || b.type === 'message_start') && b.Usage) {
+          setLatestUsage({
+            inputTokens: b.Usage.input_tokens ?? 0,
+            outputTokens: b.Usage.output_tokens ?? 0,
+            cacheInputTokens: b.Usage.cache_input_tokens ?? 0,
+          })
+          return
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
 }
 
 function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
@@ -231,6 +254,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     getSessionMessages(sessionId)
       .then(msgs => {
         if (cancelled) return
+        // 从最后一条 assistant 消息提取 Usage
+        extractUsageFromHistory(msgs)
         // 事件流从最后一条历史消息之后的位置继续；无历史则从 0 开始
         const last = msgs[msgs.length - 1]
         startRef.current = last ? last.start + last.offset : 0

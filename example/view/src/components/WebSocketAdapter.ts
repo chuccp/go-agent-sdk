@@ -96,7 +96,7 @@ export interface UsageInfo {
 let latestUsage: UsageInfo | null = null
 let usageListeners: Array<(u: UsageInfo | null) => void> = []
 
-function setLatestUsage(u: UsageInfo): void {
+export function setLatestUsage(u: UsageInfo): void {
   // 后端在流开始（output=0）和流结束各发一次 Usage。
   // 非零字段才更新，避免中间态（output=0）覆盖已有完整数据。
   const prev = latestUsage
