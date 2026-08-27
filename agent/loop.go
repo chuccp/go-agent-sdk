@@ -70,9 +70,12 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 		l.inbox.Write(qm)
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
-			defer l.runLock.Unlock()
-			l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
-			l.running = false
+			defer func() {
+				l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
+				l.running = false
+				l.runLock.Unlock()
+			}()
+			l.do()
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
 			l.SendBlock(evt)
@@ -192,7 +195,9 @@ LOOP:
 		l.lCancel()
 	}
 	l.lContext, l.lCancel = context.WithCancel(l.pContext)
+
 	blockGroup, stopReason, err := l.chatWithStream()
+
 	if err != nil {
 		l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 		goto END
@@ -203,8 +208,10 @@ LOOP:
 
 	l.appendAssistantMessage(blockGroup)
 	if stopReason == chat.StopReasonToolUse {
+
 		results, toolStop := l.executeTools(blockGroup)
 		l.appendUserMessage(results)
+
 		if l.roundStopped() {
 			goto END
 		}
@@ -229,6 +236,8 @@ END:
 //}
 
 func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
+	l.runLock.Unlock()
+	defer l.runLock.Lock()
 
 	var blockGroups []*chat.BlockGroup
 	var results chat.Blocks
@@ -387,6 +396,8 @@ func (l *Loop) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultBl
 //}
 
 func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
+	l.runLock.Unlock()
+	defer l.runLock.Lock()
 	stream := chat.NewBlockStream(l)
 	provider := l.loopContext.DefaultProvider()
 	if util.IsBlank(provider) {
