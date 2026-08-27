@@ -59,6 +59,8 @@ let pendingBuffer: StreamEvent[] = []
 let directDispatch: ((evt: StreamEvent) => void) | null = null
 let stopCallback: (() => void) | null = null
 let askUserHandler: ((questionsJson: string) => void) | null = null
+// 插话模式：append 触发框架 abort 时不向后端发 stop
+let skipNextStop = false
 
 // 当前流式块类型（由 StartBlock 设置，Delta 据此路由）
 let currentStreamBlockType: string | null = null
@@ -134,6 +136,14 @@ export function setStopCallback(cb: () => void): void {
  */
 export function setAskUserHandler(cb: (questionsJson: string) => void): void {
   askUserHandler = cb
+}
+
+/**
+ * setSkipNextStop 标记下一次 abort 不发送 stop 消息到后端。
+ * 用于插话场景：append 触发框架 abort，但不应中断后端当前请求。
+ */
+export function setSkipNextStop(): void {
+  skipNextStop = true
 }
 
 /**
@@ -437,7 +447,14 @@ export function createStreamingAdapter(): ChatModelAdapter {
 
       // 3. 处理取消
       const onAbort = () => {
-        console.log(`[adapter] run #${myRun} abort signal`)
+        console.log(`[adapter] run #${myRun} abort signal, skipNextStop =`, skipNextStop)
+        if (skipNextStop) {
+          skipNextStop = false
+          // 插话：不发 stop 到后端，但结束当前 adapter run
+          directDispatch = null
+          done = true
+          return
+        }
         directDispatch = null
         done = true
         stopCallback?.()
