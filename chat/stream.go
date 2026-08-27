@@ -141,24 +141,7 @@ func (s *BlockStream) StopReason(stopReason StopReason) {
 	s.stopReason = stopReason
 }
 func (s *BlockStream) deltaUsage(usage *Usage) {
-	if usage.InputTokens > s.usage.InputTokens {
-		s.usage.InputTokens = usage.InputTokens
-	}
-	if usage.InputTokens == 0 {
-		usage.InputTokens = s.usage.InputTokens
-	}
-	if usage.CacheInputTokens > s.usage.CacheInputTokens {
-		s.usage.CacheInputTokens = usage.CacheInputTokens
-	}
-	if usage.CacheInputTokens == 0 {
-		usage.CacheInputTokens = s.usage.CacheInputTokens
-	}
-	if usage.OutputTokens > s.usage.OutputTokens {
-		s.usage.OutputTokens = usage.OutputTokens
-	}
-	if usage.OutputTokens == 0 {
-		usage.OutputTokens = s.usage.OutputTokens
-	}
+	s.usage.OutputTokens = s.usage.OutputTokens + usage.OutputTokens
 }
 func (s *BlockStream) MessageStart(usage *Usage) {
 	s.mu.Lock()
