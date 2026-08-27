@@ -180,17 +180,9 @@ func (l *Loop) buildRequest() *chat.Request {
 
 	return messages
 }
-
-func (l *Loop) do() {
-
-LOOP:
-
-	select {
-	case <-l.pContext.Done():
-		return
-	default:
-	}
-
+func (l *Loop) loop() bool {
+	l.runLock.Unlock()
+	defer l.runLock.Lock()
 	if l.lCancel != nil {
 		l.lCancel()
 	}
@@ -200,10 +192,10 @@ LOOP:
 
 	if err != nil {
 		l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
-		goto END
+		return true
 	}
 	if l.roundStopped() {
-		goto END
+		return true
 	}
 
 	l.appendAssistantMessage(blockGroup)
@@ -213,15 +205,28 @@ LOOP:
 		l.appendUserMessage(results)
 
 		if l.roundStopped() {
-			goto END
+			return true
 		}
 		if toolStop == chat.StopReasonUserWait {
-			goto END
+			return true
 		}
-		goto LOOP
+		return false
 	}
-	goto END
+	return true
 
+}
+func (l *Loop) do() {
+
+LOOP:
+	select {
+	case <-l.pContext.Done():
+		return
+	default:
+	}
+	if l.loop() {
+		goto END
+	}
+	goto LOOP
 END:
 	if l.inbox.IsEmpty() {
 		return
@@ -236,8 +241,6 @@ END:
 //}
 
 func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
-	l.runLock.Unlock()
-	defer l.runLock.Lock()
 
 	var blockGroups []*chat.BlockGroup
 	var results chat.Blocks
@@ -388,16 +391,7 @@ func (l *Loop) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultBl
 	cp.Content = kept
 	return &cp
 }
-
-//func (l *Loop) UpdateOptions(Option ...chat.Option) {
-//	for _, o := range Option {
-//		o(l.options)
-//	}
-//}
-
 func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
-	l.runLock.Unlock()
-	defer l.runLock.Lock()
 	stream := chat.NewBlockStream(l)
 	provider := l.loopContext.DefaultProvider()
 	if util.IsBlank(provider) {
