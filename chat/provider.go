@@ -22,16 +22,6 @@ type Service interface {
 	Options(config *Config)
 }
 
-type Chat struct {
-	providerRegistry *ProviderRegistry
-	provider         string
-}
-
-func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Request, response *BlockStream) error {
-
-	return nil
-}
-
 // ProviderRegistry 管理多个 LLM provider 的注册与路由。
 type ProviderRegistry struct {
 	providerMap map[string]Service

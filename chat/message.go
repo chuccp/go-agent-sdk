@@ -46,18 +46,8 @@ func Text(text string) Message {
 	return NewTextMessage(text)
 }
 
-// RevMessage 专门接收用户输入，由调用方构造后传入 SDK。
-// 与 Message（SDK 内部 / 发给模型的协议结构）职责分离。
-type RevMessage struct {
-	//TODO FilesIds 暂时不处理
-	FilesIds []string `json:"files_ids"`
-	Text     string   `json:"text"`
-}
-
-// ToMessage 将用户输入转换为内部协议 Message。
-func (r *RevMessage) ToMessage() Message {
-	return Message{
-		Role:    RoleUser,
-		Content: Blocks{NewFullTextBlock(r.Text)},
-	}
+type Messages struct {
+	Messages []Message      `json:"messages"`
+	System   string         `json:"system,omitempty"`
+	Tools    []ToolFunction `json:"tools,omitempty"` // 可用工具列表
 }
