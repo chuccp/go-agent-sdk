@@ -450,12 +450,14 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
 
   // run 进行中到达的用户消息（如 ask_user 回答）先缓冲，run 结束后补显示
   const deferredBuffer = useRef<string[]>([])
+  // 记录已在运行中 append 过的消息文本，防止 DeferredFlusher 重复 append
+  const appendedDuringRunRef = useRef<Set<string>>(new Set())
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionResetter sessionId={sessionId} />
-      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} />
-      <DeferredFlusher deferredBuffer={deferredBuffer} />
+      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} />
+      <DeferredFlusher deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -467,9 +469,10 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
  * 插话（AI 运行中）：setSkipNextStop + append → 框架触发 abort 但不向后端发 stop，
  * 插话显示在对话流的正确位置，后端流继续。DeferredFlusher 在 run 结束后启动下一轮。
  */
-function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
+function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDuringRunRef }: {
   consumeMessageRef: React.MutableRefObject<(text: string) => void>
   deferredBuffer: React.MutableRefObject<string[]>
+  appendedDuringRunRef: React.MutableRefObject<Set<string>>
 }) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
@@ -480,35 +483,41 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
     consumeMessageRef.current = (text: string) => {
       console.log('[consumeMessage] appending user message, text:', text.substring(0, 30), 'isRunning:', isRunningRef.current)
       if (isRunningRef.current) {
-        // AI 运行中：append 到 thread（显示在正确位置），标记跳过 stop
+        // AI 运行中：append 到 thread（正确位置），标记跳过 stop，记录已 append
         setSkipNextStop()
+        appendedDuringRunRef.current.add(text)
         threadRuntime.append({
           role: 'user',
           content: [{ type: 'text', text }],
         } as any)
-        // 后端处理完当前请求后会再次发 consume，DeferredFlusher 启动下一轮
         deferredBuffer.current.push(text)
         return
       }
+      // AI 空闲：如果已在运行中 append 过，只启动流不重复 append
+      if (appendedDuringRunRef.current.has(text)) {
+        appendedDuringRunRef.current.delete(text)
+        triggerStream()
+        return
+      }
       triggerStream()
-      // AI 空闲：追加消息 + 启动 adapter
       threadRuntime.append({
         role: 'user',
         content: [{ type: 'text', text }],
         startRun: true,
       } as any)
     }
-  }, [threadRuntime, consumeMessageRef, deferredBuffer])
+  }, [threadRuntime, consumeMessageRef, deferredBuffer, appendedDuringRunRef])
 
   return null
 }
 
 /**
  * run 结束后逐条补显示缓冲的消息（插话 / ask_user 回答）。
- * flush 时启动新 run（triggerStream + startRun），驱动后端处理排队消息。
+ * 已在运行中 append 过的消息（appendedDuringRunRef）只启动流，不重复 append。
  */
-function DeferredFlusher({ deferredBuffer }: {
+function DeferredFlusher({ deferredBuffer, appendedDuringRunRef }: {
   deferredBuffer: React.MutableRefObject<string[]>
+  appendedDuringRunRef: React.MutableRefObject<Set<string>>
 }) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
@@ -517,13 +526,19 @@ function DeferredFlusher({ deferredBuffer }: {
     if (isRunning || deferredBuffer.current.length === 0) return
     const next = deferredBuffer.current.shift()!
     console.log('[DeferredFlusher] flushing deferred message:', next.substring(0, 30))
+    if (appendedDuringRunRef.current.has(next)) {
+      // 已在运行中 append 过，只启动流，不重复 append
+      appendedDuringRunRef.current.delete(next)
+      triggerStream()
+      return
+    }
     triggerStream()
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: next }],
       startRun: true,
     } as any)
-  }, [isRunning, deferredBuffer, threadRuntime])
+  }, [isRunning, deferredBuffer, threadRuntime, appendedDuringRunRef])
 
   return null
 }
