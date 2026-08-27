@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,10 +61,8 @@ func (l *Loop) getSeq() uint64 {
 }
 
 func (l *Loop) HandleMessage(blocks chat.Blocks) {
-	log.Printf("HandleMessage =======%v", blocks)
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
-	log.Printf("HandleMessage lock=======%v", blocks)
 	if !l.running {
 		l.running = true
 		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Sent)
@@ -87,7 +84,6 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 	} else {
 		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Queued)
 		l.SendBlock(qm)
-		log.Printf("queue========== %v", qm)
 		l.inbox.Write(qm)
 	}
 }
@@ -114,15 +110,25 @@ func (l *Loop) buildRequest() *chat.Request {
 	toolExecutors := l.loopContext.GetToolExecutor()
 	values, fa := l.inbox.ReadAll()
 	if fa {
-		log.Printf("Consume=======%v", values)
+		firstStart := uint64(0)
+
+		var blocks chat.Blocks
+
 		for _, qm := range values {
 			// 不复用 qm（已作为 sent/queued 事件发送），而是新建 consume 块：
 			// 否则 mutate qm.BlockUserType 会同时改写之前事件的序列化结果，
 			// 前端可能收到两条 consume 而把用户消息显示两遍。
 			start := l.SendBlock(chat.NewUserBlock(qm.ID, qm.Content, chat.Consume))
-			// 记录 Start/Offset，供 mergeMessages 精确去重；否则 user 消息的
-			// Start/Offset 为 0，会把去重区间错误地扩展到 [0, ...) 覆盖所有事件。
-			l.store.AppendHistory(&chat.Message{Start: start, Offset: 1, Role: chat.RoleUser, Content: qm.Content})
+			if firstStart == 0 {
+				firstStart = start
+			}
+			blocks = append(blocks, qm.Content...)
+		}
+		// 记录 Start/Offset，供 mergeMessages 精确去重；否则 user 消息的
+		// Start/Offset 为 0，会把去重区间错误地扩展到 [0, ...) 覆盖所有事件。
+		offset := uint64(len(values))
+		if offset > 0 && firstStart > 0 {
+			l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
 		}
 	}
 	// 注入历史上下文
@@ -188,7 +194,6 @@ func (l *Loop) buildRequest() *chat.Request {
 func (l *Loop) loop() bool {
 	l.runLock.Unlock()
 	defer l.runLock.Lock()
-	log.Print("loop started")
 	if l.lCancel != nil {
 		l.lCancel()
 	}
@@ -203,7 +208,6 @@ func (l *Loop) loop() bool {
 	if l.roundStopped() {
 		return true
 	}
-
 	l.appendAssistantMessage(blockGroup)
 	if stopReason == chat.StopReasonToolUse {
 
@@ -239,13 +243,6 @@ END:
 	}
 	goto LOOP
 }
-
-//func (l *Loop) save() {
-//	if err := l.store.Save(); err != nil {
-//		log.Printf("[chatSession] save history failed: %v", err)
-//	}
-//}
-
 func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
 
 	var blockGroups []*chat.BlockGroup
@@ -415,7 +412,6 @@ func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
 }
 
 func (l *Loop) Stop() {
-	log.Printf("stop loop")
 	if l.lCancel != nil {
 		l.lCancel()
 	}
