@@ -182,9 +182,9 @@ function UsageBar() {
   if (!usage) return null
 
   const parts: string[] = []
-  if (usage.inputTokens > 0) parts.push(`↑ ${usage.inputTokens.toLocaleString()} in`)
+  const totalInput = usage.inputTokens + usage.cacheInputTokens
+  if (totalInput > 0) parts.push(`↑ ${totalInput.toLocaleString()} in`)
   if (usage.outputTokens > 0) parts.push(`↓ ${usage.outputTokens.toLocaleString()} out`)
-  if (usage.cacheInputTokens > 0) parts.push(`↺ ${usage.cacheInputTokens.toLocaleString()} ctx`)
   if (parts.length === 0) return null
 
   return (
