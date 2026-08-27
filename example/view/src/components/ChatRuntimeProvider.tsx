@@ -175,6 +175,8 @@ interface MessageQueueState {
   pendingQuestion: AskUserQuestion[] | null
   /** 提交 ask_user 回答：直发后端并清除问题卡片 */
   submitAnswer: (text: string) => void
+  /** AI 运行中到达的插话消息（未 append 到 thread，避免触发 abort） */
+  pendingInterjections: string[]
 }
 
 const MessageQueueContext = createContext<MessageQueueState>({
@@ -185,6 +187,7 @@ const MessageQueueContext = createContext<MessageQueueState>({
   sendDirect: () => {},
   pendingQuestion: null,
   submitAnswer: () => {},
+  pendingInterjections: [],
 })
 
 export function useMessageQueue() {
@@ -226,6 +229,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     createdRef.current = false
     pendingChatRef.current = []
     setPendingQuestion(null)
+    setPendingInterjections([])
     setInitialMessages(null) // 回到加载态，运行时将随新历史重建
     getSessionMessages(sessionId)
       .then(msgs => {
@@ -247,6 +251,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
 
   // 消息队列（仅展示后端返回的排队状态）
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
+
+  // 插话消息：AI 运行中不能 append 到 thread（会触发 abort），暂存此处由 UI 渲染
+  const [pendingInterjections, setPendingInterjections] = useState<string[]>([])
 
   // ask_user 待回答问题
   const [pendingQuestion, setPendingQuestion] = useState<AskUserQuestion[] | null>(null)
@@ -406,7 +413,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     sendDirect,
     pendingQuestion,
     submitAnswer,
-  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer])
+    pendingInterjections,
+  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer, pendingInterjections])
 
   if (initialMessages === null) {
     return (
@@ -423,6 +431,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
         initialMessages={initialMessages}
         sessionId={sessionId}
         consumeMessageRef={consumeMessageRef}
+        setPendingInterjections={setPendingInterjections}
       >
         {children}
       </RuntimeGate>
@@ -436,11 +445,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
  * （useLocalRuntime 只在创建时读取一次 initialMessages）。
  * 切换会话时父级回到加载态，本组件卸载后随新历史重新挂载。
  */
-function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, children }: {
+function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, setPendingInterjections, children }: {
   adapter: ChatModelAdapter
   initialMessages: { role: 'user' | 'assistant'; content: string }[]
   sessionId: number
   consumeMessageRef: React.MutableRefObject<(text: string) => void>
+  setPendingInterjections: React.Dispatch<React.SetStateAction<string[]>>
   children: ReactNode
 }) {
   const runtime = useLocalRuntime(adapter, {
@@ -453,8 +463,8 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionResetter sessionId={sessionId} />
-      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} />
-      <DeferredFlusher deferredBuffer={deferredBuffer} />
+      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} setPendingInterjections={setPendingInterjections} />
+      <DeferredFlusher deferredBuffer={deferredBuffer} setPendingInterjections={setPendingInterjections} />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -463,13 +473,13 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
 /**
  * 注册 consumeMessage 回调：将用户消息追加到线程并启动 adapter 流。
  * 必须在 AssistantRuntimeProvider 内部使用（需要 useThreadRuntime）。
- * ask_user 场景：回答的 message_consumed 到达时当前 run 仍在进行（工具轮未结束），
- * 此时不能调用 append（assistant-ui 会中止当前 run 触发 abort → 误发 stop），
- * 先缓冲到 deferredBuffer，由 DeferredFlusher 在 run 结束后补显示。
+ * AI 运行中不能调用 append（assistant-ui 会中止当前 run 触发 abort → 误发 stop），
+ * 插话只存入 pendingInterjections 由 UI 渲染，run 结束后由 DeferredFlusher 补 append。
  */
-function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
+function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, setPendingInterjections }: {
   consumeMessageRef: React.MutableRefObject<(text: string) => void>
   deferredBuffer: React.MutableRefObject<string[]>
+  setPendingInterjections: React.Dispatch<React.SetStateAction<string[]>>
 }) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
@@ -480,12 +490,8 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
     consumeMessageRef.current = (text: string) => {
       console.log('[consumeMessage] appending user message, text:', text.substring(0, 30), 'isRunning:', isRunningRef.current)
       if (isRunningRef.current) {
-        // AI 运行中：只显示插话，不动流状态（不 triggerStream，不 startRun）
-        threadRuntime.append({
-          role: 'user',
-          content: [{ type: 'text', text }],
-        } as any)
-        // 后端处理完当前请求后会再次发 consume，届时 isRunning 为 false 再启动流
+        // AI 运行中：不 append（会触发 abort），只存入 pendingInterjections 由 UI 渲染
+        setPendingInterjections(prev => [...prev, text])
         deferredBuffer.current.push(text)
         return
       }
@@ -497,7 +503,7 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
         startRun: true,
       } as any)
     }
-  }, [threadRuntime, consumeMessageRef, deferredBuffer])
+  }, [threadRuntime, consumeMessageRef, deferredBuffer, setPendingInterjections])
 
   return null
 }
@@ -505,8 +511,12 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
 /**
  * run 结束后逐条补显示缓冲的消息（插话 / ask_user 回答）。
  * flush 时启动新 run（triggerStream + startRun），驱动后端处理排队消息。
+ * 同时清除 pendingInterjections（消息已通过 append 进入 thread）。
  */
-function DeferredFlusher({ deferredBuffer }: { deferredBuffer: React.MutableRefObject<string[]> }) {
+function DeferredFlusher({ deferredBuffer, setPendingInterjections }: {
+  deferredBuffer: React.MutableRefObject<string[]>
+  setPendingInterjections: React.Dispatch<React.SetStateAction<string[]>>
+}) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
 
@@ -514,13 +524,23 @@ function DeferredFlusher({ deferredBuffer }: { deferredBuffer: React.MutableRefO
     if (isRunning || deferredBuffer.current.length === 0) return
     const next = deferredBuffer.current.shift()!
     console.log('[DeferredFlusher] flushing deferred message:', next.substring(0, 30))
+    // 清除对应的 pendingInterjection
+    setPendingInterjections(prev => {
+      const idx = prev.indexOf(next)
+      if (idx >= 0) {
+        const copy = [...prev]
+        copy.splice(idx, 1)
+        return copy
+      }
+      return prev
+    })
     triggerStream()
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: next }],
       startRun: true,
     } as any)
-  }, [isRunning, deferredBuffer, threadRuntime])
+  }, [isRunning, deferredBuffer, threadRuntime, setPendingInterjections])
 
   return null
 }

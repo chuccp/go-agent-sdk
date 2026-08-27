@@ -62,6 +62,7 @@ export function Thread() {
               AssistantMessage,
             }}
           />
+          <PendingInterjections />
         </div>
       </ThreadPrimitive.Viewport>
 
@@ -81,6 +82,36 @@ export function Thread() {
         </div>
       </div>
     </ThreadPrimitive.Root>
+  )
+}
+
+// ── Pending Interjections ──
+
+function PendingInterjections() {
+  const { pendingInterjections } = useMessageQueue()
+  if (pendingInterjections.length === 0) return null
+
+  return (
+    <>
+      {pendingInterjections.map((text, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+          <div style={{ maxWidth: '70%', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{
+              padding: '12px 18px', borderRadius: '20px 20px 4px 20px',
+              background: '#1a73e8', color: '#fff', fontSize: 14, lineHeight: 1.7,
+              wordBreak: 'break-word',
+            }}>
+              {text}
+            </div>
+            <div style={{
+              width: 34, height: 34, borderRadius: '50%', background: '#e8f0fe',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#1a73e8', fontSize: 13, fontWeight: 600, flexShrink: 0,
+            }}>U</div>
+          </div>
+        </div>
+      ))}
+    </>
   )
 }
 
