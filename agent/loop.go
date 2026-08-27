@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,8 +62,10 @@ func (l *Loop) getSeq() uint64 {
 }
 
 func (l *Loop) HandleMessage(blocks chat.Blocks) {
+	log.Printf("HandleMessage =======%v", blocks)
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
+	log.Printf("HandleMessage lock=======%v", blocks)
 	if !l.running {
 		l.running = true
 		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Sent)
@@ -73,6 +76,7 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 			defer func() {
 				l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
 				l.running = false
+				l.inbox.Reset()
 				l.runLock.Unlock()
 			}()
 			l.do()
@@ -83,6 +87,7 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 	} else {
 		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Queued)
 		l.SendBlock(qm)
+		log.Printf("queue========== %v", qm)
 		l.inbox.Write(qm)
 	}
 }
@@ -107,9 +112,9 @@ func (l *Loop) composeSystem() string {
 func (l *Loop) buildRequest() *chat.Request {
 	effective := l.loopContext.GetOptions()
 	toolExecutors := l.loopContext.GetToolExecutor()
-
 	values, fa := l.inbox.ReadAll()
 	if fa {
+		log.Printf("Consume=======%v", values)
 		for _, qm := range values {
 			// 不复用 qm（已作为 sent/queued 事件发送），而是新建 consume 块：
 			// 否则 mutate qm.BlockUserType 会同时改写之前事件的序列化结果，
@@ -183,6 +188,7 @@ func (l *Loop) buildRequest() *chat.Request {
 func (l *Loop) loop() bool {
 	l.runLock.Unlock()
 	defer l.runLock.Lock()
+	log.Print("loop started")
 	if l.lCancel != nil {
 		l.lCancel()
 	}
@@ -409,6 +415,7 @@ func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
 }
 
 func (l *Loop) Stop() {
+	log.Printf("stop loop")
 	if l.lCancel != nil {
 		l.lCancel()
 	}

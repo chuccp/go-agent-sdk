@@ -87,9 +87,9 @@ export function Thread() {
 // ── Message Queue Bar ──
 
 function MessageQueueBar() {
-  const { queuedMessages, queueCount, pendingQueue } = useMessageQueue()
+  const { queuedMessages, queueCount } = useMessageQueue()
 
-  if (queuedMessages.length === 0 && pendingQueue.length === 0) return null
+  if (queuedMessages.length === 0) return null
 
   return (
     <div style={{
@@ -102,24 +102,12 @@ function MessageQueueBar() {
           minWidth: 20, height: 20, borderRadius: 10, padding: '0 6px',
           background: '#f9a825', color: '#fff', fontSize: 11, fontWeight: 700,
         }}>
-          {queueCount + pendingQueue.length}
+          {queueCount}
         </span>
         <span style={{ fontSize: 13, color: '#5f6368' }}>
-          {pendingQueue.length > 0
-            ? `${pendingQueue.length} 条消息排队等待发送…`
-            : `${queueCount} 条消息排队等待处理…`}
+          {queueCount} 条消息排队等待处理…
         </span>
         <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {pendingQueue.map((text, i) => (
-            <span key={`p-${i}`} style={{
-              display: 'inline-block', padding: '2px 10px', maxWidth: 220,
-              borderRadius: 10, fontSize: 11,
-              background: '#fff3e0', color: '#e65100', border: '1px solid #ffcc80',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              ⏳ {text}
-            </span>
-          ))}
           {queuedMessages.map(m => (
             <span key={m.id} style={{
               display: 'inline-block', padding: '2px 8px',
@@ -371,28 +359,40 @@ function Composer() {
   const isRunning = useThread((state) => state.isRunning)
   const composerRuntime = useComposerRuntime()
   const text = useComposer((c) => c.text)
-  const { queueSend, thinkingLevel, setThinkingLevel, sendDirect } = useMessageQueue()
+  const { thinkingLevel, setThinkingLevel, sendDirect } = useMessageQueue()
 
-  const hasText = text.trim().length > 0
-  // AI 输出中且已输入文字 → 显示发送键（加入队列）；AI 输出中但未输入 → 停止键
-  const showQueueSend = isRunning && hasText
-
-  const handleDirectSend = () => {
+  const handleSend = () => {
     const t = text.trim()
     if (!t) return
     sendDirect(t)
     composerRuntime.setText('')
   }
 
-  const handleQueueSend = () => {
-    const t = text.trim()
-    if (!t) return
-    queueSend(t)
-    composerRuntime.setText('')
-  }
-
   return (
     <div>
+      {/* ── 运行中停止栏 ── */}
+      {isRunning && (
+        <div style={{
+          display: 'flex', justifyContent: 'center', marginBottom: 10,
+        }}>
+          <button
+            onClick={() => composerRuntime.cancel()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 20px', borderRadius: 20,
+              border: '1px solid #ea4335', background: '#fff', color: '#ea4335',
+              fontSize: 13, cursor: 'pointer', fontWeight: 500,
+            }}
+            title="停止生成"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            停止
+          </button>
+        </div>
+      )}
+
       <ComposerPrimitive.Root style={{
         display: 'flex', alignItems: 'flex-end', borderRadius: 24,
         border: '1px solid #dadce0', background: '#fff',
@@ -412,72 +412,33 @@ function Composer() {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               e.stopPropagation()
-              if (isRunning) {
-                handleQueueSend()
-              } else {
-                handleDirectSend()
-              }
+              handleSend()
             }
           }}
         />
 
-        {isRunning ? (
-          showQueueSend ? (
-            <button
-              onClick={handleQueueSend}
-              style={{
-                width: 36, height: 36, borderRadius: '50%', border: 'none',
-                background: '#f9a825', color: '#fff', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-              }}
-              title="加入队列发送"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={() => composerRuntime.cancel()}
-              style={{
-                width: 36, height: 36, borderRadius: '50%', border: 'none',
-                background: '#ea4335', color: '#fff', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
-              }}
-              title="Stop"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
-            </button>
-          )
-        ) : (
-          <button
-            onClick={handleDirectSend}
-            style={{
-              width: 36, height: 36, borderRadius: '50%', border: 'none',
-              background: '#1a73e8', color: '#fff', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-            title="发送"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        )}
+        <button
+          onClick={handleSend}
+          style={{
+            width: 36, height: 36, borderRadius: '50%', border: 'none',
+            background: '#1a73e8', color: '#fff', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}
+          title="发送"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
       </ComposerPrimitive.Root>
 
       <div style={{
         display: 'flex', alignItems: 'center', marginTop: 6, paddingLeft: 4, gap: 10,
       }}>
         <ThinkingSelector value={thinkingLevel} onChange={setThinkingLevel} />
-        <span style={{ fontSize: 11, color: '#80868b' }}>Enter 发送 · AI 回复中可继续输入排队</span>
+        <span style={{ fontSize: 11, color: '#80868b' }}>Enter 发送</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#dadce0', fontFamily: 'monospace' }}>
           /ws/chat
         </span>

@@ -167,10 +167,6 @@ export interface AskUserQuestion {
 interface MessageQueueState {
   queuedMessages: QueuedMessage[]
   queueCount: number
-  pendingQueue: string[]
-  /** 将消息加入客户端队列（AI 忙碌时调用） */
-  queueSend: (text: string) => void
-  shiftPending: () => void
   thinkingLevel: string
   setThinkingLevel: (level: string) => void
   /** 直接发送消息到后端（不经过框架），由 message_consumed 事件驱动显示 */
@@ -184,9 +180,6 @@ interface MessageQueueState {
 const MessageQueueContext = createContext<MessageQueueState>({
   queuedMessages: [],
   queueCount: 0,
-  pendingQueue: [],
-  queueSend: () => {},
-  shiftPending: () => {},
   thinkingLevel: 'off',
   setThinkingLevel: () => {},
   sendDirect: () => {},
@@ -252,15 +245,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     return () => { cancelled = true }
   }, [sessionId, sendCreate])
 
-  // 消息队列
+  // 消息队列（仅展示后端返回的排队状态）
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
-  const [pendingQueue, setPendingQueue] = useState<string[]>([])
-  const queueSend = useCallback((text: string) => {
-    setPendingQueue(prev => [...prev, text])
-  }, [])
-  const shiftPending = useCallback(() => {
-    setPendingQueue(prev => prev.slice(1))
-  }, [])
 
   // ask_user 待回答问题
   const [pendingQuestion, setPendingQuestion] = useState<AskUserQuestion[] | null>(null)
@@ -415,15 +401,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const queueState = useMemo<MessageQueueState>(() => ({
     queuedMessages,
     queueCount: queuedMessages.filter(m => m.status === 'queued').length,
-    pendingQueue,
-    queueSend,
-    shiftPending,
     thinkingLevel,
     setThinkingLevel,
     sendDirect,
     pendingQuestion,
     submitAnswer,
-  }), [queuedMessages, pendingQueue, queueSend, shiftPending, thinkingLevel, sendDirect, pendingQuestion, submitAnswer])
+  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer])
 
   if (initialMessages === null) {
     return (
@@ -472,7 +455,6 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
       <SessionResetter sessionId={sessionId} />
       <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} />
       <DeferredFlusher deferredBuffer={deferredBuffer} />
-      <PendingSendWatcher />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -498,12 +480,17 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
     consumeMessageRef.current = (text: string) => {
       console.log('[consumeMessage] appending user message, text:', text.substring(0, 30), 'isRunning:', isRunningRef.current)
       if (isRunningRef.current) {
-        // ask_user 回答：run 进行中不可 append（会中止当前 run），缓冲待 run 结束后补显示
+        // AI 运行中：只显示插话，不动流状态（不 triggerStream，不 startRun）
+        threadRuntime.append({
+          role: 'user',
+          content: [{ type: 'text', text }],
+        } as any)
+        // 后端处理完当前请求后会再次发 consume，届时 isRunning 为 false 再启动流
         deferredBuffer.current.push(text)
         return
       }
       triggerStream()
-      // 使用 append 的 startRun 选项，一步完成：追加消息 + 启动 adapter
+      // AI 空闲：追加消息 + 启动 adapter
       threadRuntime.append({
         role: 'user',
         content: [{ type: 'text', text }],
@@ -516,9 +503,8 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer }: {
 }
 
 /**
- * run 结束后逐条补显示缓冲的消息（ask_user 回答等）。
- * 仅追加显示，不启动新 run：后端该轮已结束，无新流事件，
- * 启动 run 会永久悬挂（isRunning 永真）。
+ * run 结束后逐条补显示缓冲的消息（插话 / ask_user 回答）。
+ * flush 时启动新 run（triggerStream + startRun），驱动后端处理排队消息。
  */
 function DeferredFlusher({ deferredBuffer }: { deferredBuffer: React.MutableRefObject<string[]> }) {
   const threadRuntime = useThreadRuntime()
@@ -528,46 +514,17 @@ function DeferredFlusher({ deferredBuffer }: { deferredBuffer: React.MutableRefO
     if (isRunning || deferredBuffer.current.length === 0) return
     const next = deferredBuffer.current.shift()!
     console.log('[DeferredFlusher] flushing deferred message:', next.substring(0, 30))
+    triggerStream()
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: next }],
+      startRun: true,
     } as any)
   }, [isRunning, deferredBuffer, threadRuntime])
 
   return null
 }
 
-/**
- * 空闲时自动发送客户端队列中的下一条消息。
- * ask_user 等待回答期间（pendingQuestion 非空）也允许发送，
- * 排队消息可作为回答投递，避免死锁。
- */
-function PendingSendWatcher() {
-  const isRunning = useThread(t => t.isRunning)
-  const { pendingQueue, shiftPending, sendDirect, pendingQuestion } = useMessageQueue()
-
-  // 使用 ref 确保 effect 内始终能访问最新的函数
-  const shiftRef = useRef(shiftPending)
-  shiftRef.current = shiftPending
-  const sendRef = useRef(sendDirect)
-  sendRef.current = sendDirect
-  const queueRef = useRef(pendingQueue)
-  queueRef.current = pendingQueue
-  const questionRef = useRef(pendingQuestion)
-  questionRef.current = pendingQuestion
-
-  useEffect(() => {
-    console.log('[PendingSendWatcher] isRunning:', isRunning, 'queueLen:', queueRef.current.length, 'pendingQuestion:', !!questionRef.current)
-    if (queueRef.current.length === 0) return
-    if (isRunning && !questionRef.current) return
-    const next = queueRef.current[0]
-    console.log('[PendingSendWatcher] auto-sending:', next.substring(0, 30))
-    shiftRef.current()
-    sendRef.current(next)
-  }, [isRunning, pendingQuestion])
-
-  return null
-}
 
 /** Resets the thread when sessionId changes. */
 function SessionResetter({ sessionId }: { sessionId: number }) {
