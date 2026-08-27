@@ -140,13 +140,18 @@ func (s *BlockStream) StopReason(stopReason StopReason) {
 	defer s.mu.Unlock()
 	s.stopReason = stopReason
 }
+func (s *BlockStream) startUsage(usage *Usage) {
+	s.usage.OutputTokens = usage.OutputTokens
+	s.usage.CacheInputTokens = usage.CacheInputTokens
+	s.usage.InputTokens = usage.InputTokens
+}
 func (s *BlockStream) deltaUsage(usage *Usage) {
 	s.usage.OutputTokens = s.usage.OutputTokens + usage.OutputTokens
 }
 func (s *BlockStream) MessageStart(usage *Usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.deltaUsage(usage)
+	s.startUsage(usage)
 	messageStart := NewMessageStartBlock(usage)
 	s.flushAndAdd(messageStart)
 }
