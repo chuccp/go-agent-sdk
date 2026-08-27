@@ -84,7 +84,7 @@ func (s *Session) Stop() {
 	s.loop.Stop()
 }
 
-// Destroy 停止当前轮次（只对单轮生效），后续用户消息不受影响。
+// Destroy 销毁Session
 func (s *Session) Destroy() {
 	s.sessions.Remove(s.sessionContext.sessionId)
 	s.cancel()

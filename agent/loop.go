@@ -27,18 +27,16 @@ type Loop struct {
 	no          uint64
 	inbox       *util.SliceQueue[*chat.UserBlock]
 	loopContext LoopContext
-	//options       *chat.Options
-	//toolExecutors []ToolExecutor
-	service    chat.Service
-	running    bool
-	pContext   context.Context
-	pCancel    context.CancelFunc
-	runLock    sync.Mutex
-	store      *Store
-	compressor Compressor
-	lContext   context.Context
-	lCancel    context.CancelFunc
-	seq        uint64
+	service     chat.Service
+	running     bool
+	pContext    context.Context
+	pCancel     context.CancelFunc
+	runLock     sync.Mutex
+	store       *Store
+	compressor  Compressor
+	lContext    context.Context
+	lCancel     context.CancelFunc
+	seq         uint64
 }
 
 func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Store) *Loop {
@@ -73,7 +71,7 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
 			defer l.runLock.Unlock()
-			l.do()
+			l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
 			l.running = false
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
@@ -213,19 +211,15 @@ LOOP:
 		if toolStop == chat.StopReasonUserWait {
 			goto END
 		}
-		//l.save()
 		goto LOOP
 	}
 	goto END
 
 END:
-	//l.save()
 	if l.inbox.IsEmpty() {
-		l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
 		return
 	}
 	goto LOOP
-
 }
 
 //func (l *Loop) save() {
