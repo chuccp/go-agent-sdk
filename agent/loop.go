@@ -9,7 +9,6 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
-	"github.com/chuccp/go-agent-sdk/value"
 )
 
 type LoopContext interface {
@@ -59,11 +58,8 @@ func (b *LoopBuilder) Store(store *Store) *LoopBuilder {
 	b.loop.store = store
 	return b
 }
-func (b *LoopBuilder) Config(config *chat.Config) *LoopBuilder {
-	config.ForEach(func(key string, value value.Value) bool {
-		b.loop.config.Set(chat.ConfigKey(key), value)
-		return true
-	})
+func (b *LoopBuilder) Config(config ...*chat.Config) *LoopBuilder {
+	b.loop.config.Merge(config...)
 	return b
 }
 func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
@@ -73,6 +69,7 @@ func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
 
 func (b *LoopBuilder) Build() *Loop {
 	b.loop.systemPrompt = b.loop.composeSystem()
+	b.loop.config.SetSystemPrompt(b.loop.systemPrompt)
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
@@ -160,7 +157,6 @@ func (l *Loop) buildRequest() *chat.Messages {
 	if len(history) == 0 && !fa {
 		return nil
 	}
-	effective.SetSystemPrompt(l.composeSystem())
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, 0, len(history)),
 		Config:   effective,

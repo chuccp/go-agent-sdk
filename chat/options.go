@@ -32,12 +32,15 @@ func (m *Config) ForEach(fn func(key string, value value.Value) bool) {
 	m.object.ForEach(fn)
 }
 
-func (m *Config) Merge(config *Config) {
-	if config != nil {
-		config.object.ForEach(func(key string, value value.Value) bool {
-			m.object.PutAny(key, value)
-			return true
-		})
+func (m *Config) Merge(configs ...*Config) {
+	if configs != nil {
+		for _, configItem := range configs {
+			configItem.ForEach(func(key string, value value.Value) bool {
+				m.object.PutAny(key, value)
+				return true
+			})
+		}
+
 	}
 }
 
