@@ -8,41 +8,34 @@ import (
 
 // Agent agent管理器
 type Agent struct {
-	sessions      *Sessions
-	lock          *sync.RWMutex
-	registry      *chat.ProviderRegistry
-	toolExecutors []ToolExecutor
-	system        string
-	opts          *chat.Options
-	historyStore  HistoryStore
-	compressor    Compressor
+	sessions *Sessions
+	lock     *sync.RWMutex
+	config   *Config
 }
 
 func NewAgent() *Agent {
 	return &Agent{
-		sessions:      NewSessions(),
-		lock:          new(sync.RWMutex),
-		registry:      chat.NewProviderRegistry(),
-		toolExecutors: make([]ToolExecutor, 0),
-		opts:          chat.DefaultOptions(),
+		sessions: NewSessions(),
+		lock:     new(sync.RWMutex),
+		config:   NewConfig(),
 	}
 }
 func (m *Agent) ChatOption(opt ...chat.Option) {
 	for _, o := range opt {
-		o(m.opts)
+		o(m.config.config)
 	}
 }
 func (m *Agent) AddTools(exec ...ToolExecutor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.toolExecutors = append(m.toolExecutors, exec...)
+	m.config.toolExecutors = append(m.config.toolExecutors, exec...)
 }
 
 // SetSystem 设置全局系统提示词，对之后新建的会话生效。
 func (m *Agent) SetSystem(system string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.system = system
+	m.config.system = system
 }
 
 // SetHistoryStore 设置聊天记录持久化实现。
@@ -50,7 +43,7 @@ func (m *Agent) SetSystem(system string) {
 func (m *Agent) SetHistoryStore(store HistoryStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.historyStore = store
+	m.config.historyStore = store
 }
 
 // SetCompressor 设置上下文压缩策略和持久化实现。
@@ -59,13 +52,13 @@ func (m *Agent) SetHistoryStore(store HistoryStore) {
 func (m *Agent) SetCompressor(c Compressor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.compressor = c
+	m.config.compressor = c
 }
 
-func (m *Agent) RegisterChat(provider string, chatService chat.Provider, isDefault bool) {
+func (m *Agent) RegisterChat(chatService chat.Service) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.registry.Register(provider, chatService, isDefault)
+	m.config.chat.Register(chatService)
 }
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
@@ -73,16 +66,7 @@ func (m *Agent) getOrCreateSession(id string) *Session {
 	if c, ok := m.sessions.Get(id); ok {
 		return c
 	}
-	// copy toolExecutors 快照，避免 Session 运行期间 AddTool 引发 data race
-	tools := make([]ToolExecutor, len(m.toolExecutors))
-	copy(tools, m.toolExecutors)
-	sessionContext := &SessionContext{
-		sessionId:     id,
-		registry:      m.registry,
-		toolExecutors: tools,
-		opts:          m.opts,
-	}
-	session := newSession(sessionContext, m.historyStore, m.compressor, m.sessions)
+	session := newSession(id, m.config, m.sessions)
 	m.sessions.Add(session)
 	return session
 }

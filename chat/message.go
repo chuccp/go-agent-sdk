@@ -48,7 +48,6 @@ func Text(text string) Message {
 
 type Messages struct {
 	Messages []Message
-	System   string
 	Tools    []ToolFunction
-	Options  []Option
+	Config   *Config
 }

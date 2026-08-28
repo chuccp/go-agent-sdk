@@ -68,6 +68,18 @@ func (a *Array) ForEach(fn func(index int, value Value) bool) {
 	}
 }
 
+// Iter 返回一个迭代器函数，支持 Go 1.23+ 的 for-range 语法。
+func (a *Array) Iter(yield func(i int, v Value) bool) {
+	if a == nil {
+		return
+	}
+	for i, v := range a.data {
+		if !yield(i, v) {
+			return
+		}
+	}
+}
+
 func (a *Array) StringValues() []string {
 	if a == nil {
 		return nil

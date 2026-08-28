@@ -2,14 +2,16 @@ package anthropic
 
 import "github.com/chuccp/go-agent-sdk/chat"
 
+var TYPE = []string{"anthropic", "claude"}
+
 // sseUsage 表示 Anthropic API 原始 usage 字段，独立于 chat.Usage，
 // 避免因字段缺失（如 cache_creation_input_tokens）导致反序列化丢数据。
 type sseUsage struct {
-	InputTokens            int    `json:"input_tokens"`
-	OutputTokens           int    `json:"output_tokens"`
-	CacheCreationInputTokens int  `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens   int    `json:"cache_read_input_tokens"`
-	ServiceTier            string `json:"service_tier"`
+	InputTokens              int    `json:"input_tokens"`
+	OutputTokens             int    `json:"output_tokens"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
+	ServiceTier              string `json:"service_tier"`
 }
 
 func (u *sseUsage) toChatUsage() *chat.Usage {

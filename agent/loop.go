@@ -7,50 +7,72 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"emperror.dev/errors"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 type LoopContext interface {
-	GetToolExecutor() []ToolExecutor
+	context.Context
 	SessionId() string
 	SendBlock(no uint64, block chat.Block) uint64
-	GetService(provider string) chat.Provider
-	DefaultProvider() string
+	GetChat() *chat.Chat
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
-	GetOptions() *chat.Options
 }
 
 type Loop struct {
-	no          uint64
-	inbox       *util.SliceQueue[*chat.UserBlock]
-	loopContext LoopContext
-	service     chat.Provider
-	running     bool
-	pContext    context.Context
-	pCancel     context.CancelFunc
-	runLock     sync.Mutex
-	store       *Store
-	compressor  Compressor
-	lContext    context.Context
-	lCancel     context.CancelFunc
-	seq         uint64
+	no            uint64
+	inbox         *util.SliceQueue[*chat.UserBlock]
+	loopContext   LoopContext
+	service       chat.Service
+	running       bool
+	pContext      context.Context
+	pCancel       context.CancelFunc
+	runLock       sync.Mutex
+	store         *Store
+	lContext      context.Context
+	lCancel       context.CancelFunc
+	seq           uint64
+	toolExecutors []ToolExecutor
+	config        *chat.Config
 }
 
-func NewLoop(ctx context.Context, loopContext LoopContext, No uint64, store *Store) *Loop {
-	pContext, plCancel := context.WithCancel(ctx)
-	return &Loop{
-		no:          No,
-		loopContext: loopContext,
-		store:       store,
-		pContext:    pContext,
-		pCancel:     plCancel,
-		inbox:       new(util.SliceQueue[*chat.UserBlock]),
-	}
+type LoopBuilder struct {
+	loop *Loop
 }
 
+func NewLoopBuilder(No uint64, loopContext LoopContext) *LoopBuilder {
+	pContext, plCancel := context.WithCancel(loopContext)
+	return &LoopBuilder{loop: &Loop{
+		no:            No,
+		loopContext:   loopContext,
+		toolExecutors: make([]ToolExecutor, 0),
+		inbox:         new(util.SliceQueue[*chat.UserBlock]),
+		pContext:      pContext,
+		pCancel:       plCancel,
+		config:        chat.DefaultConfig(),
+	}}
+}
+func (b *LoopBuilder) Store(store *Store) *LoopBuilder {
+	b.loop.store = store
+	return b
+}
+func (b *LoopBuilder) Config(config *chat.Config) *LoopBuilder {
+	config.ForEach(func(key string, value value.Value) bool {
+		b.loop.config.Set(chat.ConfigKey(key), value)
+		return true
+	})
+	return b
+}
+func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
+	b.loop.toolExecutors = append(b.loop.toolExecutors, toolExecutor...)
+	return b
+}
+
+func (b *LoopBuilder) Build() *Loop {
+	return b.loop
+}
 func (l *Loop) SendBlock(block chat.Block) uint64 {
 	start := l.loopContext.SendBlock(l.no, block)
 	return start
@@ -88,9 +110,9 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 	}
 }
 func (l *Loop) composeSystem() string {
-	effective := l.loopContext.GetOptions()
-	toolExecutors := l.loopContext.GetToolExecutor()
-	system := effective.SystemPrompt
+	effective := l.config
+	toolExecutors := l.toolExecutors
+	system := effective.GetSystemPrompt()
 	var prompts []string
 	for _, exec := range toolExecutors {
 		if p := exec.UsagePrompt(); p != "" {
@@ -105,9 +127,9 @@ func (l *Loop) composeSystem() string {
 	}
 	return system
 }
-func (l *Loop) buildRequest() *chat.Request {
-	effective := l.loopContext.GetOptions()
-	toolExecutors := l.loopContext.GetToolExecutor()
+func (l *Loop) buildRequest() *chat.Messages {
+	effective := l.config
+	toolExecutors := l.toolExecutors
 	values, fa := l.inbox.ReadAll()
 	if fa {
 		firstStart := uint64(0)
@@ -136,18 +158,10 @@ func (l *Loop) buildRequest() *chat.Request {
 	if len(history) == 0 && !fa {
 		return nil
 	}
-
-	// 压缩（压缩器内部自行持久化标记和摘要）
-	var summaryMsg *chat.Message
-	if l.compressor != nil {
-		summaryMsg = l.compressor.Compress(l.loopContext, history)
-	}
-
-	// 倒序过滤：从最新消息往前，跳过已压缩的
-	//effective := l.options
-	messages := &chat.Request{
-		System:   l.composeSystem(),
+	effective.SetSystemPrompt(l.composeSystem())
+	messages := &chat.Messages{
 		Messages: make([]chat.Message, 0, len(history)),
+		Config:   effective,
 	}
 	for i := len(history) - 1; i >= 0; i-- {
 		m := history[i]
@@ -162,22 +176,6 @@ func (l *Loop) buildRequest() *chat.Request {
 	for i, j := 0, len(messages.Messages)-1; i < j; i, j = i+1, j-1 {
 		messages.Messages[i], messages.Messages[j] = messages.Messages[j], messages.Messages[i]
 	}
-
-	// 摘要消息插入最前面
-	if summaryMsg != nil {
-		messages.Messages = append([]chat.Message{*summaryMsg}, messages.Messages...)
-	}
-
-	if effective != nil {
-		messages.Model = effective.Model
-		messages.MaxTokens = effective.MaxTokens
-		messages.StopSequences = effective.StopSequences
-		messages.Stream = effective.Stream
-		messages.Thinking = effective.Thinking.ToThinkingConfig()
-	} else {
-		messages.Stream = true
-	}
-
 	if len(toolExecutors) > 0 {
 		tools := make([]chat.ToolFunction, 0, len(toolExecutors))
 		for _, exec := range toolExecutors {
@@ -319,7 +317,7 @@ func (l *Loop) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (*chat.BlockGro
 
 // findExecutor 按名称查找已注册的工具执行器。
 func (l *Loop) findExecutor(name string) ToolExecutor {
-	toolExecutors := l.loopContext.GetToolExecutor()
+	toolExecutors := l.toolExecutors
 	for _, exec := range toolExecutors {
 		if exec.Name() == name {
 			return exec
@@ -393,15 +391,7 @@ func (l *Loop) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultBl
 }
 func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
 	stream := chat.NewBlockStream(l)
-	provider := l.loopContext.DefaultProvider()
-	if util.IsBlank(provider) {
-		return nil, "", errors.New("blank provider")
-	}
-	service := l.loopContext.GetService(provider)
-	if service == nil {
-		return nil, "", errors.Errorf("service not found: %s", provider)
-	}
-	err := service.ChatWithStream(l.lContext, l.buildRequest(), stream)
+	err := l.loopContext.GetChat().ChatWithStream(l.lContext, l.buildRequest(), stream)
 	if err != nil {
 		return nil, "", err
 	}

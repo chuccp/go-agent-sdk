@@ -176,24 +176,29 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value
 
 	system := exec.RenderTemplate(nd.SystemTemplate(), merged)
 	user := exec.RenderTemplate(nd.UserTemplate(), merged)
-	request := &chat.Request{
-		Model:     nd.Model(),
-		MaxTokens: 8192,
-		Stream:    true,
-		System:    system,
-		// 节点是一次性任务生成，默认关闭扩展思考：避免简单任务（如缝合/拼接）
-		// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理
-		Thinking: &chat.ThinkingConfig{Type: "disabled"},
+
+	config := chat.DefaultConfig()
+	if model := nd.Model(); model != "" {
+		config.Set(chat.ModelConfigKey, model)
+	}
+	config.Set(chat.MaxTokensConfigKey, 8192)
+	config.Set(chat.SystemPromptConfigKey, system)
+	// 节点是一次性任务生成，默认关闭扩展思考：避免简单任务（如缝合/拼接）
+	// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理
+	config.Set(chat.ThinkingConfigKey, string(chat.ThinkingOff))
+
+	messages := &chat.Messages{
 		Messages: []chat.Message{chat.NewTextMessage(user)},
+		Config:   config,
 	}
 	// 零上下文硬边界：直接走默认 provider 的一次性对话，不借助会话历史，
 	// 且 receiver 传 nil（NewBlockStream(nil)）——节点产出不回灌会话事件流。
-	svc := sctx.GetService("")
-	if svc == nil {
+	ch := sctx.GetChat()
+	if ch == nil {
 		return "", errors.New("no default chat service registered for node call")
 	}
 	stream := chat.NewBlockStream(nil)
-	if err := svc.ChatWithStream(context.Background(), request, stream); err != nil {
+	if err := ch.ChatWithStream(context.Background(), messages, stream); err != nil {
 		return "", err
 	}
 	blocks := stream.ReadBlocks()

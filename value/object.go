@@ -65,11 +65,15 @@ func (o *Object) GetNumber(key string) float64 {
 	if v == nil || !v.IsNumber() {
 		return 0
 	}
-	return v.AsNumber().f
+	return v.AsNumber().Float64()
 }
 
 func (o *Object) GetInt(key string) int {
-	return int(o.GetNumber(key))
+	v := o.Get(key)
+	if v == nil || !v.IsNumber() {
+		return 0
+	}
+	return int(v.AsNumber().Int64())
 }
 
 func (o *Object) GetObject(key string) *Object {
@@ -105,6 +109,16 @@ func (o *Object) ForEach(fn func(key string, value Value) bool) {
 	for k, v := range o.data {
 		if !fn(k, v) {
 			break
+		}
+	}
+}
+
+// Iter 返回一个迭代器函数，支持 Go 1.23+ 的 for-range 语法。
+// 遍历顺序不确定（底层为 map）。
+func (o *Object) Iter(yield func(k string, v Value) bool) {
+	for k, v := range o.data {
+		if !yield(k, v) {
+			return
 		}
 	}
 }
@@ -210,25 +224,25 @@ func fromInterface(v any) Value {
 	case float32:
 		return NewNumber(float64(val))
 	case int:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case int8:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case int16:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case int32:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case int64:
-		return NewNumber(float64(val))
+		return NewInt(val)
 	case uint:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case uint8:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case uint16:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case uint32:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case uint64:
-		return NewNumber(float64(val))
+		return NewInt(int64(val))
 	case string:
 		return &Text{text: val}
 	default:
@@ -253,7 +267,10 @@ func toAny(v Value) any {
 	case *Text:
 		return val.text
 	case *Number:
-		return val.f
+		if val.isFloat {
+			return val.f
+		}
+		return val.i
 	case *Bool:
 		return val.b
 	default:

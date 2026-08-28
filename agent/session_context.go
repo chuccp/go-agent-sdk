@@ -1,30 +1,31 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
-	LoopContext
-	sessionId     string
-	registry      *chat.ProviderRegistry
-	toolExecutors []ToolExecutor
-	transfer      *Transfer
-	opts          *chat.Options
+	context.Context
+	sessionId string
+	chat      *chat.Chat
+	transfer  *Transfer
+	opts      *chat.Config
 }
 
-func (c *SessionContext) GetToolExecutor() []ToolExecutor {
-	return c.toolExecutors
+func (c *SessionContext) GetChat() *chat.Chat {
+	return c.chat
 }
 
-func (c *SessionContext) GetOptions() *chat.Options {
+func (c *SessionContext) GetConfig() *chat.Config {
 	return c.opts
 }
 
-func (c *SessionContext) DefaultProvider() string {
-	return c.registry.DefaultProvider()
+func (c *SessionContext) GetOptions() *chat.Config {
+	return c.opts
 }
 
 // SessionId 返回会话 ID。
@@ -37,10 +38,6 @@ func (c *SessionContext) GetStore() *Store {
 // SendBlock 追加事件到存储并通知所有客户端。
 func (c *SessionContext) SendBlock(no uint64, block chat.Block) uint64 {
 	return c.transfer.SendBlock(no, block)
-}
-
-func (c *SessionContext) GetService(provider string) chat.Provider {
-	return c.registry.GetProvider(provider)
 }
 
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {

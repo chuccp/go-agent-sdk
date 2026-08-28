@@ -47,19 +47,27 @@ func (s *Session) WriteBlocks(blocks ...chat.Block) {
 	s.loop.HandleMessage(blocks)
 }
 
-func newSession(sessionContext *SessionContext, historyStore HistoryStore, compressor Compressor, sessions *Sessions) *Session {
+func newSession(id string, config *Config, sessions *Sessions) *Session {
+	// copy toolExecutors 快照，避免 Session 运行期间 AddTool 引发 data race
+	tools := make([]ToolExecutor, len(config.toolExecutors))
+	copy(tools, config.toolExecutors)
 	ctx, cancel := context.WithCancel(context.Background())
+	sessionContext := &SessionContext{
+		Context:   context.Background(),
+		sessionId: id,
+		chat:      config.chat,
+		opts:      config.config,
+	}
 	s := &Session{
 		sessionContext: sessionContext,
 		ctx:            ctx,
 		cancel:         cancel,
 		sessions:       sessions,
 	}
-	transfer := NewTransfer(sessionContext, compressor, historyStore)
+	transfer := NewTransfer(sessionContext, config.compressor, config.historyStore)
 	sessionContext.transfer = transfer
 	s.transfer = transfer
-	loop := NewLoop(ctx, sessionContext, 0, transfer.GetStore())
-	s.loop = loop
+	s.loop = NewLoopBuilder(0, sessionContext).Config(config.config).Store(transfer.GetStore()).Build()
 	return s
 }
 

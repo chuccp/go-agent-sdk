@@ -2,8 +2,8 @@ package agent_test
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -105,8 +105,8 @@ type fakeTool struct{}
 func (f *fakeTool) Definition() *chat.ToolFunction {
 	return &chat.ToolFunction{Name: "fake", Description: "a fake tool"}
 }
-func (f *fakeTool) Name() string                         { return "fake" }
-func (f *fakeTool) UsagePrompt() string                  { return "" }
+func (f *fakeTool) Name() string                                         { return "fake" }
+func (f *fakeTool) UsagePrompt() string                                  { return "" }
 func (f *fakeTool) Execute(_ *agent.Turn, _ *chat.ToolResultBlockStream) {}
 
 type echoTool struct{}

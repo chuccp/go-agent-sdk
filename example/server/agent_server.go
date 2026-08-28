@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
-	"github.com/chuccp/go-agent-sdk/example/api/chat/anthropic"
+	"github.com/chuccp/go-agent-sdk/api/chat/anthropic"
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/flow"
 	"github.com/chuccp/go-agent-sdk/example/service"
@@ -53,11 +53,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model
 		if util.EqualsAnyIgnoreCase(provider.Type, anthropic.TYPE...) {
-			r.agentManager.RegisterChat(key, anthropic.NewService(&anthropic.Config{
-				BaseURL: provider.BaseUrl,
-				APIKey:  provider.ApiKey,
-				Model:   provider.Model,
-			}), provider.Default)
+			r.agentManager.RegisterChat(anthropic.NewService(key, provider.BaseUrl, provider.ApiKey, provider.Model))
 		}
 	}
 	log.Info("Agent initialized (go-agent-sdk)", zap.Int("providers", len(providers)))

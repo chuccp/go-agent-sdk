@@ -8,7 +8,7 @@ replace github.com/chuccp/go-web-frame => ../../go-web-frame
 
 require (
 	emperror.dev/errors v0.8.1
-	github.com/chuccp/go-agent-sdk v0.0.0-20260728055118-449d238dd391
+	github.com/chuccp/go-agent-sdk v0.0.2
 	github.com/chuccp/go-web-frame v1.0.15
 	github.com/coder/websocket v1.8.15
 	github.com/spf13/cast v1.10.0

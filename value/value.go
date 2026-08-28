@@ -119,26 +119,59 @@ func NewText(text string) *Text {
 
 type Number struct {
 	ValueBase
-	f float64
+	i       int64
+	f       float64
+	isFloat bool
 }
 
 func (n *Number) IsNumber() bool { return true }
 
 func (n *Number) AsNumber() *Number { return n }
 
-func (n *Number) String() string { return fmt.Sprintf("%v", n.f) }
+func (n *Number) IsFloat() bool { return n.isFloat }
+
+// Int64 返回整数值。若为浮点数则截断小数部分。
+func (n *Number) Int64() int64 {
+	if n.isFloat {
+		return int64(n.f)
+	}
+	return n.i
+}
+
+// Float64 返回浮点值。若为整数则转换为 float64。
+func (n *Number) Float64() float64 {
+	if n.isFloat {
+		return n.f
+	}
+	return float64(n.i)
+}
+
+func (n *Number) String() string {
+	if n.isFloat {
+		return fmt.Sprintf("%v", n.f)
+	}
+	return fmt.Sprintf("%d", n.i)
+}
 
 func (n *Number) ToJSON() json.RawMessage {
-	data, _ := json.Marshal(n.f)
+	if n.isFloat {
+		data, _ := json.Marshal(n.f)
+		return data
+	}
+	data, _ := json.Marshal(n.i)
 	return data
 }
 
 func (n *Number) MarshalJSON() ([]byte, error) { return n.ToJSON(), nil }
 
+// NewNumber 从 float64 创建浮点数值。
 func NewNumber(f float64) *Number {
-	return &Number{
-		f: f,
-	}
+	return &Number{f: f, isFloat: true}
+}
+
+// NewInt 从 int64 创建整数值。
+func NewInt(i int64) *Number {
+	return &Number{i: i}
 }
 
 type Bool struct {

@@ -1,5 +1,7 @@
 package chat
 
+import "github.com/chuccp/go-agent-sdk/value"
+
 // ThinkingLevel 控制模型扩展思考（extended thinking）的强度级别。
 type ThinkingLevel string
 
@@ -10,76 +12,107 @@ const (
 	ThinkingHigh   ThinkingLevel = "high"   // 高级别思考（budget 32768 tokens）
 )
 
-// thinkingBudget 各级别对应的 token 预算。
-var thinkingBudget = map[ThinkingLevel]int{
-	ThinkingLow:    8192,
-	ThinkingMedium: 16384,
-	ThinkingHigh:   32768,
+type ConfigKey string
+
+const (
+	IDConfigKey           ConfigKey = "id"
+	ModelConfigKey        ConfigKey = "model"
+	MaxTokensConfigKey    ConfigKey = "max_tokens"
+	ThinkingConfigKey     ConfigKey = "thinking"
+	SystemPromptConfigKey ConfigKey = "system_prompt"
+	BaseURLConfigKey      ConfigKey = "baseUrl"
+	APIKEYConfigKey       ConfigKey = "apikey"
+)
+
+type Config struct {
+	object *value.Object
 }
 
-// ToThinkingConfig 将 ThinkingLevel 转换为协议层的 ThinkingConfig。
-// 返回 nil 表示未配置（不发送 thinking 字段）。
-func (l ThinkingLevel) ToThinkingConfig() *ThinkingConfig {
-	if l == "" || l == ThinkingOff {
-		if l == ThinkingOff {
-			return &ThinkingConfig{Type: "disabled"}
-		}
-		return nil
-	}
-	budget, ok := thinkingBudget[l]
-	if !ok {
-		return nil
-	}
-	return &ThinkingConfig{Type: "enabled", BudgetTokens: budget}
+func (m *Config) ForEach(fn func(key string, value value.Value) bool) {
+	m.object.ForEach(fn)
 }
 
-// Options 保存 LLM 请求参数，应用于 ChatManager 创建的所有会话。
-type Options struct {
-	Model         string
-	MaxTokens     int
-	StopSequences []string
-	Stream        bool
-	Thinking      ThinkingLevel // 扩展思考级别：off / low / medium / high
-	SystemPrompt  string
-}
-
-// DefaultOptions 返回默认配置。
-func DefaultOptions() *Options {
-	return &Options{
-		Stream: true,
+func (m *Config) Merge(config *Config) {
+	if config != nil {
+		config.object.ForEach(func(key string, value value.Value) bool {
+			m.object.PutAny(key, value)
+			return true
+		})
 	}
 }
 
-// Option 是配置 ChatManager 的函数式选项。
-type Option func(*Options)
+func (m *Config) Option(opt ...Option) {
+	for _, o := range opt {
+		o(m)
+	}
+}
+
+func (m *Config) Set(key ConfigKey, value any) {
+	m.object.PutAny(string(key), value)
+}
+
+func (m *Config) GetSystemPrompt() string {
+	return m.object.GetString(string(SystemPromptConfigKey))
+}
+func (m *Config) SetSystemPrompt(systemPrompt string) {
+	m.object.PutAny(string(SystemPromptConfigKey), systemPrompt)
+}
+func (m *Config) GetID() string {
+	return m.object.GetString(string(IDConfigKey))
+}
+func (m *Config) GetModel() string {
+	return m.object.GetString(string(ModelConfigKey))
+}
+func (m *Config) GetMaxTokens() int {
+	return m.object.GetInt(string(MaxTokensConfigKey))
+}
+func (m *Config) GetThinking() ThinkingLevel {
+	return ThinkingLevel(m.object.GetString(string(ThinkingConfigKey)))
+}
+func Combine(Configs ...*Config) *Config {
+	config := DefaultConfig()
+	for _, cfg := range Configs {
+		config.Merge(cfg)
+	}
+	return config
+}
+func DefaultConfig() *Config {
+	return &Config{
+		object: value.NewObject(),
+	}
+}
+
+type Option func(*Config)
 
 // WithModel 设置 LLM 请求的模型名称。
 func WithModel(model string) Option {
-	return func(o *Options) { o.Model = model }
+	return func(o *Config) { o.Set(ModelConfigKey, model) }
+}
+
+func WithId(id string) Option {
+	return func(o *Config) { o.Set(IDConfigKey, id) }
 }
 
 // WithSystemPrompt 设置 LLM 请求的系统提示。
 func WithSystemPrompt(systemPrompt string) Option {
-	return func(o *Options) { o.SystemPrompt = systemPrompt }
+	return func(o *Config) {
+		o.Set(SystemPromptConfigKey, systemPrompt)
+	}
 }
 
 // WithMaxTokens 设置最大生成 token 数。
 func WithMaxTokens(maxTokens int) Option {
-	return func(o *Options) { o.MaxTokens = maxTokens }
-}
-
-// WithStopSequences 设置停止序列。
-func WithStopSequences(seqs ...string) Option {
-	return func(o *Options) { o.StopSequences = seqs }
-}
-
-// WithStream 启用或禁用流式模式（默认 true）。
-func WithStream(stream bool) Option {
-	return func(o *Options) { o.Stream = stream }
+	return func(o *Config) {
+		o.Set(MaxTokensConfigKey, maxTokens)
+	}
 }
 
 // WithThinking 设置扩展思考级别（off / low / medium / high）。
 // 默认不设置（不发送 thinking 字段，由模型提供方决定）。
 func WithThinking(level ThinkingLevel) Option {
-	return func(o *Options) { o.Thinking = level }
+	return func(o *Config) {
+		// 存 string 而非 ThinkingLevel：value.fromInterface 只识别原生 string，
+		// 命名类型会落空为 NullValue，导致 GetThinking 读回 "null"。
+		o.Set(ThinkingConfigKey, string(level))
+	}
 }
