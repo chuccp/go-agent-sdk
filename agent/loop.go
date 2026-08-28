@@ -36,6 +36,7 @@ type Loop struct {
 	seq           uint64
 	toolExecutors []ToolExecutor
 	config        *chat.Config
+	systemPrompt  string
 }
 
 type LoopBuilder struct {
@@ -71,6 +72,7 @@ func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
 }
 
 func (b *LoopBuilder) Build() *Loop {
+	b.loop.systemPrompt = b.loop.composeSystem()
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {

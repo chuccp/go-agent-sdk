@@ -67,7 +67,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 	transfer := NewTransfer(sessionContext, config.compressor, config.historyStore)
 	sessionContext.transfer = transfer
 	s.transfer = transfer
-	s.loop = NewLoopBuilder(0, sessionContext).Config(config.config).Store(transfer.GetStore()).Build()
+	s.loop = NewLoopBuilder(0, sessionContext).Config(config.config).Store(transfer.GetStore()).ToolExecutor(tools...).Build()
 	return s
 }
 
