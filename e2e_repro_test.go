@@ -21,7 +21,8 @@ type fakeProvider struct {
 	calls int
 }
 
-func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
+func (f *fakeProvider) ID() string        { return "fake" }
+func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.calls++
 	if f.calls == 1 {
 		w.BlockToolUseStart("tu_1", "fake_tool")
@@ -97,7 +98,7 @@ func filterStack(s string) string {
 func TestTwoRoundsWithTool(t *testing.T) {
 	manager := agent.NewAgent()
 	manager.AddTools(&fakeTool{})
-	manager.RegisterChat("fake", &fakeProvider{}, true)
+	manager.RegisterChat(&fakeProvider{})
 
 	client, err := manager.GetClient("session-1", 0)
 	if err != nil {

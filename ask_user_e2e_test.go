@@ -17,10 +17,11 @@ import (
 type askUserProvider struct {
 	calls atomic.Int32
 	// lastRequest 记录最近一次请求，用于验证用户回答作为普通消息进入历史
-	lastReq atomic.Pointer[chat.Request]
+	lastReq atomic.Pointer[chat.Messages]
 }
 
-func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
+func (f *askUserProvider) ID() string        { return "ask" }
+func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.lastReq.Store(req)
 	n := f.calls.Add(1)
 	switch n {
@@ -69,7 +70,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	manager := agent.NewAgent()
 	manager.AddTools(tools.NewAskUserQuestionTool())
 	provider := &askUserProvider{}
-	manager.RegisterChat("fake", provider, true)
+	manager.RegisterChat(provider)
 
 	client, err := manager.GetClient("ask-e2e", 0)
 	if err != nil {

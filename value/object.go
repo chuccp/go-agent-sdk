@@ -3,6 +3,7 @@ package value
 import (
 	"encoding/json"
 	"log"
+	"reflect"
 )
 
 type Object struct {
@@ -245,6 +246,30 @@ func fromInterface(v any) Value {
 		return NewInt(int64(val))
 	case string:
 		return &Text{text: val}
+	default:
+		return fromReflect(v)
+	}
+}
+
+// fromReflect 处理底层为原生类型的命名类型（如 ThinkingLevel、Role 等自定义 string/int 类型）。
+// 类型 switch 只做精确匹配，命名类型会漏进 default；这里按 Kind 兜底转换为对应 Value，
+// 无法识别的类型返回 NullValue。
+func fromReflect(v any) Value {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		return NullValue
+	}
+	switch rv.Kind() {
+	case reflect.String:
+		return &Text{text: rv.String()}
+	case reflect.Bool:
+		return NewBool(rv.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return NewInt(rv.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return NewInt(int64(rv.Uint()))
+	case reflect.Float32, reflect.Float64:
+		return NewNumber(rv.Float())
 	default:
 		return NullValue
 	}

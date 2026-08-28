@@ -111,8 +111,6 @@ func WithMaxTokens(maxTokens int) Option {
 // 默认不设置（不发送 thinking 字段，由模型提供方决定）。
 func WithThinking(level ThinkingLevel) Option {
 	return func(o *Config) {
-		// 存 string 而非 ThinkingLevel：value.fromInterface 只识别原生 string，
-		// 命名类型会落空为 NullValue，导致 GetThinking 读回 "null"。
-		o.Set(ThinkingConfigKey, string(level))
+		o.Set(ThinkingConfigKey, level)
 	}
 }

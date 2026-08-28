@@ -21,7 +21,8 @@ type singleResponseProvider struct {
 	toolUse    *chat.ToolUseBlock // 非 nil 时返回 tool_use
 }
 
-func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
+func (f *singleResponseProvider) ID() string { return "single" }
+func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	if f.toolUse != nil {
 		w.BlockToolUseStart(f.toolUse.ID, f.toolUse.Name)
 		if f.toolUse.Input != nil {
@@ -56,7 +57,8 @@ type blockSpec struct {
 	toolName  string
 }
 
-func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
+func (f *orderedProvider) ID() string { return "ordered" }
+func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	i := int(f.idx.Add(1)) - 1
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
@@ -220,10 +222,10 @@ func hasBlockTypeInEvents(t *testing.T, events []*agent.Event, block chat.Block)
 
 func TestSingleRoundText(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &singleResponseProvider{
+	manager.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "Hello, world!",
-	}, true)
+	})
 
 	client, err := manager.GetClient("s1", 0)
 	if err != nil {
@@ -240,12 +242,12 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	manager.AddTools(&echoTool{})
 
 	// 第一次返回 tool_use，第二次返回 end_turn
-	manager.RegisterChat("fake", &orderedProvider{
+	manager.RegisterChat(&orderedProvider{
 		responses: []orderedResponse{
 			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
 			{text: "tool result processed", reason: chat.StopReasonEndTurn},
 		},
-	}, true)
+	})
 
 	client, err := manager.GetClient("s2", 0)
 	if err != nil {
@@ -265,12 +267,12 @@ func TestToolUse_UnknownTool(t *testing.T) {
 
 	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
 	// → 第二轮 LLM → done
-	manager.RegisterChat("fake", &orderedProvider{
+	manager.RegisterChat(&orderedProvider{
 		responses: []orderedResponse{
 			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
 			{text: "unknown tool handled", reason: chat.StopReasonEndTurn},
 		},
-	}, true)
+	})
 
 	client, err := manager.GetClient("s3", 0)
 	if err != nil {
@@ -284,10 +286,10 @@ func TestToolUse_UnknownTool(t *testing.T) {
 
 func TestMultipleRounds(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &singleResponseProvider{
+	manager.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response",
-	}, true)
+	})
 
 	client, err := manager.GetClient("s4", 0)
 	if err != nil {
@@ -308,10 +310,10 @@ func TestMultipleRounds(t *testing.T) {
 
 func TestStopGeneration(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &singleResponseProvider{
+	manager.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response after stop",
-	}, true)
+	})
 
 	client, err := manager.GetClient("s5", 0)
 	if err != nil {
@@ -337,7 +339,8 @@ type blockingProvider struct {
 	entered chan struct{}
 }
 
-func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Request, w *chat.BlockStream) error {
+func (p *blockingProvider) ID() string        { return "blocking" }
+func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	if p.calls.Add(1) == 1 {
 		close(p.entered) // 通知首轮生成已开始
 		<-ctx.Done()
@@ -355,7 +358,7 @@ func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Request, 
 func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	manager := agent.NewAgent()
 	provider := &blockingProvider{entered: make(chan struct{})}
-	manager.RegisterChat("fake", provider, true)
+	manager.RegisterChat(provider)
 
 	client, err := manager.GetClient("stop-round", 0)
 	if err != nil {
@@ -388,10 +391,10 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 
 func TestTwoClientsSameSession(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &singleResponseProvider{
+	manager.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "shared response",
-	}, true)
+	})
 
 	client1, err := manager.GetClient("s6", 0)
 	if err != nil {
@@ -422,10 +425,10 @@ func TestTwoClientsSameSession(t *testing.T) {
 
 func TestMaxTokensStopReason(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &singleResponseProvider{
+	manager.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonMaxTokens,
 		text:       "partial response...",
-	}, true)
+	})
 
 	client, err := manager.GetClient("s7", 0)
 	if err != nil {
@@ -442,7 +445,8 @@ type usageProvider struct {
 	idx atomic.Int32
 }
 
-func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *chat.BlockStream) error {
+func (f *usageProvider) ID() string  { return "usage" }
+func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	n := int(f.idx.Add(1))
 	w.MessageStart(&chat.Usage{InputTokens: 100, OutputTokens: 0})
 	w.BlockTextStart()
@@ -455,7 +459,7 @@ func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Request, w *ch
 // TestMessageDeltaTwoRounds 验证两轮对话都能读到 MessageDeltaBlock（usage 元数据）。
 func TestMessageDeltaTwoRounds(t *testing.T) {
 	manager := agent.NewAgent()
-	manager.RegisterChat("fake", &usageProvider{}, true)
+	manager.RegisterChat(&usageProvider{})
 
 	client, err := manager.GetClient("s_usage", 0)
 	if err != nil {

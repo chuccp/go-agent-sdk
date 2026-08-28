@@ -23,7 +23,7 @@ import (
 type flowFakeProvider struct {
 	mainCalls   int
 	nodeCalls   int
-	nodeReqs    []*chat.Request
+	nodeReqs    []*chat.Messages
 	mainSystems []string // 每轮主循环调用收到的 System
 }
 
@@ -47,7 +47,8 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
+func (f *flowFakeProvider) ID() string        { return "flow-fake" }
+func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	if len(req.Tools) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
 		f.nodeCalls++
@@ -56,7 +57,7 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 		return nil
 	}
 	f.mainCalls++
-	f.mainSystems = append(f.mainSystems, req.System)
+	f.mainSystems = append(f.mainSystems, req.Config.GetSystemPrompt())
 	blocks := f.script()[f.mainCalls-1]
 	stop := chat.StopReasonToolUse
 	for _, b := range blocks {
@@ -80,10 +81,11 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Request, 
 
 // fakeStoryNode 供 guards 测试使用的简单节点 LLM。
 type fakeStoryNode struct {
-	last *chat.Request
+	last *chat.Messages
 }
 
-func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Request, w *chat.BlockStream) error {
+func (f *fakeStoryNode) ID() string        { return "story-fake" }
+func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.last = req
 	emitText(w, "这是一个关于海洋的故事。")
 	return nil
@@ -191,7 +193,7 @@ func hasBlockType(events []*agent.Event, target chat.Block) bool {
 func TestFlowEndToEnd(t *testing.T) {
 	manager := agent.NewAgent()
 	mainLLM := &flowFakeProvider{}
-	manager.RegisterChat("fake", mainLLM, true)
+	manager.RegisterChat(mainLLM)
 	wf := workflow.NewManager()
 	wf.AddWorkflow(newStoryFlow())
 
@@ -230,8 +232,8 @@ func TestFlowEndToEnd(t *testing.T) {
 	if len(nodeReq.Tools) != 0 {
 		t.Errorf("节点调用不应携带工具")
 	}
-	if nodeReq.System != "你是一位故事创作者" {
-		t.Errorf("节点 system 模板渲染错误: %q", nodeReq.System)
+	if nodeReq.Config.GetSystemPrompt() != "你是一位故事创作者" {
+		t.Errorf("节点 system 模板渲染错误: %q", nodeReq.Config.GetSystemPrompt())
 	}
 	userText := ""
 	for _, b := range nodeReq.Messages[0].Content {
@@ -255,7 +257,7 @@ func TestFlowEndToEnd(t *testing.T) {
 func TestFlowGuards(t *testing.T) {
 	manager := agent.NewAgent()
 	storyLLM := &fakeStoryNode{}
-	manager.RegisterChat("fake", storyLLM, true)
+	manager.RegisterChat(storyLLM)
 	wf := workflow.NewManager()
 	wf.AddWorkflow(newStoryFlow())
 

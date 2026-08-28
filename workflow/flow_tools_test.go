@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,16 +16,16 @@ import (
 // ==================== 测试辅助 ====================
 
 // fakeLoopContext 最小化 LoopContext 实现，用于工具层单元测试。
-type fakeLoopContext struct{ id string }
+type fakeLoopContext struct {
+	context.Context
+	id string
+}
 
 func (f *fakeLoopContext) SessionId() string                             { return f.id }
 func (f *fakeLoopContext) SendBlock(_ uint64, _ chat.Block) uint64       { return 0 }
-func (f *fakeLoopContext) GetService(_ string) chat.Service              { return nil }
-func (f *fakeLoopContext) GetToolExecutor() []agent.ToolExecutor         { return nil }
-func (f *fakeLoopContext) DefaultProvider() string                       { return "" }
+func (f *fakeLoopContext) GetChat() *chat.Chat                           { return chat.NewChat() }
 func (f *fakeLoopContext) AppendMainAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendMainUserMessage(_ *chat.BlockGroup)      {}
-func (f *fakeLoopContext) GetOptions() *chat.Options                     { return nil }
 
 // newTestTools 创建工具组并激活默认 storyWorkflow，返回五个工具。
 func newTestTools(sessionId string, input map[string]any) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {
@@ -33,7 +34,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 	mgr.AddWorkflow(wf)
 	activate, execNode, stepDone, status, finish = NewFlowTools(mgr)
 	if sessionId != "" && input != nil {
-		sctx := &fakeLoopContext{id: sessionId}
+		sctx := &fakeLoopContext{Context: context.Background(), id: sessionId}
 		turn := agent.NewTurnWithContext(sctx, value.NewObjectFromMap(map[string]any{
 			"flow_id": "story003", "input": input,
 		}))
@@ -45,7 +46,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 
 // newTurn 构造绑定 fakeLoopContext 的 Turn。
 func newTurn(sessionId string, args map[string]any) *agent.Turn {
-	return agent.NewTurnWithContext(&fakeLoopContext{id: sessionId}, value.NewObjectFromMap(args))
+	return agent.NewTurnWithContext(&fakeLoopContext{Context: context.Background(), id: sessionId}, value.NewObjectFromMap(args))
 }
 
 // execText 执行工具并收集输出文本。
@@ -246,7 +247,7 @@ func TestFinishCompleteHappyPath(t *testing.T) {
 	activate, _, _, _, finish := NewFlowTools(mgr)
 
 	// 激活 flow
-	sctx := &fakeLoopContext{id: "s1"}
+	sctx := &fakeLoopContext{Context: context.Background(), id: "s1"}
 	activate.Execute(newTurn("s1", map[string]any{"flow_id": "story003", "input": map[string]any{"topic": "太空", "audience": "儿童"}}),
 		chat.NewToolResultBlockStream(chat.NewBlockStream(nil), "act"))
 
