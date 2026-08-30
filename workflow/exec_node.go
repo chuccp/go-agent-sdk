@@ -181,7 +181,7 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value
 	if model := nd.Model(); model != "" {
 		config.Set(chat.ModelConfigKey, model)
 	}
-	config.Set(chat.MaxTokensConfigKey, 8192)
+	config.Set(chat.MaxOutputTokensConfigKey, 8192)
 	config.Set(chat.SystemPromptConfigKey, system)
 	// 节点是一次性任务生成，默认关闭扩展思考：避免简单任务（如缝合/拼接）
 	// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理

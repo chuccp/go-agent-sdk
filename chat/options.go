@@ -15,13 +15,15 @@ const (
 type ConfigKey string
 
 const (
-	IDConfigKey           ConfigKey = "id"
-	ModelConfigKey        ConfigKey = "model"
-	MaxTokensConfigKey    ConfigKey = "max_tokens"
-	ThinkingConfigKey     ConfigKey = "thinking"
-	SystemPromptConfigKey ConfigKey = "system_prompt"
-	BaseURLConfigKey      ConfigKey = "baseUrl"
-	APIKEYConfigKey       ConfigKey = "apikey"
+	IDConfigKey               ConfigKey = "id"
+	ModelConfigKey            ConfigKey = "model"
+	MaxOutputTokensConfigKey  ConfigKey = "max_output_tokens"
+	MaxContextTokensConfigKey ConfigKey = "max_context_tokens"
+	KeepRecentTokensConfigKey ConfigKey = "keep_recent_tokens"
+	ThinkingConfigKey         ConfigKey = "thinking"
+	SystemPromptConfigKey     ConfigKey = "system_prompt"
+	BaseURLConfigKey          ConfigKey = "baseUrl"
+	APIKEYConfigKey           ConfigKey = "apikey"
 )
 
 type Config struct {
@@ -67,7 +69,7 @@ func (m *Config) GetModel() string {
 	return m.object.GetString(string(ModelConfigKey))
 }
 func (m *Config) GetMaxTokens() int {
-	return m.object.GetInt(string(MaxTokensConfigKey))
+	return m.object.GetInt(string(MaxOutputTokensConfigKey))
 }
 func (m *Config) GetThinking() ThinkingLevel {
 	return ThinkingLevel(m.object.GetString(string(ThinkingConfigKey)))
@@ -106,7 +108,7 @@ func WithSystemPrompt(systemPrompt string) Option {
 // WithMaxTokens 设置最大生成 token 数。
 func WithMaxTokens(maxTokens int) Option {
 	return func(o *Config) {
-		o.Set(MaxTokensConfigKey, maxTokens)
+		o.Set(MaxOutputTokensConfigKey, maxTokens)
 	}
 }
 
