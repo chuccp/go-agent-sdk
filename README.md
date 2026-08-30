@@ -47,11 +47,13 @@
 go-agent-sdk/
 ├── agent/          # Agent 层：Agent, SessionContext, Client, Loop,
 │                   #   Transfer, ToolExecutor, Turn, Store, HistoryStore
-├── chat/           # 协议层：Block, Event, Message, Request, Service, Options
+├── api/chat/       # LLM 提供商适配
+│   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
+├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
 ├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
+├── value/          # 动态值类型：Object, Array, Value（支持命名类型）
 └── example/        # 完整示例应用（Go 后端 + React 前端）
-    ├── api/chat/   # LLM 提供商适配（anthropic 协议）
     ├── entity/     # DB 实体 + WebSocket 消息定义
     ├── model/      # GORM 模型
     ├── rest/       # REST + WebSocket 路由
@@ -69,6 +71,7 @@ import (
 	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/agent"
+	"github.com/chuccp/go-agent-sdk/api/chat/anthropic"
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/tools"
 )
@@ -77,13 +80,13 @@ func main() {
 	// 1. 创建 Agent
 	a := agent.NewAgent()
 	a.ChatOption(
-		chat.WithModel("deepseek-v4-flash"),
+		chat.WithModel("claude-sonnet-4-6"),
 		chat.WithMaxTokens(4096),
 		chat.WithThinking(chat.ThinkingLow),
 	)
 
-	// 2. 注册 LLM 提供商
-	a.RegisterChat("my-provider", myChatService, true)
+	// 2. 注册 LLM 提供商（Service 通过 ID() 标识自身，首个注册的为默认）
+	a.RegisterChat(anthropic.NewService("my-provider", baseUrl, apiKey, "claude-sonnet-4-6"))
 
 	// 3. 注册工具（可选）
 	a.AddTools(tools.NewCommandTool())
@@ -139,12 +142,20 @@ type BaseBlock struct {
 }
 
 // 具体类型（均嵌入 BaseBlock）
-TextBlock       { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / flow_progress
-ThinkingBlock   { Thinking string }
-ImageBlock      { Source *ImageSource }
-ToolUseBlock    { ID, Name string; Input *value.Object }
-ToolResultBlock { ToolUseID string; Content Blocks }
-CustomTextBlock { Text string; TextType TextType; ToolUseId string }  // 业务扩展文本块（不进上下文），TextType: ask_user 等
+TextBlock          { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / flow_progress
+ThinkingBlock      { Thinking string }
+ImageBlock         { Source *ImageSource }
+ToolUseBlock       { ID, Name string; Input *value.Object }
+ToolExecutionBlock { ID, Name string; Content Blocks }   // 工具执行过程中的流式输出块
+ToolResultBlock    { ToolUseID string; Content Blocks }
+CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展文本块（不进上下文），TextType: ask_user 等
+MessageStartBlock  { Usage *Usage }                       // LLM 消息开始（携带初始 token 用量）
+MessageDeltaBlock  { Usage *Usage }                       // LLM 消息结束增量（携带最终 token 用量）
+StartBlock         { Block Block }                        // 流式开始标记（包裹具体块类型）
+DeltaBlock         { Content string }                     // 流式文本增量
+DoneBlock          { StopReason StopReason; Usage *Usage } // 本轮结束
+UserBlock          { BlockUserType string; ID string; Content Blocks } // 用户消息生命周期（sent/consume）
+ErrorBlock         { Text string }                        // 错误
 ```
 
 ### 事件流与断线续传
@@ -258,17 +269,22 @@ pnpm dev
 
 ```go
 a := agent.NewAgent()
+
+// ChatOption 配置 LLM 请求参数（支持可变参数）
 a.ChatOption(
-    chat.WithModel("claude-opus-4-8"),     // 模型名称
+    chat.WithModel("claude-opus-4-7"),     // 模型名称
     chat.WithMaxTokens(8192),              // 最大生成 token
-    chat.WithMaxContext(50),               // 最大上下文消息条数，超出时截断（0=不限制）
-    chat.WithTemperature(0.7),             // 采样温度
-    chat.WithTopP(0.9),                    // nucleus 采样
-    chat.WithTopK(40),                     // top-k 采样
-    chat.WithStopSequences("\n\nHuman:"),  // 停止序列
-    chat.WithStream(true),                 // 流式模式（默认 true）
     chat.WithThinking(chat.ThinkingHigh),  // 扩展思考级别
 )
+
+// SetSystem 设置全局系统提示词，对之后新建的会话生效
+a.SetSystem("你是一个智能助手。")
+
+// 也可通过 Config.Set 设置任意配置键
+a.ChatOption(func(c *chat.Config) {
+    c.Set(chat.BaseURLConfigKey, "https://api.example.com")
+    c.Set(chat.APIKEYConfigKey, "sk-xxx")
+})
 ```
 
 ## License
