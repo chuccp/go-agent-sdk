@@ -8,15 +8,21 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// HistoryStore 聊天记录持久化接口，由主程序实现。
-// SDK 在创建会话时调用 LoadHistory 恢复历史，在每轮对话结束后调用 AppendMessages 增量保存。
-type HistoryStore interface {
-	// LoadHistory 加载指定会话的历史消息。
-	// 返回空切片表示新会话，无历史记录。
-	LoadHistory(sessionID string) ([]*chat.Message, error)
+// MessageStore 聊天消息与压缩摘要的持久化接口，由主程序实现。
+type MessageStore interface {
+	// LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
+	// 返回完整历史（含已被摘要取代的旧消息），用于回放与展示。
+	LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error)
 
-	// AppendMessages 追加本批次新产生的消息到持久化存储。
-	AppendMessages(sessionID string, messages []*chat.Message) error
+	// Append 增量追加本批次新产生的消息。
+	Append(sessionID string, messages []*chat.Message) error
+
+	// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩。
+	LoadSummary(sessionID string) (*chat.Message, error)
+
+	// SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息。
+	// summary.Start 即分界点：Start < summary.Start 的旧消息在上下文中由摘要取代。
+	SaveSummary(sessionID string, summary *chat.Message) error
 }
 
 type splitManifest struct {
@@ -48,12 +54,12 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 type Store struct {
 	history           *util.SliceArray[*chat.Message]
 	tempHistory       *util.SliceArray[*chat.Message]
-	useHistory        *util.SliceArray[*chat.Message]
 	lock              sync.RWMutex
-	historyStore      HistoryStore
+	messageStore      MessageStore
 	compressorManager *CompressorManager
-	loopContext       LoopContext
 	doneManifest      *splitManifest
+	sessionID         string
+	summary           *chat.Message
 }
 
 func (s *Store) IsEmpty() bool {
@@ -85,8 +91,71 @@ func (s *Store) History() []*chat.Message {
 	copy(result[s.history.Len():], s.tempHistory.Slice())
 	return result
 }
+func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.summary == nil {
+		summary, err := s.messageStore.LoadSummary(s.sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if summary == nil {
+			s.summary = &chat.Message{
+				Start: 0,
+			}
+		} else {
+			s.summary = summary
+		}
+	}
+
+	messages := make([]*chat.Message, 0)
+
+	if s.history != nil && s.history.Len() > 0 {
+		firstMessage := s.history.Get(0)
+		if since >= firstMessage.Start {
+			s.history.ForEach(func(index int, message *chat.Message) bool {
+				if message.Start >= since {
+					messages = append(messages, message)
+					if len(messages) > limit {
+						return false
+					}
+				}
+				return true
+			})
+		}
+	}
+	after, err := s.messageStore.LoadAfter(s.sessionID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	if after != nil {
+		lastAfter := after[len(after)-1]
+		if lastAfter.Start > s.summary.Start {
+			if s.history.IsEmpty() {
+				for a := range after {
+					if after[a].Start > s.summary.Start {
+						s.history.Append(after[a])
+					}
+				}
+			} else {
+				lastMessage := s.history.Get(s.history.Len() - 1)
+				if lastAfter.Start > lastMessage.Start {
+					for a := range after {
+						if after[a].Start > lastMessage.Start {
+							s.history.Append(after[a])
+						}
+					}
+
+				}
+			}
+		}
+	}
+
+	return after, nil
+}
+
 func (s *Store) loadHistory() error {
-	if s.historyStore == nil {
+	if s.messageStore == nil {
 		return nil
 	}
 	if s.history.IsEmpty() {
@@ -141,10 +210,9 @@ func (s *Store) AppendHistory(c *chat.Message) {
 func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 	return s.doneManifest.hasSplit(slice)
 }
-func NewStore(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Store {
+func NewStore(sessionId string, compressor Compressor, messageStore MessageStore) *Store {
 	return &Store{
-		loopContext:       loopContext,
-		historyStore:      historyStore,
+		messageStore:      messageStore,
 		compressorManager: NewCompressorManager(compressor),
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),

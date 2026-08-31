@@ -68,6 +68,17 @@ func (a *SliceArray[T]) Append(v T) {
 	a.len++
 }
 
+func (a *SliceArray[T]) ForEach(fn func(index int, value T) bool) {
+	if a == nil {
+		return
+	}
+	for i, v := range a.Slice() {
+		if !fn(i, v) {
+			break
+		}
+	}
+}
+
 // Get returns the element at index. Panics if index is out of bounds.
 func (a *SliceArray[T]) Get(index int) T {
 	return a.buf[index]

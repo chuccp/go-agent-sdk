@@ -40,7 +40,7 @@ func (m *Agent) SetSystem(system string) {
 
 // SetHistoryStore 设置聊天记录持久化实现。
 // 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *Agent) SetHistoryStore(store HistoryStore) {
+func (m *Agent) SetHistoryStore(store MessageStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.config.historyStore = store
@@ -60,35 +60,20 @@ func (m *Agent) RegisterChat(chatService chat.Service) {
 	defer m.lock.Unlock()
 	m.config.chat.Register(chatService)
 }
+func (m *Agent) GetOrCreateSession(sessionId string) *Session {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.getOrCreateSession(sessionId)
+}
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
-func (m *Agent) getOrCreateSession(id string) *Session {
-	if c, ok := m.sessions.Get(id); ok {
+func (m *Agent) getOrCreateSession(sessionId string) *Session {
+	if c, ok := m.sessions.Get(sessionId); ok {
 		return c
 	}
-	session := newSession(id, m.config, m.sessions)
+	session := newSession(sessionId, m.config, m.sessions)
 	m.sessions.Add(session)
 	return session
-}
-
-func (m *Agent) History(id string) ([]*chat.Message, error) {
-	m.lock.Lock()
-	session := m.getOrCreateSession(id)
-	m.lock.Unlock()
-	if err := session.LoadHistory(); err != nil {
-		return nil, err
-	}
-	return session.History(), nil
-}
-
-func (m *Agent) GetClient(id string, start uint64) (*Client, error) {
-	m.lock.Lock()
-	session := m.getOrCreateSession(id)
-	m.lock.Unlock()
-	if err := session.LoadHistory(); err != nil {
-		return nil, err
-	}
-	return session.newClient(start), nil
 }
 
 func (m *Agent) GetSession(sessionId string) (*Session, bool) {
@@ -100,9 +85,9 @@ func (m *Agent) GetSession(sessionId string) (*Session, bool) {
 
 // SessionContext 获取或创建指定会话的 SessionContext。
 // 用于需要直接访问会话上下文的场景（如工具测试、自定义工具实现）。
-func (m *Agent) SessionContext(id string) *SessionContext {
+func (m *Agent) SessionContext(sessionId string) *SessionContext {
 	m.lock.Lock()
-	session := m.getOrCreateSession(id)
+	session := m.getOrCreateSession(sessionId)
 	m.lock.Unlock()
 	return session.sessionContext
 }

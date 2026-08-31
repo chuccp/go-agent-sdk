@@ -35,11 +35,11 @@ type Transfer struct {
 	messageStore *Store
 }
 
-func NewTransfer(loopContext LoopContext, compressor Compressor, historyStore HistoryStore) *Transfer {
+func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
 	return &Transfer{
 		entries:      new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
-		messageStore: NewStore(loopContext, compressor, historyStore),
+		messageStore: NewStore(sessionId, compressor, historyStore),
 	}
 
 }
@@ -51,6 +51,10 @@ func (l *Transfer) LoadHistory() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.messageStore.loadHistory()
+}
+
+func (l *Transfer) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
+	return l.messageStore.LoadMessagesAfter(since, limit)
 }
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {

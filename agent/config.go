@@ -7,7 +7,7 @@ type Config struct {
 	toolExecutors []ToolExecutor
 	system        string
 	config        *chat.Config
-	historyStore  HistoryStore
+	historyStore  MessageStore
 	compressor    Compressor
 }
 

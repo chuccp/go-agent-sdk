@@ -48,26 +48,27 @@ func (s *Session) WriteBlocks(blocks ...chat.Block) {
 }
 
 func newSession(id string, config *Config, sessions *Sessions) *Session {
-	// copy toolExecutors 快照，避免 Session 运行期间 AddTool 引发 data race
-	tools := make([]ToolExecutor, len(config.toolExecutors))
-	copy(tools, config.toolExecutors)
 	ctx, cancel := context.WithCancel(context.Background())
+	transfer := NewTransfer(id, config.compressor, config.historyStore)
 	sessionContext := &SessionContext{
-		Context:   context.Background(),
+		Context:   ctx,
 		sessionId: id,
 		chat:      config.chat,
 		opts:      config.config,
+		transfer:  transfer,
 	}
 	s := &Session{
 		sessionContext: sessionContext,
 		ctx:            ctx,
 		cancel:         cancel,
 		sessions:       sessions,
+		transfer:       transfer,
 	}
-	transfer := NewTransfer(sessionContext, config.compressor, config.historyStore)
-	sessionContext.transfer = transfer
-	s.transfer = transfer
-	s.loop = NewLoopBuilder(0, sessionContext).Config(config.config).Store(transfer.GetStore()).ToolExecutor(tools...).Build()
+	s.loop = NewLoopBuilder(0, sessionContext).
+		Config(config.config).
+		Store(transfer.GetStore()).
+		ToolExecutor(config.toolExecutors...).
+		Build()
 	return s
 }
 
@@ -80,6 +81,11 @@ func (s *Session) History() []*chat.Message {
 // LoadHistory 从持久化存储加载历史记录。
 func (s *Session) LoadHistory() error {
 	return s.transfer.LoadHistory()
+}
+
+// LoadMessagesAfter 从持久化存储加载历史记录。
+func (s *Session) LoadMessagesAfter(since uint64, limit uint64) ([]*chat.Message, error) {
+	return s.transfer.LoadMessagesAfter(since, limit)
 }
 
 // newClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
