@@ -40,6 +40,8 @@ type Session struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	transfer       *Transfer
+	sessionTimeout uint
+	clientTimeout  uint
 	sessions       *Sessions
 }
 
@@ -78,6 +80,15 @@ func (s *Session) History() []*chat.Message {
 
 }
 
+func (s *Session) SetSessionTimeout(sessionTimeout uint) {
+	s.sessionTimeout = sessionTimeout
+}
+
+// SetClientTimeout 秒
+func (s *Session) SetClientTimeout(clientTimeout uint) {
+	s.clientTimeout = clientTimeout
+}
+
 // LoadMessagesAfter 从持久化存储加载历史记录。
 func (s *Session) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
 	return s.transfer.LoadMessagesAfter(since, limit)
@@ -85,7 +96,9 @@ func (s *Session) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, e
 
 // CreateClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
 func (s *Session) CreateClient(ctx context.Context, start uint64) *Client {
-	return s.transfer.GetChatClient(ctx, start, s)
+	client := s.transfer.GetChatClient(ctx, start, s)
+	client.clientTimeout = s.clientTimeout
+	return client
 }
 
 // Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。

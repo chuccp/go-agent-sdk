@@ -20,28 +20,48 @@ type readEvents interface {
 	history() []*chat.Message
 }
 
-// 超时时间 1 很长时间没有动作，2. start
 // Client 面向调用方的客户端句柄
 type Client struct {
-	ctx        context.Context
-	handler    handler
-	queue      *util.Queue[bool]
-	start      uint64
-	readEvents readEvents
-	cancel     context.CancelFunc
-	once       sync.Once
+	ctx     context.Context
+	handler handler
+	queue   *util.Queue[bool]
+	start   uint64
+
+	preStart uint64
+	preTime  int64
+
+	readEvents    readEvents
+	cancel        context.CancelFunc
+	once          sync.Once
+	clientTimeout uint
 }
 
-func NewClient(pCtx context.Context, handler handler, queue *util.Queue[bool], start uint64, readEvents readEvents) *Client {
+func NewClient(pCtx context.Context, handler handler, start uint64, readEvents readEvents) *Client {
 	ctx, cancel := context.WithCancel(pCtx)
 	return &Client{
 		ctx:        ctx,
 		cancel:     cancel,
 		handler:    handler,
-		queue:      queue,
+		queue:      util.NewQueue[bool](),
 		start:      start,
 		readEvents: readEvents,
+		preTime:    0,
 	}
+}
+func (c *Client) isTimeout() bool {
+	if c.preStart == c.start {
+		if c.preTime == 0 {
+			c.preTime = util.GetSecondTime()
+		} else {
+			if util.GetSecondTime()-c.preTime > int64(c.clientTimeout) {
+				return true
+			}
+		}
+	} else {
+		c.preStart = c.start
+		c.preTime = 0
+	}
+	return false
 }
 
 func (c *Client) WriteText(message string) {

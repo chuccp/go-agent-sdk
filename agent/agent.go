@@ -72,6 +72,8 @@ func (m *Agent) getOrCreateSession(sessionId string) *Session {
 		return c
 	}
 	session := newSession(sessionId, m.config, m.sessions)
+	session.sessionTimeout = m.config.sessionTimeout
+	session.clientTimeout = m.config.clientTimeout
 	m.sessions.Add(session)
 	return session
 }
@@ -90,6 +92,20 @@ func (m *Agent) SessionContext(sessionId string) *SessionContext {
 	session := m.getOrCreateSession(sessionId)
 	m.lock.Unlock()
 	return session.sessionContext
+}
+
+// SetSessionTimeout 秒
+func (m *Agent) SetSessionTimeout(sessionTimeout uint) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.config.sessionTimeout = sessionTimeout
+}
+
+// SetClientTimeout 秒
+func (m *Agent) SetClientTimeout(clientTimeout uint) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.config.clientTimeout = clientTimeout
 }
 
 // RemoveSession 关闭并移除指定会话。若会话不存在则无操作。

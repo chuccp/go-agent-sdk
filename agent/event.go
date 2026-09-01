@@ -209,13 +209,7 @@ func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler hand
 	if start > l.seq {
 		start = l.seq
 	}
-	chatClient := &Client{
-		ctx:        ctx,
-		queue:      util.NewQueue[bool](),
-		handler:    handler,
-		start:      start,
-		readEvents: l,
-	}
+	chatClient := NewClient(ctx, handler, start, l)
 	l.chatClients.Append(chatClient)
 	return chatClient
 }
@@ -227,6 +221,9 @@ func (l *Transfer) flush() {
 		err := sub.queue.Offer(true)
 		if err != nil {
 			log.Printf("Error offering chat Session: %v", err)
+		}
+		if sub.isTimeout() {
+			sub.Close()
 		}
 	}
 }

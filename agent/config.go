@@ -6,7 +6,7 @@ import (
 
 const (
 	defaultSessionTimeout = 600
-	defaultClientTimeout  = 600
+	defaultClientTimeout  = 300
 )
 
 type Config struct {
@@ -16,8 +16,8 @@ type Config struct {
 	config         *chat.Config
 	historyStore   MessageStore
 	compressor     Compressor
-	SessionTimeout int
-	ClientTimeout  int
+	sessionTimeout uint
+	clientTimeout  uint
 }
 
 func NewConfig() *Config {
@@ -28,8 +28,8 @@ func NewConfig() *Config {
 		historyStore:   nil,
 		compressor:     nil,
 		chat:           chat.NewChat(),
-		SessionTimeout: defaultSessionTimeout,
-		ClientTimeout:  defaultClientTimeout,
+		sessionTimeout: defaultSessionTimeout,
+		clientTimeout:  defaultClientTimeout,
 	}
 
 }
