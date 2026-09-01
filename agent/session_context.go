@@ -54,10 +54,6 @@ func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
 	return c.transfer.GetChatClient(start, handler)
 }
 
-func (c *SessionContext) LoadHistory() error {
-	return c.transfer.LoadHistory()
-}
-
 func (c *SessionContext) History() []*chat.Message {
 	return c.transfer.history()
 }

@@ -78,19 +78,14 @@ func (s *Session) History() []*chat.Message {
 
 }
 
-// LoadHistory 从持久化存储加载历史记录。
-func (s *Session) LoadHistory() error {
-	return s.transfer.LoadHistory()
-}
-
 // LoadMessagesAfter 从持久化存储加载历史记录。
-func (s *Session) LoadMessagesAfter(since uint64, limit uint64) ([]*chat.Message, error) {
+func (s *Session) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
 	return s.transfer.LoadMessagesAfter(since, limit)
 }
 
-// newClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
-func (s *Session) newClient(start uint64) *Client {
-	return s.transfer.GetChatClient(start, s)
+// CreateClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
+func (s *Session) CreateClient(ctx context.Context, start uint64) *Client {
+	return s.transfer.GetChatClient(ctx, start, s)
 }
 
 // Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。

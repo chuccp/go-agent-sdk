@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"sort"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -154,21 +153,6 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 	return after, nil
 }
 
-func (s *Store) loadHistory() error {
-	if s.messageStore == nil {
-		return nil
-	}
-	if s.history.IsEmpty() {
-		messages, err := s.historyStore.LoadHistory(s.loopContext.SessionId())
-		if err != nil {
-			return err
-		}
-		sort.Slice(messages, func(i, j int) bool { return messages[i].Start < messages[j].Start })
-
-		s.append(messages...)
-	}
-	return nil
-}
 func (s *Store) RecordDone(minStart uint64) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -178,7 +162,7 @@ func (s *Store) RecordDone(minStart uint64) {
 func (s *Store) save(minStart uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.historyStore != nil {
+	if s.messageStore != nil {
 		allTemp := s.tempHistory.Slice()
 		if len(allTemp) > 0 {
 			var megs []*chat.Message
@@ -192,7 +176,7 @@ func (s *Store) save(minStart uint64) error {
 				s.tempHistory.Remove(m)
 			}
 			if len(megs) > 0 {
-				if err := s.historyStore.AppendMessages(s.loopContext.SessionId(), megs); err != nil {
+				if err := s.messageStore.Append(s.sessionID, megs); err != nil {
 					return err
 				}
 			}
@@ -212,6 +196,7 @@ func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 }
 func NewStore(sessionId string, compressor Compressor, messageStore MessageStore) *Store {
 	return &Store{
+		sessionID:         sessionId,
 		messageStore:      messageStore,
 		compressorManager: NewCompressorManager(compressor),
 		history:           new(util.SliceArray[*chat.Message]),

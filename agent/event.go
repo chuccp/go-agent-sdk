@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"log"
 	"sort"
 	"sync"
@@ -45,12 +46,6 @@ func NewTransfer(sessionId string, compressor Compressor, historyStore MessageSt
 }
 func (l *Transfer) GetStore() *Store {
 	return l.messageStore
-}
-
-func (l *Transfer) LoadHistory() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.messageStore.loadHistory()
 }
 
 func (l *Transfer) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
@@ -208,13 +203,14 @@ func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*ch
 	}
 }
 
-func (l *Transfer) GetChatClient(start uint64, handler handler) *Client {
+func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if start > l.seq {
 		start = l.seq
 	}
 	chatClient := &Client{
+		ctx:        ctx,
 		queue:      util.NewQueue[bool](),
 		handler:    handler,
 		start:      start,
