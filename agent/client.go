@@ -49,6 +49,9 @@ func NewClient(pCtx context.Context, handler handler, start uint64, readEvents r
 	}
 }
 func (c *Client) isTimeout() bool {
+	if c.clientTimeout == 0 {
+		return false
+	}
 	if c.preStart == c.start {
 		if c.preTime == 0 {
 			c.preTime = util.GetSecondTime()

@@ -34,6 +34,10 @@ func (d *splitManifest) addSplit(lastStart uint64) {
 
 func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 
+	//if sub.isTimeout() {
+	//	sub.Close()
+	//}
+
 	returnStart := uint64(0)
 	for {
 		if d.starts.IsEmpty() {

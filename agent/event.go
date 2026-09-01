@@ -222,9 +222,6 @@ func (l *Transfer) flush() {
 		if err != nil {
 			log.Printf("Error offering chat Session: %v", err)
 		}
-		if sub.isTimeout() {
-			sub.Close()
-		}
 	}
 }
 func (l *Transfer) deleteClient(client *Client) {
