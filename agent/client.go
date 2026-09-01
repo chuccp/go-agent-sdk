@@ -34,6 +34,7 @@ type Client struct {
 	cancel        context.CancelFunc
 	once          sync.Once
 	clientTimeout uint
+	isClosed      bool
 }
 
 func NewClient(pCtx context.Context, handler handler, start uint64, readEvents readEvents) *Client {
@@ -46,6 +47,7 @@ func NewClient(pCtx context.Context, handler handler, start uint64, readEvents r
 		start:      start,
 		readEvents: readEvents,
 		preTime:    0,
+		isClosed:   false,
 	}
 }
 func (c *Client) isTimeout() bool {
@@ -104,5 +106,6 @@ func (c *Client) Close() {
 	c.once.Do(func() {
 		c.cancel()
 		c.readEvents.deleteClient(c)
+		c.isClosed = true
 	})
 }

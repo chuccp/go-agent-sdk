@@ -43,13 +43,23 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 		if d.starts.IsEmpty() {
 			return returnStart, returnStart > 0
 		}
+
+		num := d.starts.Len()
+
 		minStart := d.starts.Get(0)
 		hasMin := false
 		for _, client := range clients {
+			if client.isClosed {
+				continue
+			}
 			if client.start < minStart {
-				hasMin = true
-				if client.isTimeout() {
+				if num > 3 {
 					client.Close()
+				} else {
+					hasMin = true
+					if client.isTimeout() {
+						client.Close()
+					}
 				}
 			}
 		}
