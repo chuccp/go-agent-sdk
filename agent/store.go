@@ -44,10 +44,17 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 			return returnStart, returnStart > 0
 		}
 		minStart := d.starts.Get(0)
+		hasMin := false
 		for _, client := range clients {
 			if client.start < minStart {
-				return returnStart, returnStart > 0
+				hasMin = true
+				if client.isTimeout() {
+					client.Close()
+				}
 			}
+		}
+		if hasMin {
+			return returnStart, returnStart > 0
 		}
 		d.starts.Delete(0)
 		returnStart = minStart
