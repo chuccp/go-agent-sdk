@@ -144,16 +144,16 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           const text = b.text || ''
           if (!text) break
           if (activeCommand !== null) {
-            appendText('assistant', `⟪command⟫${activeCommand}\n${text}⟪/command⟫`)
+            result.push({ role: 'assistant', content: `⟪command⟫${activeCommand}\n${text}⟪/command⟫` })
             activeCommand = null
           } else {
-            appendText('assistant', text)
+            result.push({ role: 'assistant', content: text })
           }
           break
         }
         case 'thinking': {
           const text = b.thinking || ''
-          if (text) appendText('assistant', `⟪think⟫${text}⟪/think⟫`)
+          if (text) result.push({ role: 'assistant', content: `⟪think⟫${text}⟪/think⟫` })
           break
         }
         case 'tool_use': {
@@ -165,7 +165,7 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           } else {
             // 其他工具：显示入参文本（与 WebSocket 实时流的 delta chunk 一致）
             const text = input?.command ? String(input.command) : JSON.stringify(input)
-            if (text) appendText('assistant', text)
+            if (text) result.push({ role: 'assistant', content: text })
           }
           break
         }
@@ -181,19 +181,19 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
                 // 每个命令独立一条消息，避免多个 execute_command 合并显示
                 result.push({ role: 'assistant', content: `⟪command⟫${cmd}\n${text}⟪/command⟫` })
               } else {
-                appendText('assistant', `⟪result⟫${text}⟪/result⟫`)
+                result.push({ role: 'assistant', content: `⟪result⟫${text}⟪/result⟫` })
               }
             }
           }
           break
         }
         case 'custom_text': {
-          if (b.text) appendText('assistant', b.text)
+          if (b.text) result.push({ role: 'assistant', content: b.text })
           break
         }
         case 'error': {
           const text = (b as Record<string, unknown>).text as string || ''
-          if (text) appendText('assistant', `❌ ${text}`)
+          if (text) result.push({ role: 'assistant', content: `❌ ${text}` })
           break
         }
         case 'done':
