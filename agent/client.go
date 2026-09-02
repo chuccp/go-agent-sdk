@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"

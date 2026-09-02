@@ -297,10 +297,10 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         }
         break
       case 'done':
-        event = { kind: 'done' }
+        // 不设 done=true：多轮历史事件中每个 DoneBlock 后还有下一轮事件
         resetStreamBlockState()
         console.log('[bridge] done block received')
-        break
+        return
       case 'error':
         event = { kind: 'error', message: (block.text as string) || (block.message as string) || 'Unknown error' }
         break
@@ -382,14 +382,15 @@ export function createStreamingAdapter(): ChatModelAdapter {
         }
       }
 
-      // 最新状态槽：流式到达时只保留最新内容，避免队列积压导致闪烁
-      let latestResult: ChatModelRunResult | null = null
+      // 结果队列：每轮对话内容独立入队，不会互相覆盖
+      const resultQueue: ChatModelRunResult[] = []
 
       const push = () => {
         const combined = serializeSegments(segments)
         if (combined) {
-          latestResult = { content: [{ type: 'text' as const, text: combined }] }
+          resultQueue.push({ content: [{ type: 'text' as const, text: combined }] })
         }
+        segments.length = 0
       }
 
       const handleEvent = (evt: StreamEvent) => {
@@ -461,12 +462,10 @@ export function createStreamingAdapter(): ChatModelAdapter {
       }
       abortSignal?.addEventListener('abort', onAbort)
 
-      // 4. 流式输出：每次取最新状态，丢弃中间态（防闪烁）
-      while (!done) {
-        if (latestResult) {
-          const result = latestResult
-          latestResult = null
-          yield result
+      // 4. 流式输出：从队列逐条 yield，done 后排空队列再退出
+      while (!done || resultQueue.length > 0) {
+        if (resultQueue.length > 0) {
+          yield resultQueue.shift()!
         } else {
           await new Promise(r => setTimeout(r, 50))
         }
@@ -476,8 +475,8 @@ export function createStreamingAdapter(): ChatModelAdapter {
       abortSignal?.removeEventListener('abort', onAbort)
 
       // 6. 排空剩余（确保最终状态被 yield）
-      if (latestResult) {
-        yield latestResult
+      while (resultQueue.length > 0) {
+        yield resultQueue.shift()!
       }
 
       directDispatch = null

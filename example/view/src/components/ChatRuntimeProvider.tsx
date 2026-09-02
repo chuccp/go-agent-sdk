@@ -285,13 +285,37 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   }, [])
 
   useEffect(() => {
-    // 不读取 REST 历史，直接通过 WebSocket 从 start=0 获取所有事件
-    startRef.current = 0
-    setInitialMessages([])
+    const controller = new AbortController()
+    startRef.current = null
     createdRef.current = false
     pendingChatRef.current = []
     setPendingQuestion(null)
-    sendCreate()
+    // 分页加载历史事件：不设 initialMessages=null，避免重渲染取消异步
+    ;(async () => {
+      try {
+        const allEvents: ChatEvent[] = []
+        let since = 0
+        while (!controller.signal.aborted) {
+          const page = await getSessionEvents(sessionId, since)
+          if (page.length === 0) break
+          allEvents.push(...page)
+          const last = page[page.length - 1]
+          since = last.start + last.offset
+        }
+        if (controller.signal.aborted) return
+        extractUsageFromEvents(allEvents)
+        const last = allEvents[allEvents.length - 1]
+        startRef.current = last ? last.start + last.offset : 0
+        setInitialMessages(buildDisplayMessages(allEvents))
+        sendCreate()
+      } catch {
+        if (controller.signal.aborted) return
+        startRef.current = 0
+        setInitialMessages([])
+        sendCreate()
+      }
+    })()
+    return () => { controller.abort() }
   }, [sessionId, sendCreate])
 
   // 消息队列（仅展示后端返回的排队状态）
@@ -371,6 +395,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
         })
         // 历史已加载完成则立即接入事件流（重连时恢复）
         sendCreate()
+        // 立即启动 adapter 处理事件（包括 WS 推送的历史事件），不等用户消息触发
+        triggerStream()
       }
 
       ws.onmessage = (evt: MessageEvent) => {
