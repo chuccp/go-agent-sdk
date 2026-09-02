@@ -296,6 +296,40 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
           }
         }
         break
+      case 'tool_use': {
+        // 非流式 tool_use 块（WS 历史回放用，替代实时流的 start/delta）：
+        // execute_command 只记录命令，供后续 tool_result 关联；其他工具把入参回显为文本。
+        const input = block.input as Record<string, unknown> | undefined
+        const toolName = (block.name as string) || ''
+        const toolId = (block.id as string) || ''
+        if (toolName === 'execute_command') {
+          const cmd = input?.command ? String(input.command) : ''
+          if (cmd && toolId) commandByToolUseId.set(toolId, cmd)
+        } else {
+          const text = input?.command ? String(input.command) : JSON.stringify(input ?? {})
+          if (text) event = { kind: 'chunk', text }
+        }
+        break
+      }
+      case 'tool_result': {
+        // 非流式 tool_result 块（WS 历史回放用）：execute_command 输出按命令终端样式渲染，
+        // 其他工具输出按 result 段渲染，与历史 buildDisplayMessages 保持一致。
+        const inner = block.content as Array<Record<string, unknown>> | undefined
+        if (Array.isArray(inner)) {
+          const firstText = inner.find(c => c.type === 'text' && c.text)
+          const toolUseId = (firstText?.tool_use_id as string) || (block.tool_use_id as string) || null
+          const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
+          const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text as string).join('\n')
+          if (text) {
+            if (cmd) {
+              event = { kind: 'command', command: cmd, output: text }
+            } else {
+              event = { kind: 'chunk', text: `⟪result⟫${text}⟪/result⟫` }
+            }
+          }
+        }
+        break
+      }
       case 'done':
         event = { kind: 'done' }
         resetStreamBlockState()
