@@ -57,7 +57,7 @@ func (s *ChatSessionService) DeleteSession(ctx context.Context, id uint) error {
 
 // ── agent.MessageStore 接口实现 ──
 
-// LoadAfter 读取 Start >= since 的原始消息，按 Start 升序，最多 limit 条。
+// LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
 // 实现 agent.MessageStore 接口。
 func (s *ChatSessionService) LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error) {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
@@ -78,7 +78,7 @@ func (s *ChatSessionService) LoadAfter(sessionID string, since uint64, limit int
 
 	messages := make([]*chat.Message, 0, len(rows))
 	for _, row := range rows {
-		if uint64(row.Start) < since {
+		if row.Start+row.Offset <= since {
 			continue
 		}
 		msg := &chat.Message{

@@ -27,7 +27,7 @@ type memoryMessageStore struct {
 func (m *memoryMessageStore) LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error) {
 	var result []*chat.Message
 	for _, msg := range m.messages {
-		if msg.Start >= since {
+		if msg.Start+msg.Offset > since {
 			result = append(result, msg)
 			if len(result) >= limit {
 				break
@@ -255,9 +255,10 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
-	// firstEvent.Start=0 <= start=0 → greaterEntries 过滤 Start>=0 → 1个
-	if len(events) != 1 {
-		t.Fatalf("greaterStart(0) all-sources = %d events, want 1", len(events))
+	// firstEvent.Start=3 > start=0 → 走 history 路径，返回 history 的 2 条消息；
+	// tempHistory（save 前）与 entries（Start=3 在 gap 之后）均不读取。
+	if len(events) != 2 {
+		t.Fatalf("greaterStart(0) all-sources = %d events, want 2", len(events))
 	}
 }
 

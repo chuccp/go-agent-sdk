@@ -117,6 +117,9 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 	if s.messageStore == nil {
 		return nil, nil
 	}
+	if limit <= 0 {
+		return nil, nil
+	}
 	if s.summary == nil {
 		summary, err := s.messageStore.LoadSummary(s.sessionID)
 		if err != nil {
@@ -131,6 +134,9 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 		}
 	}
 
+	// 冷启动预热：缓存为空且 since 越过压缩节点时，把 [summary.Start, since] 的活跃
+	// 历史拉进缓存，保证 History()（LLM 上下文）完整。压缩节点之前（Start <= summary.Start）
+	// 的旧消息已被摘要取代，不进内存缓存。
 	if s.history.IsEmpty() && since > s.summary.Start {
 		start := s.summary.Start
 		for {
@@ -138,33 +144,34 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 			if err != nil {
 				return nil, err
 			}
-			if len(after) > 0 {
-				for _, m := range after {
-					s.history.Append(m)
-				}
-				if len(after) < limit {
-					break
-				}
-				lastMessage := after[len(after)-1]
-				lastStart := lastMessage.Start + lastMessage.Offset
-				if lastStart < since {
-					start = lastStart
-				}
+			if len(after) == 0 {
+				break
+			}
+			for _, m := range after {
+				s.history.Append(m)
+			}
+			if len(after) < limit {
+				break
+			}
+			lastStart := after[len(after)-1].Start + after[len(after)-1].Offset
+			if lastStart < since {
+				start = lastStart
 			} else {
 				break
 			}
 		}
-
 	}
-	messages := make([]*chat.Message, 0)
-	if s.history != nil && s.history.Len() > 0 {
-		firstMessage := s.history.First()
-		lastMessage := s.history.Last()
-		if since >= firstMessage.Start && since <= lastMessage.Start {
+
+	// 缓存已覆盖 since 时从缓存回放。
+	if s.history.Len() > 0 {
+		first := s.history.First()
+		last := s.history.Last()
+		if since >= first.Start && since < last.Start+last.Offset {
+			messages := make([]*chat.Message, 0, limit)
 			s.history.ForEach(func(index int, message *chat.Message) bool {
-				if message.Start >= since {
+				if message.Start+message.Offset > since {
 					messages = append(messages, message)
-					if len(messages) > limit {
+					if len(messages) >= limit {
 						return false
 					}
 				}
@@ -173,34 +180,34 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 			return messages, nil
 		}
 	}
+
+	// 缓存未覆盖（since 在压缩节点之前，或超出缓存末尾）：直接从 DB 读完整原始历史
+	// 返回，不因压缩节点丢掉用户历史；只把活跃消息（Start > summary.Start）合并进缓存。
 	after, err := s.messageStore.LoadAfter(s.sessionID, since, limit)
 	if err != nil {
 		return nil, err
 	}
-	if len(after) > 0 {
-		lastAfter := after[len(after)-1]
-		if lastAfter.Start > s.summary.Start {
-			if s.history.IsEmpty() {
-				for a := range after {
-					if after[a].Start > s.summary.Start {
-						s.history.Append(after[a])
-					}
-				}
-			} else {
-				lastMessage := s.history.Get(s.history.Len() - 1)
-				if lastAfter.Start > lastMessage.Start {
-					for a := range after {
-						if after[a].Start > lastMessage.Start {
-							s.history.Append(after[a])
-						}
-					}
+	s.mergeHistory(after)
+	return after, nil
+}
 
-				}
-			}
+// mergeHistory 把回源结果中的活跃消息（Start > summary.Start）合并进缓存，跳过已缓存
+// 区间。压缩节点之前（Start <= summary.Start）的旧消息不进内存。
+func (s *Store) mergeHistory(after []*chat.Message) {
+	if len(after) == 0 {
+		return
+	}
+	boundary := s.summary.Start
+	if s.history.Len() > 0 {
+		if end := s.history.Last().Start + s.history.Last().Offset; end > boundary {
+			boundary = end
 		}
 	}
-
-	return after, nil
+	for _, m := range after {
+		if m.Start > s.summary.Start && m.Start+m.Offset > boundary {
+			s.history.Append(m)
+		}
+	}
 }
 
 func (s *Store) RecordDone(minStart uint64) {

@@ -183,10 +183,6 @@ func hasBlockType(events []*agent.Event, target chat.Block) bool {
 			if _, ok := e.Blocks[0].(*chat.DoneBlock); ok {
 				return true
 			}
-		case *chat.ToolExecutionBlock:
-			if _, ok := e.Blocks[0].(*chat.ToolExecutionBlock); ok {
-				return true
-			}
 		case *chat.ToolUseBlock:
 			if _, ok := e.Blocks[0].(*chat.ToolUseBlock); ok {
 				return true

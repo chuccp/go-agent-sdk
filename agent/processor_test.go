@@ -144,10 +144,6 @@ func eventHasBlock(evt *agent.Event, target chat.Block) bool {
 			if _, ok := b.(*chat.TextBlock); ok {
 				return true
 			}
-		case *chat.ToolExecutionBlock:
-			if _, ok := b.(*chat.ToolExecutionBlock); ok {
-				return true
-			}
 		case *chat.StartBlock:
 			if _, ok := b.(*chat.StartBlock); ok {
 				return true
