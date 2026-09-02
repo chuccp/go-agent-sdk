@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
 type Sessions struct {
@@ -43,9 +45,11 @@ type Session struct {
 	sessionTimeout uint
 	clientTimeout  uint
 	sessions       *Sessions
+	lastTime       int64
 }
 
 func (s *Session) WriteBlocks(blocks ...chat.Block) {
+	s.lastTime = util.GetSecondTime()
 	s.loop.HandleMessage(blocks)
 }
 
@@ -65,13 +69,36 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		cancel:         cancel,
 		sessions:       sessions,
 		transfer:       transfer,
+		lastTime:       util.GetSecondTime(),
 	}
 	s.loop = NewLoopBuilder(0, sessionContext).
 		Config(config.config).
 		Store(transfer.GetStore()).
 		ToolExecutor(config.toolExecutors...).
 		Build()
+	util.Go(func() {
+		s.checkTimeout()
+	})
 	return s
+}
+
+func (s *Session) checkTimeout() {
+	if s.sessionTimeout == 0 {
+		return
+	}
+	ticker := time.NewTicker(time.Duration(s.sessionTimeout) * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			if util.GetSecondTime()-s.lastTime > int64(s.sessionTimeout) {
+				s.Destroy()
+				return
+			}
+		}
+	}
 }
 
 // History 返回当前会话的完整历史。
@@ -90,8 +117,8 @@ func (s *Session) SetClientTimeout(clientTimeout uint) {
 }
 
 // LoadMessagesAfter 从持久化存储加载历史记录。
-func (s *Session) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
-	return s.transfer.LoadMessagesAfter(since, limit)
+func (s *Session) LoadMessagesAfter(since uint64) ([]*Event, error) {
+	return s.transfer.LoadMessagesAfter(since)
 }
 
 // CreateClient 创建一个事件消费客户端（订阅委托给 SessionContext）。

@@ -15,7 +15,7 @@ type handler interface {
 }
 
 type readEvents interface {
-	readEvents(cl *Client) []*Event
+	readEvents(cl *Client) ([]*Event, error)
 	deleteClient(client *Client)
 	history() []*chat.Message
 }

@@ -50,8 +50,8 @@ func (c *SessionContext) AppendMainAssistantMessage(blocks *chat.BlockGroup) {
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。
-func (c *SessionContext) GetChatClient(start uint64, handler handler) *Client {
-	return c.transfer.GetChatClient(start, handler)
+func (c *SessionContext) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
+	return c.transfer.GetChatClient(ctx, start, handler)
 }
 
 func (c *SessionContext) History() []*chat.Message {

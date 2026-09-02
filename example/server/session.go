@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"sync"
 
 	"emperror.dev/errors"
@@ -44,7 +45,7 @@ func (s *Session) HandleStop() error {
 	return nil
 }
 
-func (s *Session) getChatClient(id string, start uint64) error {
+func (s *Session) getChatClient(ctx context.Context, id string, start uint64) error {
 	if util.IsBlank(id) {
 		return errors.New("id is blank")
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"iter"
 	"log"
 	"sort"
 	"sync"
@@ -27,20 +28,24 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 }
 
 type Transfer struct {
-	seq          uint64
-	mu           sync.RWMutex
-	resetLock    sync.RWMutex
-	entries      *util.SliceArray[*Event]
-	pending      uint64
-	chatClients  *util.SliceArray[*Client]
-	messageStore *Store
+	seq              uint64
+	mu               sync.RWMutex
+	resetLock        sync.RWMutex
+	entries          *util.SliceArray[*Event]
+	pending          uint64
+	chatClients      *util.SliceArray[*Client]
+	messageStore     *Store
+	maxBatchSize     int
+	messageLastStart uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
 	return &Transfer{
-		entries:      new(util.SliceArray[*Event]),
-		chatClients:  new(util.SliceArray[*Client]),
-		messageStore: NewStore(sessionId, compressor, historyStore),
+		entries:          new(util.SliceArray[*Event]),
+		chatClients:      new(util.SliceArray[*Client]),
+		messageStore:     NewStore(sessionId, compressor, historyStore),
+		maxBatchSize:     10,
+		messageLastStart: 0,
 	}
 
 }
@@ -48,8 +53,10 @@ func (l *Transfer) GetStore() *Store {
 	return l.messageStore
 }
 
-func (l *Transfer) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
-	return l.messageStore.LoadMessagesAfter(since, limit)
+func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.greaterStart(since)
 }
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
@@ -63,24 +70,20 @@ func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.flush()
 	return event.Start
 }
-func (l *Transfer) readEvents(cl *Client) []*Event {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	events := l.greaterStart(cl.start)
-	if len(events) == 0 {
-		return nil
+func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	events, err := l.greaterStart(cl.start)
+	if err != nil {
+		return nil, err
 	}
-	// events 按 Start 降序排列，第一个元素是最新事件。
-
-	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
-
+	if len(events) == 0 {
+		return nil, nil
+	}
 	lastEvent := events[len(events)-1]
-
 	cl.start = lastEvent.Start + lastEvent.Offset
-
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
-
 	lastStart, fa := l.messageStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
@@ -89,7 +92,7 @@ func (l *Transfer) readEvents(cl *Client) []*Event {
 			lastEvent.Blocks = append(lastEvent.Blocks, chat.NewErrorBlock(err.Error()))
 		}
 	}
-	return events
+	return events, nil
 }
 func (l *Transfer) reset(minStart uint64) {
 	for {
@@ -150,31 +153,48 @@ func messageToEvent(m *chat.Message, start uint64) *Event {
 	return &Event{Start: evStart, Offset: evOffset, Blocks: blocks}
 }
 
-func (l *Transfer) greaterStart(start uint64) []*Event {
+// greaterEntries 从内存 entries 中筛选 Start >= start 的事件，按 Start 降序返回。
+func (l *Transfer) greaterEntries(start uint64) []*Event {
 	cache := new(util.SliceArray[*Event])
-
-	// 1. 从 entries 取数据（当前会话的运行时事件，倒序遍历）
-	indexLen := l.entries.Len()
-	for index := indexLen - 1; index >= 0; index-- {
-		event := l.entries.Get(index)
-		if event.Start+event.Offset > start {
-			cache.Append(event)
-		} else {
-			break
+	for _, v := range iter.Seq2[int, *Event](l.entries.Iter) {
+		if v.Start >= start {
+			cache.Append(v)
 		}
 	}
-
-	// 2. 合并 history（持久化消息优先于运行时事件）。
-	// tempHistory 无需读取：save() 在 Reset() 之前执行，tempHistory 非空时
-	// entries 尚未被 Reset 清理、仍保有全量 live 事件，可由上方 entries 兜底；
-	// save() 之后 message 已移入 history。
-	mergeMessages(cache, l.messageStore.history, start)
-
-	// 4. mergeMessages 追加 message 会破坏降序，重新按 Start 降序排列，
-	//    保证 readEvents 里 events[0] 是最大 Start（cl.start 才能正确推进）。
 	events := cache.Slice()
 	sort.Slice(events, func(i, j int) bool { return events[i].Start > events[j].Start })
 	return events
+}
+
+func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
+	cache := new(util.SliceArray[*Event])
+
+	// 1. 从 entries 取数据（当前会话的运行时事件）
+	if !l.entries.IsEmpty() {
+		firstEvent := l.entries.First()
+		if firstEvent.Start <= start {
+			return l.greaterEntries(start), nil
+		}
+	}
+
+	// 2. 从持久化存储加载历史消息
+	messages, err := l.messageStore.LoadMessagesAfter(start, l.maxBatchSize)
+	if err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		if !l.entries.IsEmpty() {
+			return l.greaterEntries(start), nil
+		}
+		return nil, nil
+	}
+	for _, msg := range messages {
+		event := messageToEvent(msg, start)
+		cache.Append(event)
+	}
+	events := cache.Slice()
+	sort.Slice(events, func(i, j int) bool { return events[i].Start > events[j].Start })
+	return events, nil
 }
 
 // mergeMessages 去重后将 messages 中 >start 的消息合并进 cache。
@@ -182,26 +202,26 @@ func (l *Transfer) greaterStart(start uint64) []*Event {
 // 判断其 start 是否落在该 message 覆盖区间 [Start, Start+Offset) 内，是则删除整个
 // event（被持久化版本取代）。用 block.start 而非 event.Start，避免 message 合并后
 // event.Start 为旧值导致判断错位。
-func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*chat.Message], start uint64) {
-	for index := messages.Len() - 1; index >= 0; index-- {
-		msg := messages.Get(index)
-		if msg.Start+msg.Offset <= start {
-			break // 该消息及更早的消息已全部被消费
-		}
-		msgEnd := msg.Start + msg.Offset
-		for i := cache.Len() - 1; i >= 0; i-- {
-			ev := cache.Get(i)
-			for _, b := range ev.Blocks {
-				bs := b.GetStart()
-				if bs >= msg.Start && bs < msgEnd {
-					cache.Delete(i)
-					break
-				}
-			}
-		}
-		cache.Append(messageToEvent(msg, start))
-	}
-}
+//func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*chat.Message], start uint64) {
+//	for index := messages.Len() - 1; index >= 0; index-- {
+//		msg := messages.Get(index)
+//		if msg.Start+msg.Offset <= start {
+//			break // 该消息及更早的消息已全部被消费
+//		}
+//		msgEnd := msg.Start + msg.Offset
+//		for i := cache.Len() - 1; i >= 0; i-- {
+//			ev := cache.Get(i)
+//			for _, b := range ev.Blocks {
+//				bs := b.GetStart()
+//				if bs >= msg.Start && bs < msgEnd {
+//					cache.Delete(i)
+//					break
+//				}
+//			}
+//		}
+//		cache.Append(messageToEvent(msg, start))
+//	}
+//}
 
 func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
 	l.mu.Lock()

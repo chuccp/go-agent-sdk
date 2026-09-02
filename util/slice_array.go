@@ -67,7 +67,12 @@ func (a *SliceArray[T]) Append(v T) {
 	a.buf[a.len] = v
 	a.len++
 }
-
+func (a *SliceArray[T]) First() T {
+	return a.buf[0]
+}
+func (a *SliceArray[T]) Last() T {
+	return a.buf[a.len-1]
+}
 func (a *SliceArray[T]) ForEach(fn func(index int, value T) bool) {
 	if a == nil {
 		return
@@ -75,6 +80,17 @@ func (a *SliceArray[T]) ForEach(fn func(index int, value T) bool) {
 	for i, v := range a.Slice() {
 		if !fn(i, v) {
 			break
+		}
+	}
+}
+
+func (a *SliceArray[T]) Iter(yield func(index int, value T) bool) {
+	if a == nil {
+		return
+	}
+	for i, v := range a.Slice() {
+		if !yield(i, v) {
+			return
 		}
 	}
 }
