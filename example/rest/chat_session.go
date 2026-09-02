@@ -215,8 +215,7 @@ func blockTypeName(b chat.Block) string {
 		return "delta"
 	case *chat.UserBlock:
 		return "user"
-	case *chat.ToolExecutionBlock:
-		return "tool_execution"
+
 	case *chat.ImageBlock:
 		return "image"
 	default:

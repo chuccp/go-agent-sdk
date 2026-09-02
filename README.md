@@ -154,7 +154,6 @@ MessageStartBlock  { Usage *Usage }
 MessageDeltaBlock  { Usage *Usage }
 StartBlock         { Block UseDeltaBlock }                              // 流式块起始标记
 DeltaBlock         { Content string }                                  // 流式增量
-ToolExecutionBlock { ToolName string; Args string; Output string }      // 工具执行摘要（不进上下文）
 DoneBlock          { Usage *Usage }                                    // 本轮结束（携带 token 用量）
 UserBlock          { BlockUserType string; ID uint64; Content Blocks } // 用户消息状态
 ErrorBlock         { Text string }

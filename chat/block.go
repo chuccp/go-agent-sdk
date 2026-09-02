@@ -10,18 +10,16 @@ import (
 type BlockType string
 
 const (
-	TextBlockType          BlockType = "text"
-	ThinkingBlockType      BlockType = "thinking"
-	ImageBlockType         BlockType = "image"
-	ToolUseBlockType       BlockType = "tool_use"
-	ToolResultBlockType    BlockType = "tool_result"
-	StartBlockType         BlockType = "start"
-	DeltaBlockType         BlockType = "delta"
-	DoneBlockType          BlockType = "done"
-	UserBlockType          BlockType = "User"
-	ErrorBlockType         BlockType = "error"
-	ToolExecutionBlockType BlockType = "tool_execution"
-
+	TextBlockType         BlockType = "text"
+	ThinkingBlockType     BlockType = "thinking"
+	ImageBlockType        BlockType = "image"
+	ToolUseBlockType      BlockType = "tool_use"
+	ToolResultBlockType   BlockType = "tool_result"
+	StartBlockType        BlockType = "start"
+	DeltaBlockType        BlockType = "delta"
+	DoneBlockType         BlockType = "done"
+	UserBlockType         BlockType = "User"
+	ErrorBlockType        BlockType = "error"
 	MessageStartBlockType BlockType = "message_start"
 	MessageDeltaBlockType BlockType = "message_delta"
 
@@ -117,8 +115,7 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &DoneBlock{}
 		case DeltaBlockType:
 			block = &DeltaBlock{}
-		case ToolExecutionBlockType:
-			block = &ToolExecutionBlock{}
+
 		case UserBlockType:
 			block = &UserBlock{}
 		case CustomTextBlockType:
@@ -344,25 +341,6 @@ func NewToolUseBlock(id string, name string) *ToolUseBlock {
 		BaseBlock: BaseBlock{Type: ToolUseBlockType},
 		ID:        id,
 		Name:      name,
-	}
-}
-
-type ToolExecutionBlock struct {
-	BaseBlock
-	ToolName string `json:"tool_name"`
-	Args     string `json:"args"`
-	Output   string `json:"output"`
-}
-
-func (b *ToolExecutionBlock) ForContext() bool {
-	return false
-}
-func NewToolExecutionBlock(toolName string, args string, Output string) *ToolExecutionBlock {
-	return &ToolExecutionBlock{
-		BaseBlock: BaseBlock{Type: ToolExecutionBlockType},
-		ToolName:  toolName,
-		Args:      args,
-		Output:    Output,
 	}
 }
 
