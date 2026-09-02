@@ -157,20 +157,29 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           break
         }
         case 'tool_use': {
-          if (b.name === 'execute_command') break
           const input = b.input as Record<string, unknown> | undefined
-          const cmd = input?.command ? String(input.command) : JSON.stringify(input)
-          appendText('assistant', `⟪tool⟫${cmd}⟪/tool⟫`)
+          if (b.name === 'execute_command') {
+            // execute_command：解析命令，记录到 commandByToolUseId（与 WebSocket 实时流一致）
+            const cmd = input?.command ? String(input.command) : ''
+            if (cmd && b.id) commandByToolUseId.set(b.id, cmd)
+          } else {
+            // 其他工具：显示入参文本（与 WebSocket 实时流的 delta chunk 一致）
+            const text = input?.command ? String(input.command) : JSON.stringify(input)
+            if (text) appendText('assistant', text)
+          }
           break
         }
         case 'tool_result': {
           const inner = b.content as ContentBlock[] | undefined
           if (inner) {
+            // 从 inner text 块提取 tool_use_id，按 id 查找命令（与 WebSocket 实时流一致）
+            const firstText = inner.find(c => c.type === 'text' && c.text)
+            const toolUseId = firstText?.tool_use_id || b.tool_use_id || null
+            const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
             const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n')
             if (text) {
-              if (activeCommand !== null) {
-                appendText('assistant', `⟪command⟫${activeCommand}\n${text}⟪/command⟫`)
-                activeCommand = null
+              if (cmd) {
+                appendText('assistant', `⟪command⟫${cmd}\n${text}⟪/command⟫`)
               } else {
                 appendText('assistant', `⟪result⟫${text}⟪/result⟫`)
               }
