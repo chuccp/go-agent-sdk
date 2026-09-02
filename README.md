@@ -152,10 +152,11 @@ ToolResultBlock    { ToolUseID string; Content Blocks }
 CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展（不进上下文）
 MessageStartBlock  { Usage *Usage }
 MessageDeltaBlock  { Usage *Usage }
-StartBlock         { Block Block }
-DeltaBlock         { Content string }
-DoneBlock          { StopReason StopReason }
-UserBlock          { BlockUserType string; ID string; Content Blocks }
+StartBlock         { Block UseDeltaBlock }                              // 流式块起始标记
+DeltaBlock         { Content string }                                  // 流式增量
+ToolExecutionBlock { ToolName string; Args string; Output string }      // 工具执行摘要（不进上下文）
+DoneBlock          { Usage *Usage }                                    // 本轮结束（携带 token 用量）
+UserBlock          { BlockUserType string; ID uint64; Content Blocks } // 用户消息状态
 ErrorBlock         { Text string }
 ```
 
@@ -210,16 +211,15 @@ type MessageStore interface {
 
 ## REST API
 
-### 消息历史（分页）
+### 消息历史
 
 ```
-GET /api/chat/sessions/:id/messages?since=0&limit=50
+GET /api/chat/sessions/:id/messages?since=0
 ```
 
 - `since` — 起始 `start` 位置（返回 `Start >= since` 的事件），默认 0
-- `limit` — 每页条数，默认 50
 
-通过 `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
+通过 `agent.History(sessionId, since)` → `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
 
 ## WebSocket 协议
 
@@ -264,6 +264,8 @@ GET /api/chat/sessions/:id/messages?since=0&limit=50
 # 错误
 {"no":0,"start":10,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
 ```
+
+> **块形态**：实时流以 `start` + `delta` 增量块推送；`create` 后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
 
 前端采用 **send/display 分离**：消息通过 WebSocket 直接发送，收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器。
 
