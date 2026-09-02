@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // 工具往 tool_result 里塞的 CustomTextBlock（资源卡片 JSON）不能进 LLM 上下文，
@@ -83,5 +84,71 @@ func TestBlocksForContext_KeepsCleanToolResultAsIs(t *testing.T) {
 	}
 	if filtered[0] != chat.Block(clean) {
 		t.Error("无需过滤时不应拷贝")
+	}
+}
+
+// UserBlock 是事件流包装器，blocksForContext 应展开其 Content，
+// 而非将 UserBlock 原样传给 LLM（LLM 不认识 User 类型）。
+func TestBlocksForContext_UnwrapsUserBlock(t *testing.T) {
+	l := &Loop{}
+	ub := chat.NewUserBlock(1, chat.Blocks{
+		chat.NewFullTextBlock("用户消息"),
+	}, chat.Consume)
+
+	filtered := l.blocksForContext(chat.Blocks{ub})
+	if len(filtered) != 1 {
+		t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+	}
+	if _, ok := filtered[0].(*chat.UserBlock); ok {
+		t.Error("UserBlock 不应出现在过滤结果中，应展开为 Content")
+	}
+	tb, ok := filtered[0].(*chat.TextBlock)
+	if !ok {
+		t.Fatalf("filtered[0] 类型 = %T, want *chat.TextBlock", filtered[0])
+	}
+	if tb.Text != "用户消息" {
+		t.Errorf("text = %q, want %q", tb.Text, "用户消息")
+	}
+}
+
+// UserBlock 内嵌套 ToolResultBlock（含 CustomTextBlock）时，
+// 应递归展开并过滤，确保 CustomTextBlock 不进 LLM 上下文。
+func TestBlocksForContext_UnwrapsUserBlockWithToolResult(t *testing.T) {
+	l := &Loop{}
+	customText := chat.NewCustomTextBlock(`{"resource":"data"}`, "resource_card")
+	plainText := chat.NewFullTextBlock("工具输出")
+	tr := chat.NewToolResultBlock("call_09", chat.Blocks{customText, plainText})
+	ub := chat.NewUserBlock(2, chat.Blocks{tr}, chat.Consume)
+
+	filtered := l.blocksForContext(chat.Blocks{ub})
+	// ToolResultBlock 内 CustomTextBlock 被过滤，只剩 plainText + 占位
+	if len(filtered) != 1 {
+		t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+	}
+	got, ok := filtered[0].(*chat.ToolResultBlock)
+	if !ok {
+		t.Fatalf("filtered[0] 类型 = %T, want *chat.ToolResultBlock", filtered[0])
+	}
+	if len(got.Content) != 1 {
+		t.Fatalf("tool_result content = %d blocks, want 1", len(got.Content))
+	}
+	if got.Content[0].(*chat.TextBlock).Text != "工具输出" {
+		t.Errorf("text = %q, want %q", got.Content[0].(*chat.TextBlock).Text, "工具输出")
+	}
+}
+
+// UserBlock 内含 ToolUseBlock 时，应展开并保留（ForContext==true）。
+func TestBlocksForContext_UnwrapsUserBlockWithToolUse(t *testing.T) {
+	l := &Loop{}
+	tu := chat.NewToolUseBlock("tu_1", "echo")
+	tu.Input = value.NewObjectFromMap(map[string]any{"command": "ls"})
+	ub := chat.NewUserBlock(3, chat.Blocks{tu}, chat.Consume)
+
+	filtered := l.blocksForContext(chat.Blocks{ub})
+	if len(filtered) != 1 {
+		t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+	}
+	if _, ok := filtered[0].(*chat.ToolUseBlock); !ok {
+		t.Errorf("filtered[0] 类型 = %T, want *chat.ToolUseBlock", filtered[0])
 	}
 }
