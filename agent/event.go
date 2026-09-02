@@ -215,33 +215,6 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 	return events, nil
 }
-
-// mergeMessages 去重后将 messages 中 >start 的消息合并进 cache。
-// 逐条 message 去重，且按 block 级别区间过滤：对 cache 中每个 event 的每个 block，
-// 判断其 start 是否落在该 message 覆盖区间 [Start, Start+Offset) 内，是则删除整个
-// event（被持久化版本取代）。用 block.start 而非 event.Start，避免 message 合并后
-// event.Start 为旧值导致判断错位。
-//func mergeMessages(cache *util.SliceArray[*Event], messages *util.SliceArray[*chat.Message], start uint64) {
-//	for index := messages.Len() - 1; index >= 0; index-- {
-//		msg := messages.Get(index)
-//		if msg.Start+msg.Offset <= start {
-//			break // 该消息及更早的消息已全部被消费
-//		}
-//		msgEnd := msg.Start + msg.Offset
-//		for i := cache.Len() - 1; i >= 0; i-- {
-//			ev := cache.Get(i)
-//			for _, b := range ev.Blocks {
-//				bs := b.GetStart()
-//				if bs >= msg.Start && bs < msgEnd {
-//					cache.Delete(i)
-//					break
-//				}
-//			}
-//		}
-//		cache.Append(messageToEvent(msg, start))
-//	}
-//}
-
 func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()

@@ -131,11 +131,36 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 		}
 	}
 
-	messages := make([]*chat.Message, 0)
+	if s.history.IsEmpty() && since > s.summary.Start {
+		start := s.summary.Start
+		for {
+			after, err := s.messageStore.LoadAfter(s.sessionID, start, limit)
+			if err != nil {
+				return nil, err
+			}
+			if len(after) > 0 {
+				for _, m := range after {
+					s.history.Append(m)
+				}
+				if len(after) < limit {
+					break
+				}
+				lastMessage := after[len(after)-1]
+				lastStart := lastMessage.Start + lastMessage.Offset
+				if lastStart < since {
+					start = lastStart
+				}
+			} else {
+				break
+			}
+		}
 
+	}
+	messages := make([]*chat.Message, 0)
 	if s.history != nil && s.history.Len() > 0 {
-		firstMessage := s.history.Get(0)
-		if since >= firstMessage.Start {
+		firstMessage := s.history.First()
+		lastMessage := s.history.Last()
+		if since >= firstMessage.Start && since <= lastMessage.Start {
 			s.history.ForEach(func(index int, message *chat.Message) bool {
 				if message.Start >= since {
 					messages = append(messages, message)
@@ -145,6 +170,7 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 				}
 				return true
 			})
+			return messages, nil
 		}
 	}
 	after, err := s.messageStore.LoadAfter(s.sessionID, since, limit)

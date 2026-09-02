@@ -101,12 +101,12 @@ func (s *Session) checkTimeout() {
 	}
 }
 
-func (s *Session) SetSessionTimeout(sessionTimeout uint) {
+func (s *Session) SessionTimeout(sessionTimeout uint) {
 	s.sessionTimeout = sessionTimeout
 }
 
-// SetClientTimeout 秒
-func (s *Session) SetClientTimeout(clientTimeout uint) {
+// ClientTimeout 秒
+func (s *Session) ClientTimeout(clientTimeout uint) {
 	s.clientTimeout = clientTimeout
 }
 

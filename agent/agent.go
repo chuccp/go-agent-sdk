@@ -31,25 +31,25 @@ func (m *Agent) AddTools(exec ...ToolExecutor) {
 	m.config.toolExecutors = append(m.config.toolExecutors, exec...)
 }
 
-// SetSystem 设置全局系统提示词，对之后新建的会话生效。
-func (m *Agent) SetSystem(system string) {
+// SystemPrompt 设置全局系统提示词，对之后新建的会话生效。
+func (m *Agent) SystemPrompt(systemPrompt string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.config.system = system
+	m.config.systemPrompt = systemPrompt
 }
 
-// SetHistoryStore 设置聊天记录持久化实现。
+// HistoryStore 设置聊天记录持久化实现。
 // 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *Agent) SetHistoryStore(store MessageStore) {
+func (m *Agent) HistoryStore(store MessageStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.config.historyStore = store
 }
 
-// SetCompressor 设置上下文压缩策略和持久化实现。
+// Compressor 设置上下文压缩策略和持久化实现。
 // 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
 // store 可为 nil（无持久化，重启丢失压缩状态）。
-func (m *Agent) SetCompressor(c Compressor) {
+func (m *Agent) Compressor(c Compressor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.config.compressor = c
@@ -94,15 +94,15 @@ func (m *Agent) SessionContext(sessionId string) *SessionContext {
 	return session.sessionContext
 }
 
-// SetSessionTimeout 秒
-func (m *Agent) SetSessionTimeout(sessionTimeout uint) {
+// SessionTimeout 秒
+func (m *Agent) SessionTimeout(sessionTimeout uint) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.config.sessionTimeout = sessionTimeout
 }
 
-// SetClientTimeout 秒
-func (m *Agent) SetClientTimeout(clientTimeout uint) {
+// ClientTimeout 秒
+func (m *Agent) ClientTimeout(clientTimeout uint) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.config.clientTimeout = clientTimeout

@@ -32,7 +32,7 @@ type Loop struct {
 	store         *Store
 	lContext      context.Context
 	lCancel       context.CancelFunc
-	seq           uint64
+	seq           atomic.Uint64
 	toolExecutors []ToolExecutor
 	config        *chat.Config
 	systemPrompt  string
@@ -78,7 +78,7 @@ func (l *Loop) SendBlock(block chat.Block) uint64 {
 }
 
 func (l *Loop) getSeq() uint64 {
-	return atomic.AddUint64(&l.seq, 1)
+	return l.seq.Add(1)
 }
 
 func (l *Loop) HandleMessage(blocks chat.Blocks) {

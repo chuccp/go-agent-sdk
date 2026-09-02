@@ -12,7 +12,7 @@ const (
 type Config struct {
 	chat           *chat.Chat
 	toolExecutors  []ToolExecutor
-	system         string
+	systemPrompt   string
 	config         *chat.Config
 	historyStore   MessageStore
 	compressor     Compressor
@@ -23,7 +23,7 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		toolExecutors:  make([]ToolExecutor, 0),
-		system:         "",
+		systemPrompt:   "",
 		config:         chat.DefaultConfig(),
 		historyStore:   nil,
 		compressor:     nil,
