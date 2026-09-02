@@ -10,6 +10,7 @@
 - **流式对话** — SSE 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
+- **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
 - **多提供商** — Provider Registry 支持注册多个 LLM 后端，运行时选择
 - **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text
 
@@ -18,26 +19,23 @@
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │  Agent                                                        │
-│  ├── ProviderRegistry (多 LLM 后端)                              │
-│  ├── ToolExecutors (工具注册)                                     │
-│  └── map[id] → session                                        │
-│                  └── SessionContext (状态中心)                    │
-│                       ├── Loop (会话编排器, runLock 保护)         │
-│                       │    ├── inbox (消息队列)                 │
-│                       │    ├── HandleMessage (入队+启动主循环)    │
-│                       │    └── doLoop                         │
-│                       │    │    ├── executeRound (构建请求+LLM)   │
-│                       │    │    └── executeTools (tool_result)│
-│                       ├── Transfer (事件中转层)                  │
-│                       │    ├── entries (活跃事件缓冲区)              │
-│                       │    ├── seq (事件序号, 单调递增)               │
-│                       │    ├── doneManifest (消费进度追踪)           │
-│                       │    ├── resetLock (reset/save 串行锁)       │
-│                       │    └── chatClients (客户端订阅列表)          │
-│                       ├── Store                               │
-│                       │    ├── history + tempHistory           │
-│                       │    │   (全量消息: 已持久化 + 待保存)          │
-│                       └── Client[] (轻量订阅句柄)                   │
+│  ├── ProviderRegistry (多 LLM 后端)                            │
+│  ├── ToolExecutors (工具注册)                                   │
+│  └── Sessions map[id] → Session                               │
+│                  └── Session                                   │
+│                       ├── SessionContext (状态中心)              │
+│                       │    ├── Loop (会话编排器, runLock 保护)   │
+│                       │    │    ├── inbox (消息队列)            │
+│                       │    │    ├── HandleMessage (入队+启动)    │
+│                       │    │    └── do → loop → chatWithStream  │
+│                       │    │         ├── executeTools           │
+│                       │    │         └── appendMessage          │
+│                       │    └── Transfer (事件中转层)             │
+│                       │         ├── entries (活跃事件缓冲区)     │
+│                       │         ├── chatClients (订阅列表)       │
+│                       │         └── Store (消息存储)             │
+│                       ├── checkTimeout (会话超时守护)            │
+│                       └── Client[] (轻量订阅句柄)                │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,8 +43,8 @@
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：Agent, SessionContext, Client, Loop,
-│                   #   Transfer, ToolExecutor, Turn, Store, HistoryStore
+├── agent/          # Agent 层：Agent, Session, Client, Loop,
+│                   #   Transfer, ToolExecutor, Turn, Store, MessageStore
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
 ├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
@@ -58,7 +56,7 @@ go-agent-sdk/
     ├── model/      # GORM 模型
     ├── rest/       # REST + WebSocket 路由
     ├── server/     # Agent 服务封装
-    ├── service/    # 业务逻辑（HistoryStore 实现）
+    ├── service/    # 业务逻辑（MessageStore 实现）
     └── view/       # React 前端（@assistant-ui/react）
 ```
 
@@ -68,6 +66,7 @@ go-agent-sdk/
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/agent"
@@ -91,18 +90,27 @@ func main() {
 	// 3. 注册工具（可选）
 	a.AddTools(tools.NewCommandTool())
 
-	// 4. 设置持久化（可选）
-	a.SetHistoryStore(myHistoryStore)
+	// 4. 设置持久化（可选，实现 MessageStore 接口）
+	a.SetHistoryStore(myMessageStore)
 
-	// 5. 获取客户端（session_id + 起始偏移）
-	client, _ := a.GetClient("session-1", 0)
+	// 5. 设置超时（可选，秒）
+	a.SetSessionTimeout(600)  // 会话空闲超时
+	a.SetClientTimeout(300)   // 客户端空闲超时
 
-	// 6. 发送消息
+	// 6. 获取会话 + 创建客户端
+	session := a.GetOrCreateSession("session-1")
+	client := session.CreateClient(context.Background(), 0)
+
+	// 7. 发送消息
 	client.WriteText("你好，帮我查看当前目录")
 
-	// 7. 读取事件流（Event.Blocks 按 type 字段多态分发）
+	// 8. 读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
 	for {
-		events := client.ReadEvents()
+		events, err := client.ReadEvents()
+		if err != nil {
+			fmt.Println("error:", err)
+			break
+		}
 		if events == nil {
 			break
 		}
@@ -135,32 +143,27 @@ type Block interface {
     GetType() BlockType
 }
 
-// BaseBlock 是所有 Block 的公共基类，Start 记录事件序号，Type 记录块类型
-type BaseBlock struct {
-    Start uint64    `json:"start,omitempty"`
-    Type  BlockType `json:"type"`
-}
-
 // 具体类型（均嵌入 BaseBlock）
-TextBlock          { Text string; TextType TextType; ToolUseId string }  // TextType: "" / error / cmd / flow_progress
+TextBlock          { Text string; TextType TextType; ToolUseId string }
 ThinkingBlock      { Thinking string }
 ImageBlock         { Source *ImageSource }
 ToolUseBlock       { ID, Name string; Input *value.Object }
-ToolExecutionBlock { ID, Name string; Content Blocks }   // 工具执行过程中的流式输出块
 ToolResultBlock    { ToolUseID string; Content Blocks }
-CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展文本块（不进上下文），TextType: ask_user 等
-MessageStartBlock  { Usage *Usage }                       // LLM 消息开始（携带初始 token 用量）
-MessageDeltaBlock  { Usage *Usage }                       // LLM 消息结束增量（携带最终 token 用量）
-StartBlock         { Block Block }                        // 流式开始标记（包裹具体块类型）
-DeltaBlock         { Content string }                     // 流式文本增量
-DoneBlock          { StopReason StopReason; Usage *Usage } // 本轮结束
-UserBlock          { BlockUserType string; ID string; Content Blocks } // 用户消息生命周期（sent/consume）
-ErrorBlock         { Text string }                        // 错误
+CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展（不进上下文）
+MessageStartBlock  { Usage *Usage }
+MessageDeltaBlock  { Usage *Usage }
+StartBlock         { Block Block }
+DeltaBlock         { Content string }
+DoneBlock          { StopReason StopReason }
+UserBlock          { BlockUserType string; ID string; Content Blocks }
+ErrorBlock         { Text string }
 ```
 
 ### 事件流与断线续传
 
-每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start`（由持久化历史计算得到）即可从活跃事件缓冲区（`entries`）增量续读——`doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，该点之前的旧事件被裁掉（`reset`），同时待保存历史迁入持久层（`save`）；`resetLock` 串行化 reset/save 操作，消除并发 reader 下的数据竞争。`start` 早于缓冲区头部时自动钳制；服务重启后 `LoadHistory` 从历史恢复 `seq`，新事件无缝接续。
+每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start` 即可从活跃事件缓冲区（`entries`）增量续读。事件按 **Start 升序** 返回。
+
+`doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，旧事件被裁掉（`reset`），待保存历史迁入持久层（`save`）。`start` 早于缓冲区头部时自动钳制；服务重启后从历史恢复 `seq`，新事件无缝接续。
 
 多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。
 
@@ -173,32 +176,50 @@ type ToolExecutor interface {
     Definition() *chat.ToolFunction                     // 工具元数据（发给 LLM）
     Name() string                                       // 工具唯一名称
     UsagePrompt() string                                // 工具引导提示词（随每轮 System 注入）
-    Execute(turn *Turn, writer *chat.ToolResultBlockStream) // 执行逻辑（错误经 ErrorText 以文本写入）
+    Execute(turn *Turn, writer *chat.ToolResultBlockStream) // 执行逻辑
 }
 ```
 
-`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文（`LoopContext`）。
-执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`，支持逐块输出内容；
-`ToolResultBlockStream` 包装底层 `BlockStream`，提供 `FullText`、`FullCustomTextType`、`ErrorText` 等便捷方法。
+`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文。
+执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`。
 
 ### 内置工具
 
 | 工具 | 文件 | 说明 |
 |------|------|------|
-| `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + GUI 程序自动 `start` + 30s 超时。`command_unix.go` / `command_windows.go` 提供平台适配 |
-| `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持 pending/in_progress/completed 状态，通过 `TodoStore` 跨会话共享 |
-| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问澄清问题：推送 `ask_user` 事件（问题列表 JSON）并置 `user_wait` 停止原因后立即返回（不阻塞）；主循环据此结束本轮（跳过携带 tool_result 的 LLM 收尾调用），用户的回答作为下一条普通消息进入会话触发新一轮 |
+| `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + 30s 超时 |
+| `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持依赖关系 |
+| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问：推送 `ask_user` 事件并置 `user_wait` 后返回，用户回答作为下一条消息 |
 
-## HistoryStore 接口
+## MessageStore 接口
 
 由主程序实现持久化策略：
 
 ```go
-type HistoryStore interface {
-    LoadHistory(sessionID string) ([]*chat.Message, error)     // 懒加载历史
-    AppendMessages(sessionID string, messages []*chat.Message) error // 增量追加
+type MessageStore interface {
+    // LoadAfter 读取 Start >= since 的原始消息，按 Start 升序，最多 limit 条
+    LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error)
+    // Append 增量追加本批次新产生的消息
+    Append(sessionID string, messages []*chat.Message) error
+    // LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩
+    LoadSummary(sessionID string) (*chat.Message, error)
+    // SaveSummary 保存压缩摘要
+    SaveSummary(sessionID string, summary *chat.Message) error
 }
 ```
+
+## REST API
+
+### 消息历史（分页）
+
+```
+GET /api/chat/sessions/:id/messages?since=0&limit=50
+```
+
+- `since` — 起始 `start` 位置（返回 `Start >= since` 的事件），默认 0
+- `limit` — 每页条数，默认 50
+
+通过 `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
 
 ## WebSocket 协议
 
@@ -213,42 +234,38 @@ type HistoryStore interface {
 
 // 停止当前生成
 {"type": "stop"}
-
-// 心跳
-{"type": "ping"}
-{"type": "pong"}
 ```
 
 ### 服务端 → 客户端
 
-所有推送事件均为 `{seq, block}` 格式：`seq` 为全局单调递增的事件序号，`block` 为多态内容块（按 `type` 字段区分）。
+所有推送事件均为 `{no, start, offset, blocks: [...]}` 格式，`blocks` 为多态内容块数组。
 
 ```
-# 用户消息生命周期（block.type = "User"，block.block_user_type 区分状态，id 为稳定消息 ID）
-{"seq": 1, "block": {"type": "User", "block_user_type": "sent",    "id": "1", "content": [{"type": "text", "text": "你好"}]}}
-{"seq": 2, "block": {"type": "User", "block_user_type": "consume", "id": "1", "content": [{"type": "text", "text": "你好"}]}}
+# 用户消息生命周期
+{"no":0,"start":0,"offset":1,"blocks":[{"type":"User","block_user_type":"sent","content":[...]}]}
+{"no":0,"start":1,"offset":1,"blocks":[{"type":"User","block_user_type":"consume","content":[...]}]}
 
-# AI 流式输出（start 标记块类型，delta 携带增量）
-{"seq": 3, "block": {"type": "start", "block": {"type": "thinking"}}}
-{"seq": 4, "block": {"type": "delta", "content": "让我看看当前目录..."}}
-{"seq": 5, "block": {"type": "start", "block": {"type": "text"}}}
-{"seq": 6, "block": {"type": "delta", "content": "你好！当前目录是："}}
+# AI 流式输出
+{"no":0,"start":2,"offset":1,"blocks":[{"type":"start","block":{"type":"thinking"}}]}
+{"no":0,"start":3,"offset":1,"blocks":[{"type":"delta","content":"让我看看..."}]}
+{"no":0,"start":4,"offset":1,"blocks":[{"type":"start","block":{"type":"text"}}]}
+{"no":0,"start":5,"offset":1,"blocks":[{"type":"delta","content":"你好！"}]}
 
-# 工具输出（携带 tool_use_id 关联对应 tool_use，命令经 tool_use 入参流式下发）
-{"seq": 7, "block": {"type": "start", "block": {"type": "text", "tool_use_id": "call_00"}}}
-{"seq": 8, "block": {"type": "delta", "content": "OS Name: ..."}}
+# 工具输出（携带 tool_use_id 关联对应 tool_use）
+{"no":0,"start":6,"offset":1,"blocks":[{"type":"start","block":{"type":"text","tool_use_id":"call_00"}}]}
+{"no":0,"start":7,"offset":1,"blocks":[{"type":"delta","content":"OS Name: ..."}]}
 
-# LLM 向用户提问（AskUserQuestion 工具，经 CustomTextBlock 发送）
-{"seq": 9, "block": {"type": "custom_text", "text_type": "ask_user", "text": "[...问题列表 JSON...]"}}
+# AskUser 提问
+{"no":0,"start":8,"offset":1,"blocks":[{"type":"custom_text","text_type":"ask_user","text":"[...]"}]}
 
 # 本轮结束
-{"seq": 10, "block": {"type": "done"}}
+{"no":0,"start":9,"offset":1,"blocks":[{"type":"done"}]}
 
 # 错误
-{"seq": 11, "block": {"type": "error", "text": "network timeout"}}
+{"no":0,"start":10,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
 ```
 
-前端采用 **send/display 分离**：消息通过 WebSocket 直接发送（`sendDirect`），不在本地构造用户消息 UI。收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器，确保显示顺序与后端事件流严格一致；`User` 块携带稳定 `id`（sent/queued/consume 同一条消息共享），前端据此做队列状态迁移与清理。
+前端采用 **send/display 分离**：消息通过 WebSocket 直接发送，收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器。
 
 ## 运行示例
 
@@ -270,21 +287,25 @@ pnpm dev
 ```go
 a := agent.NewAgent()
 
-// ChatOption 配置 LLM 请求参数（支持可变参数）
+// ChatOption 配置 LLM 请求参数
 a.ChatOption(
-    chat.WithModel("claude-opus-4-7"),     // 模型名称
-    chat.WithMaxTokens(8192),              // 最大生成 token
-    chat.WithThinking(chat.ThinkingHigh),  // 扩展思考级别
+    chat.WithModel("claude-opus-4-7"),
+    chat.WithMaxTokens(8192),
+    chat.WithThinking(chat.ThinkingHigh),
 )
 
-// SetSystem 设置全局系统提示词，对之后新建的会话生效
+// SetSystem 设置全局系统提示词
 a.SetSystem("你是一个智能助手。")
 
-// 也可通过 Config.Set 设置任意配置键
-a.ChatOption(func(c *chat.Config) {
-    c.Set(chat.BaseURLConfigKey, "https://api.example.com")
-    c.Set(chat.APIKEYConfigKey, "sk-xxx")
-})
+// 超时配置（秒）
+a.SetSessionTimeout(600)  // 会话空闲超时，到期自动销毁
+a.SetClientTimeout(300)   // 客户端空闲超时
+
+// SetHistoryStore 设置持久化（实现 MessageStore 接口）
+a.SetHistoryStore(myMessageStore)
+
+// SetCompressor 设置上下文压缩策略
+a.SetCompressor(myCompressor)
 ```
 
 ## License
