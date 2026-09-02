@@ -132,21 +132,15 @@ func (l *Loop) buildRequest() *chat.Messages {
 	values, fa := l.inbox.ReadAll()
 	if fa {
 		firstStart := uint64(0)
-
 		var blocks chat.Blocks
-
 		for _, qm := range values {
-
 			userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
-
 			start := l.SendBlock(userBlock)
 			if firstStart == 0 {
 				firstStart = start
 			}
 			blocks = append(blocks, userBlock)
 		}
-		// 记录 Start/Offset，供 mergeMessages 精确去重；否则 user 消息的
-		// Start/Offset 为 0，会把去重区间错误地扩展到 [0, ...) 覆盖所有事件。
 		offset := uint64(len(values))
 		if offset > 0 && firstStart > 0 {
 			l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
@@ -353,6 +347,11 @@ func (l *Loop) roundStopped() bool {
 func (l *Loop) blocksForContext(blocks chat.Blocks) chat.Blocks {
 	result := make(chat.Blocks, 0, len(blocks))
 	for _, b := range blocks {
+		// UserBlock 是事件流包装器，LLM 需要的是里面的 Content（TextBlock 等）
+		if ub, ok := b.(*chat.UserBlock); ok {
+			result = append(result, l.blocksForContext(ub.Content)...)
+			continue
+		}
 		if tr, ok := b.(*chat.ToolResultBlock); ok {
 			result = append(result, l.toolResultForContext(tr))
 			continue
