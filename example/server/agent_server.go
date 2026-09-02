@@ -71,28 +71,29 @@ func (r *Agent) GetSession() *Session {
 	return newSession(r.agentManager)
 }
 
-// History 分页获取会话历史事件。
-// since: 起始 start 位置（返回 Start >= since 的事件），limit: 最大返回条数。
+// History 获取会话历史消息（带 role），支持分页。
 func (r *Agent) History(id uint, since uint64, limit int) ([]*entity.ChatMessage, error) {
 	session, ok := r.agentManager.GetSession(cast.ToString(id))
 	if !ok {
 		return nil, nil
 	}
-	events, err := session.LoadMessagesAfter(since)
-	if err != nil {
-		return nil, err
-	}
-	if len(events) > limit {
-		events = events[:limit]
-	}
-	result := make([]*entity.ChatMessage, 0, len(events))
-	for _, ev := range events {
-		blocksJSON, _ := json.Marshal(ev.Blocks)
+	messages := session.History()
+	// 按 since 过滤 + limit 截断
+	result := make([]*entity.ChatMessage, 0, len(messages))
+	for _, m := range messages {
+		if m.Start < since {
+			continue
+		}
+		contentJSON, _ := json.Marshal(m.Content)
 		result = append(result, &entity.ChatMessage{
-			Start:   ev.Start,
-			Offset:  ev.Offset,
-			Content: string(blocksJSON),
+			Start:   m.Start,
+			Offset:  m.Offset,
+			Role:    string(m.Role),
+			Content: string(contentJSON),
 		})
+		if len(result) >= limit {
+			break
+		}
 	}
 	return result, nil
 }
