@@ -285,40 +285,38 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
     // 切换会话时重置，等待新历史加载后再重新发送 create
     startRef.current = null
     createdRef.current = false
     pendingChatRef.current = []
     setPendingQuestion(null)
-    setInitialMessages(null) // 回到加载态，运行时将随新历史重建
     // 分页加载历史事件：每次用上一页最后事件的 start+offset 作为下一页的 since，读到空停止
     ;(async () => {
       try {
         const allEvents: ChatEvent[] = []
         let since = 0
-        while (true) {
-          if (cancelled) return
+        while (!controller.signal.aborted) {
           const page = await getSessionEvents(sessionId, since)
           if (page.length === 0) break
           allEvents.push(...page)
           const last = page[page.length - 1]
           since = last.start + last.offset
         }
-        if (cancelled) return
+        if (controller.signal.aborted) return
         extractUsageFromEvents(allEvents)
         const last = allEvents[allEvents.length - 1]
         startRef.current = last ? last.start + last.offset : 0
         setInitialMessages(buildDisplayMessages(allEvents))
         sendCreate()
       } catch {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         startRef.current = 0
         setInitialMessages([])
         sendCreate()
       }
     })()
-    return () => { cancelled = true }
+    return () => { controller.abort() }
   }, [sessionId, sendCreate])
 
   // 消息队列（仅展示后端返回的排队状态）
