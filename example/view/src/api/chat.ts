@@ -5,16 +5,12 @@ export interface ChatSession {
   updated_at: string
 }
 
-export interface ChatMessage {
-  id: number
-  session_id: number
-  role: string
-  content: string
+// Event 与 WebSocket 推送格式一致：{no, start, offset, blocks: [...]}
+export interface ChatEvent {
+  no: number
   start: number
   offset: number
-  tool_calls?: string
-  tool_results?: string
-  created_at: string
+  blocks: Record<string, unknown>[]
 }
 
 const API_BASE = ''
@@ -49,10 +45,9 @@ export async function deleteSession(id: number): Promise<void> {
   await request<void>(`/api/chat/sessions/${id}`, { method: 'DELETE' })
 }
 
-export async function getSessionMessages(id: number, since?: number, limit?: number): Promise<ChatMessage[]> {
+export async function getSessionEvents(id: number, since?: number): Promise<ChatEvent[]> {
   const params = new URLSearchParams()
   if (since !== undefined) params.set('since', String(since))
-  if (limit !== undefined) params.set('limit', String(limit))
   const qs = params.toString()
-  return request<ChatMessage[]>(`/api/chat/sessions/${id}/messages${qs ? '?' + qs : ''}`)
+  return request<ChatEvent[]>(`/api/chat/sessions/${id}/messages${qs ? '?' + qs : ''}`)
 }

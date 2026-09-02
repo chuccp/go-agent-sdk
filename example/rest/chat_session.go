@@ -87,25 +87,19 @@ func (c *Chat) deleteSession(request *web.Request) (any, error) {
 	return web.Ok("deleted"), nil
 }
 
-// getSessionMessages 通过 agent API 分页获取会话历史消息。
-// Query params: since (起始 start，默认 0), limit (每页条数，默认 50)
+// getSessionMessages 通过 agent API 获取会话历史事件（与 WebSocket 推送格式一致）。
+// Query params: since (起始 start，默认 0)
 func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 	sessionId := request.ParamUint("id")
 	var since uint64
 	if s := request.Query("since"); s != "" {
 		since, _ = strconv.ParseUint(s, 10, 64)
 	}
-	limit := 50
-	if l := request.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
-		}
-	}
-	messages, err := c.agent.History(sessionId, since, limit)
+	events, err := c.agent.History(sessionId, since)
 	if err != nil {
 		return nil, err
 	}
-	return web.Data(messages), nil
+	return web.Data(events), nil
 }
 
 // ── WebSocket handler ──────────────────────────────────────────────────

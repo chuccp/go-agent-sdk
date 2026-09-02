@@ -16,9 +16,9 @@ import {
   setSkipNextStop,
   setLatestUsage,
 } from './WebSocketAdapter'
-import { getSessionMessages, type ChatMessage } from '../api/chat'
+import { getSessionEvents, type ChatEvent } from '../api/chat'
 
-// ── 历史消息转换 ──
+// ── 历史事件转换（与 WebSocket 实时流共用 block type 分发逻辑） ──
 
 interface ContentBlock {
   type: string
@@ -29,138 +29,172 @@ interface ContentBlock {
   name?: string
   input?: unknown
   id?: string
+  block_user_type?: string
+  block?: ContentBlock
+  Usage?: { input_tokens: number; output_tokens: number; cache_input_tokens: number }
 }
 
-function parseBlocks(content: string): ContentBlock[] {
-  if (!content) return []
-  const trimmed = content.trim()
-  if (!trimmed.startsWith('[')) {
-    return [{ type: 'text', text: content }]
-  }
-  try {
-    return JSON.parse(trimmed) as ContentBlock[]
-  } catch {
-    return [{ type: 'text', text: content }]
-  }
-}
-
-function isToolResult(blocks: ContentBlock[]): boolean {
-  return blocks.length > 0 && blocks.every(b => b.type === 'tool_result')
-}
-
-function toolResultToText(blocks: ContentBlock[]): string {
-  const parts: string[] = []
-  for (const b of blocks) {
-    if (b.type !== 'tool_result') continue
-    if (typeof b.content === 'string') {
-      parts.push(b.content)
-    } else if (Array.isArray(b.content)) {
-      for (const sub of b.content as ContentBlock[]) {
-        if (sub.type === 'text' && sub.text) parts.push(sub.text)
+/** extractUsageFromEvents 从事件列表中提取 token 用量。 */
+function extractUsageFromEvents(events: ChatEvent[]): void {
+  for (let i = events.length - 1; i >= 0; i--) {
+    for (const b of events[i].blocks) {
+      const bt = b as ContentBlock
+      if ((bt.type === 'message_delta' || bt.type === 'message_start') && bt.Usage) {
+        setLatestUsage({
+          inputTokens: bt.Usage.input_tokens ?? 0,
+          outputTokens: bt.Usage.output_tokens ?? 0,
+          cacheInputTokens: bt.Usage.cache_input_tokens ?? 0,
+        })
+        return
       }
     }
   }
-  return parts.join('\n')
 }
 
-function blocksToText(blocks: ContentBlock[]): string {
-  const parts: string[] = []
-  for (const b of blocks) {
-    // 跳过元数据块：token 统计、User 消息状态、Start/Delta 流式标记
-    if (b.type === 'message_start' || b.type === 'message_delta' || b.type === 'User' || b.type === 'start' || b.type === 'delta' || b.type === 'done') continue
-    if (b.type === 'thinking' && b.thinking) {
-      parts.push(`⟪think⟫${b.thinking}⟪/think⟫`)
-    } else if (b.type === 'text' && b.text) {
-      parts.push(b.text)
-    } else if (b.type === 'tool_use' && b.name) {
-      // execute_command 由 buildDisplayMessages 统一产出 command 标记（与 tool_result 合并）
-      if (b.name === 'execute_command') continue
-      const input = b.input as Record<string, unknown> | undefined
-      const cmd = input?.command ? String(input.command) : JSON.stringify(input)
-      parts.push(`⟪tool⟫${cmd}⟪/tool⟫`)
-    }
-  }
-  return parts.join('\n\n')
-}
-
-/** extractExecCommand 提取消息中最后一个 execute_command 调用的命令（无则返回 null）。 */
-function extractExecCommand(blocks: ContentBlock[]): string | null {
-  const lastToolUse = [...blocks].reverse().find(b => b.type === 'tool_use')
-  if (lastToolUse?.name !== 'execute_command') return null
-  const input = lastToolUse.input as Record<string, unknown> | undefined
-  return input?.command ? String(input.command) : ''
-}
-
-/** extractUsageFromHistory 从最后一条 assistant 消息的 content 块中提取 Usage 并设置。 */
-function extractUsageFromHistory(msgs: ChatMessage[]): void {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i]
-    if (m.role !== 'assistant') continue
-    try {
-      const blocks = JSON.parse(m.content) as { type: string; Usage?: { input_tokens: number; output_tokens: number; cache_input_tokens: number } }[]
-      // 优先取 message_delta（最终用量），其次 message_start
-      for (const b of [...blocks].reverse()) {
-        if ((b.type === 'message_delta' || b.type === 'message_start') && b.Usage) {
-          setLatestUsage({
-            inputTokens: b.Usage.input_tokens ?? 0,
-            outputTokens: b.Usage.output_tokens ?? 0,
-            cacheInputTokens: b.Usage.cache_input_tokens ?? 0,
-          })
-          return
-        }
-      }
-    } catch { /* ignore parse errors */ }
-  }
-}
-
-function buildDisplayMessages(msgs: ChatMessage[]): { role: 'user' | 'assistant'; content: string }[] {
+/**
+ * buildDisplayMessages 从事件列表构建显示消息。
+ * 与 WebSocket 流共用 block type 分发逻辑：
+ *   User block (consume) → 用户消息
+ *   text/thinking/tool_use/tool_result/custom_text/error → AI 输出
+ */
+function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'; content: string }[] {
   const result: { role: 'user' | 'assistant'; content: string }[] = []
-  // 上一个 execute_command 的命令：将其 tool_result 输出折入同一终端块（与实时流展示一致）
-  let pendingCommand: string | null = null
-  for (const m of msgs) {
-    if (m.role !== 'user' && m.role !== 'assistant') continue
-    const blocks = parseBlocks(m.content)
-    let text: string
-    let role: 'user' | 'assistant'
-    if (isToolResult(blocks)) {
-      role = 'assistant'
-      const content = toolResultToText(blocks).trim()
-      if (pendingCommand !== null) {
-        // execute_command 的结果：命令 + 输出合并为一个 command 标记
-        text = content ? `⟪command⟫${pendingCommand}\n${content}⟪/command⟫` : ''
-        pendingCommand = null
-      } else {
-        text = content ? `⟪result⟫${content}⟪/result⟫` : ''
-      }
-    } else {
-      role = m.role as 'user' | 'assistant'
-      text = blocksToText(blocks)
-      // 记录最后一个 execute_command 调用，等待其 tool_result；
-      // 若本轮没有结果到达（执行中/历史截断），先补一个仅含命令的终端块
-      const cmd = extractExecCommand(blocks)
-      if (cmd !== null) {
-        if (pendingCommand !== null) {
-          text = text ? `${text}\n\n⟪command⟫${pendingCommand}\n⟪/command⟫` : `⟪command⟫${pendingCommand}\n⟪/command⟫`
-        }
-        pendingCommand = cmd
-      }
-    }
-    if (!text.trim()) continue
+
+  let currentStreamType: string | null = null
+  let currentToolName: string | null = null
+  let currentToolUseId: string | null = null
+  let toolInputJson = ''
+  const commandByToolUseId = new Map<string, string>()
+  let activeCommand: string | null = null
+
+  const parseCommand = (json: string): string => {
+    try {
+      const obj = JSON.parse(json)
+      if (typeof obj?.command === 'string' && obj.command) return obj.command
+    } catch { /* ignore */ }
+    return json.trim()
+  }
+
+  const appendText = (role: 'user' | 'assistant', text: string) => {
+    if (!text.trim()) return
     const last = result[result.length - 1]
-    if (last && last.role === 'assistant' && role === 'assistant') {
+    if (last && last.role === role) {
       last.content += '\n\n' + text
     } else {
       result.push({ role, content: text })
     }
   }
-  // 末尾兜底：最后一个 execute_command 的结果未到达（执行中），补仅含命令的终端块
-  if (pendingCommand !== null) {
-    const marker = `⟪command⟫${pendingCommand}\n⟪/command⟫`
-    const last = result[result.length - 1]
-    if (last && last.role === 'assistant') {
-      last.content += '\n\n' + marker
-    } else {
-      result.push({ role: 'assistant', content: marker })
+
+  for (const evt of events) {
+    for (const block of evt.blocks) {
+      const b = block as ContentBlock
+      switch (b.type) {
+        case 'User': {
+          if (b.block_user_type === 'consume') {
+            const content = b.content as ContentBlock[] | undefined
+            const text = content?.map(c => c.text || '').filter(Boolean).join('') || ''
+            if (text) appendText('user', text)
+          }
+          break
+        }
+        case 'start': {
+          const inner = b.block
+          const innerType = inner?.type || null
+          const innerName = inner?.name || null
+          const innerId = inner?.id || null
+          const toolUseId = inner?.tool_use_id || null
+          if (currentStreamType === 'tool_use' && currentToolName === 'execute_command' && currentToolUseId) {
+            const cmd = parseCommand(toolInputJson)
+            if (cmd) commandByToolUseId.set(currentToolUseId, cmd)
+          }
+          if (innerType === 'tool_use') {
+            activeCommand = null
+            currentToolUseId = innerId
+            currentToolName = innerName
+            toolInputJson = ''
+          } else {
+            activeCommand = toolUseId ? (commandByToolUseId.get(toolUseId) ?? null) : null
+            currentToolUseId = null
+            currentToolName = null
+            toolInputJson = ''
+          }
+          currentStreamType = innerType
+          break
+        }
+        case 'delta': {
+          const content = (b as Record<string, unknown>).content as string || b.text || ''
+          if (!content) break
+          if (currentStreamType === 'tool_use') {
+            if (currentToolName === 'execute_command') {
+              toolInputJson += content
+            } else {
+              appendText('assistant', content)
+            }
+          } else if (currentStreamType === 'thinking') {
+            // thinking 在历史中跳过
+          } else if (activeCommand !== null) {
+            appendText('assistant', `⟪command⟫${activeCommand}\n${content}⟪/command⟫`)
+            activeCommand = null
+          } else {
+            appendText('assistant', content)
+          }
+          break
+        }
+        case 'text': {
+          const text = b.text || ''
+          if (!text) break
+          if (activeCommand !== null) {
+            appendText('assistant', `⟪command⟫${activeCommand}\n${text}⟪/command⟫`)
+            activeCommand = null
+          } else {
+            appendText('assistant', text)
+          }
+          break
+        }
+        case 'thinking': {
+          const text = b.thinking || ''
+          if (text) appendText('assistant', `⟪think⟫${text}⟪/think⟫`)
+          break
+        }
+        case 'tool_use': {
+          if (b.name === 'execute_command') break
+          const input = b.input as Record<string, unknown> | undefined
+          const cmd = input?.command ? String(input.command) : JSON.stringify(input)
+          appendText('assistant', `⟪tool⟫${cmd}⟪/tool⟫`)
+          break
+        }
+        case 'tool_result': {
+          const inner = b.content as ContentBlock[] | undefined
+          if (inner) {
+            const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n')
+            if (text) {
+              if (activeCommand !== null) {
+                appendText('assistant', `⟪command⟫${activeCommand}\n${text}⟪/command⟫`)
+                activeCommand = null
+              } else {
+                appendText('assistant', `⟪result⟫${text}⟪/result⟫`)
+              }
+            }
+          }
+          break
+        }
+        case 'custom_text': {
+          if (b.text) appendText('assistant', b.text)
+          break
+        }
+        case 'error': {
+          const text = (b as Record<string, unknown>).text as string || ''
+          if (text) appendText('assistant', `❌ ${text}`)
+          break
+        }
+        case 'done':
+          currentStreamType = null
+          currentToolName = null
+          currentToolUseId = null
+          toolInputJson = ''
+          activeCommand = null
+          break
+      }
     }
   }
   return result
@@ -251,15 +285,14 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     pendingChatRef.current = []
     setPendingQuestion(null)
     setInitialMessages(null) // 回到加载态，运行时将随新历史重建
-    getSessionMessages(sessionId)
-      .then(msgs => {
+    getSessionEvents(sessionId)
+      .then(events => {
         if (cancelled) return
-        // 从最后一条 assistant 消息提取 Usage
-        extractUsageFromHistory(msgs)
-        // 事件流从最后一条历史消息之后的位置继续；无历史则从 0 开始
-        const last = msgs[msgs.length - 1]
+        extractUsageFromEvents(events)
+        // 事件流从最后一条历史事件之后的位置继续；无历史则从 0 开始
+        const last = events[events.length - 1]
         startRef.current = last ? last.start + last.offset : 0
-        setInitialMessages(buildDisplayMessages(msgs))
+        setInitialMessages(buildDisplayMessages(events))
         sendCreate()
       })
       .catch(() => {

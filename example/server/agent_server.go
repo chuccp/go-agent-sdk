@@ -71,31 +71,13 @@ func (r *Agent) GetSession() *Session {
 	return newSession(r.agentManager)
 }
 
-// History 获取会话历史消息（带 role），支持分页。
-func (r *Agent) History(id uint, since uint64, limit int) ([]*entity.ChatMessage, error) {
+// History 获取会话历史事件（与 WebSocket 推送格式一致）。
+func (r *Agent) History(id uint, since uint64) ([]*agent.Event, error) {
 	session, ok := r.agentManager.GetSession(cast.ToString(id))
 	if !ok {
 		return nil, nil
 	}
-	messages := session.History()
-	// 按 since 过滤 + limit 截断
-	result := make([]*entity.ChatMessage, 0, len(messages))
-	for _, m := range messages {
-		if m.Start < since {
-			continue
-		}
-		contentJSON, _ := json.Marshal(m.Content)
-		result = append(result, &entity.ChatMessage{
-			Start:   m.Start,
-			Offset:  m.Offset,
-			Role:    string(m.Role),
-			Content: string(contentJSON),
-		})
-		if len(result) >= limit {
-			break
-		}
-	}
-	return result, nil
+	return session.LoadMessagesAfter(since)
 }
 
 func (r *Agent) HandleChat(chat *agent.Client, message *entity.WsChatMessage) error {
