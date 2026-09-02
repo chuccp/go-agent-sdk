@@ -172,14 +172,14 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
         case 'tool_result': {
           const inner = b.content as ContentBlock[] | undefined
           if (inner) {
-            // 从 inner text 块提取 tool_use_id，按 id 查找命令（与 WebSocket 实时流一致）
             const firstText = inner.find(c => c.type === 'text' && c.text)
             const toolUseId = firstText?.tool_use_id || b.tool_use_id || null
             const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
             const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n')
             if (text) {
               if (cmd) {
-                appendText('assistant', `⟪command⟫${cmd}\n${text}⟪/command⟫`)
+                // 每个命令独立一条消息，避免多个 execute_command 合并显示
+                result.push({ role: 'assistant', content: `⟪command⟫${cmd}\n${text}⟪/command⟫` })
               } else {
                 appendText('assistant', `⟪result⟫${text}⟪/result⟫`)
               }
