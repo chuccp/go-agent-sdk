@@ -2,6 +2,7 @@ package agent
 
 import (
 	"testing"
+	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 )
@@ -245,5 +246,38 @@ func TestLoadMessagesAfter_NonPositiveLimit(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("want 0, got %d", len(got))
+	}
+}
+
+// TestStore_HistoryWaitsForLoad 验证「等拉取完了才处理用户消息」：
+// History() 在持久化历史尚未拉取时会阻塞，直到 LoadMessagesAfter 完成拉取后才返回完整历史，
+// 避免进程重启后拿到空/不完整的历史去拼 LLM 请求。
+func TestStore_HistoryWaitsForLoad(t *testing.T) {
+	store := newStoreWith(&seedMessageStore{messages: []*chat.Message{
+		seedMsg(1, 1), seedMsg(2, 1), seedMsg(3, 1),
+	}})
+
+	done := make(chan []*chat.Message, 1)
+	go func() { done <- store.History() }()
+
+	// 尚未拉取，History 应阻塞（不返回）。
+	select {
+	case got := <-done:
+		t.Fatalf("History 应在拉取完成前阻塞，却返回了 %v", starts(got))
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// 触发回放拉取，History 应解除阻塞并返回完整历史。
+	if _, err := store.LoadMessagesAfter(0, 10); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case got := <-done:
+		if want := []uint64{1, 2, 3}; !equalStarts(got, want) {
+			t.Fatalf("History() = %v, want %v", starts(got), want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("History 未在拉取完成后解除阻塞")
 	}
 }
