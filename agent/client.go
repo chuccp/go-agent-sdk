@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
@@ -87,10 +88,7 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 			return nil, c.ctx.Err()
 		default:
 		}
-		_, hasValue := c.queue.Dequeue()
-		if !hasValue {
-			return nil, nil
-		}
+
 		events, err := c.readEvents.readEvents(c)
 		if err != nil {
 			return nil, err
@@ -98,6 +96,12 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 		if len(events) > 0 {
 			return events, nil
 		}
+
+		_, hasValue := c.queue.Dequeue()
+		if !hasValue {
+			return nil, nil
+		}
+
 	}
 }
 

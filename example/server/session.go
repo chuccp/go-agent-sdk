@@ -59,6 +59,8 @@ func (s *Session) getChatClient(id string, start uint64) error {
 	chatClient := session.CreateClient(context.Background(), start)
 	s.chatClient = chatClient
 	s.lock.Unlock()
+	// 通知客户端有历史事件可读，唤醒 ReadEvents 的 Dequeue 阻塞
+	//session.FlushClients()
 	s.hasClient <- true
 	return nil
 }

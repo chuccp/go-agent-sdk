@@ -271,8 +271,6 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   // 历史消息 + 事件流起始位置（start = 最后一条历史消息的 start + offset）
   const [initialMessages, setInitialMessages] = useState<{ role: 'user' | 'assistant'; content: string }[] | null>(null)
   const startRef = useRef<number | null>(null)
-  // 追踪上次加载的 sessionId，避免重复加载
-  const loadedSessionRef = useRef<number | null>(null)
 
   // 会话就绪状态：收到服务端 created 回执后才允许发送聊天消息
   const createdRef = useRef(false)
@@ -287,43 +285,13 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   }, [])
 
   useEffect(() => {
-    // 同一个 sessionId 已加载过，不重复加载（避免分页过程中被重渲染中断）
-    if (loadedSessionRef.current === sessionId) return
-    let cancelled = false
-    startRef.current = null
+    // 不读取 REST 历史，直接通过 WebSocket 从 start=0 获取所有事件
+    startRef.current = 0
+    setInitialMessages([])
     createdRef.current = false
     pendingChatRef.current = []
     setPendingQuestion(null)
-    // 只在首次加载（null）时显示加载态，切换会话时保留旧消息直到新消息就绪
-    if (loadedSessionRef.current === null) {
-      setInitialMessages(null)
-    }
-    loadedSessionRef.current = sessionId
-    ;(async () => {
-      try {
-        const allEvents: ChatEvent[] = []
-        let since = 0
-        while (!cancelled) {
-          const page = await getSessionEvents(sessionId, since)
-          if (page.length === 0) break
-          allEvents.push(...page)
-          const last = page[page.length - 1]
-          since = last.start + last.offset
-        }
-        if (cancelled) return
-        extractUsageFromEvents(allEvents)
-        const last = allEvents[allEvents.length - 1]
-        startRef.current = last ? last.start + last.offset : 0
-        setInitialMessages(buildDisplayMessages(allEvents))
-        sendCreate()
-      } catch {
-        if (cancelled) return
-        startRef.current = 0
-        setInitialMessages([])
-        sendCreate()
-      }
-    })()
-    return () => { cancelled = true }
+    sendCreate()
   }, [sessionId, sendCreate])
 
   // 消息队列（仅展示后端返回的排队状态）

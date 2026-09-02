@@ -92,7 +92,11 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
 			defer func() {
-				l.store.RecordDone(l.SendBlock(chat.NewDoneBlock()))
+				doneBlock := chat.NewDoneBlock()
+				doneStart := l.SendBlock(doneBlock)
+				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
+				l.store.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
+				l.store.RecordDone(doneStart)
 				l.running = false
 				l.inbox.Reset()
 				l.runLock.Unlock()
