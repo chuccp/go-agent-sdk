@@ -297,10 +297,10 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         }
         break
       case 'done':
-        // 不设 done=true：多轮历史事件中每个 DoneBlock 后还有下一轮事件
+        event = { kind: 'done' }
         resetStreamBlockState()
         console.log('[bridge] done block received')
-        return
+        break
       case 'error':
         event = { kind: 'error', message: (block.text as string) || (block.message as string) || 'Unknown error' }
         break
@@ -442,8 +442,22 @@ export function createStreamingAdapter(): ChatModelAdapter {
       }
       pendingBuffer = []
 
+      // 唤醒信号：事件（或 done/abort）到达时立即唤醒 yield 循环，而不是固定 50ms 轮询。
+      // 固定轮询会让本轮内容最多延迟 50ms 才 yield；若下一轮 run 在此期间启动并 abort
+      // 本轮（框架 performRoundtrip 会 abort 上一轮的 AbortController），则本轮的 yield 会被
+      // for-await 里 abortSignal.aborted 判定丢弃，导致首轮 AI 回复整段丢失。
+      let wake: (() => void) | null = null
+      const notify = () => {
+        const w = wake
+        wake = null
+        w?.()
+      }
+
       // 2. 安装直接分发处理器（后续事件不再经过缓冲）
-      directDispatch = handleEvent
+      directDispatch = (evt) => {
+        handleEvent(evt)
+        notify()
+      }
       console.log(`[adapter] run #${myRun} directDispatch installed, done =`, done)
 
       // 3. 处理取消
@@ -454,10 +468,12 @@ export function createStreamingAdapter(): ChatModelAdapter {
           // 插话：不发 stop 到后端，但结束当前 adapter run
           directDispatch = null
           done = true
+          notify()
           return
         }
         directDispatch = null
         done = true
+        notify()
         stopCallback?.()
       }
       abortSignal?.addEventListener('abort', onAbort)
@@ -467,7 +483,7 @@ export function createStreamingAdapter(): ChatModelAdapter {
         if (resultQueue.length > 0) {
           yield resultQueue.shift()!
         } else {
-          await new Promise(r => setTimeout(r, 50))
+          await new Promise<void>(r => { wake = r })
         }
       }
 
