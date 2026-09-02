@@ -144,28 +144,26 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           const text = b.text || ''
           if (!text) break
           if (activeCommand !== null) {
-            result.push({ role: 'assistant', content: `⟪command⟫${activeCommand}\n${text}⟪/command⟫` })
+            appendText('assistant', `⟪command⟫${activeCommand}\n${text}⟪/command⟫`)
             activeCommand = null
           } else {
-            result.push({ role: 'assistant', content: text })
+            appendText('assistant', text)
           }
           break
         }
         case 'thinking': {
           const text = b.thinking || ''
-          if (text) result.push({ role: 'assistant', content: `⟪think⟫${text}⟪/think⟫` })
+          if (text) appendText('assistant', `⟪think⟫${text}⟪/think⟫`)
           break
         }
         case 'tool_use': {
           const input = b.input as Record<string, unknown> | undefined
           if (b.name === 'execute_command') {
-            // execute_command：解析命令，记录到 commandByToolUseId（与 WebSocket 实时流一致）
             const cmd = input?.command ? String(input.command) : ''
             if (cmd && b.id) commandByToolUseId.set(b.id, cmd)
           } else {
-            // 其他工具：显示入参文本（与 WebSocket 实时流的 delta chunk 一致）
             const text = input?.command ? String(input.command) : JSON.stringify(input)
-            if (text) result.push({ role: 'assistant', content: text })
+            if (text) appendText('assistant', text)
           }
           break
         }
@@ -178,22 +176,22 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
             const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n')
             if (text) {
               if (cmd) {
-                // 每个命令独立一条消息，避免多个 execute_command 合并显示
+                // execute_command 每个命令独立一条消息
                 result.push({ role: 'assistant', content: `⟪command⟫${cmd}\n${text}⟪/command⟫` })
               } else {
-                result.push({ role: 'assistant', content: `⟪result⟫${text}⟪/result⟫` })
+                appendText('assistant', `⟪result⟫${text}⟪/result⟫`)
               }
             }
           }
           break
         }
         case 'custom_text': {
-          if (b.text) result.push({ role: 'assistant', content: b.text })
+          if (b.text) appendText('assistant', b.text)
           break
         }
         case 'error': {
           const text = (b as Record<string, unknown>).text as string || ''
-          if (text) result.push({ role: 'assistant', content: `❌ ${text}` })
+          if (text) appendText('assistant', `❌ ${text}`)
           break
         }
         case 'done':
@@ -294,22 +292,34 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     pendingChatRef.current = []
     setPendingQuestion(null)
     setInitialMessages(null) // 回到加载态，运行时将随新历史重建
-    getSessionEvents(sessionId)
-      .then(events => {
+    // 分页加载历史事件：每次用上一页最后事件的 start+offset 作为下一页的 since
+    const pageSize = 50
+    ;(async () => {
+      try {
+        const allEvents: ChatEvent[] = []
+        let since = 0
+        while (true) {
+          if (cancelled) return
+          const page = await getSessionEvents(sessionId, since, pageSize)
+          if (page.length === 0) break
+          allEvents.push(...page)
+          if (page.length < pageSize) break // 最后一页
+          const last = page[page.length - 1]
+          since = last.start + last.offset
+        }
         if (cancelled) return
-        extractUsageFromEvents(events)
-        // 事件流从最后一条历史事件之后的位置继续；无历史则从 0 开始
-        const last = events[events.length - 1]
+        extractUsageFromEvents(allEvents)
+        const last = allEvents[allEvents.length - 1]
         startRef.current = last ? last.start + last.offset : 0
-        setInitialMessages(buildDisplayMessages(events))
+        setInitialMessages(buildDisplayMessages(allEvents))
         sendCreate()
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return
         startRef.current = 0
         setInitialMessages([])
         sendCreate()
-      })
+      }
+    })()
     return () => { cancelled = true }
   }, [sessionId, sendCreate])
 
