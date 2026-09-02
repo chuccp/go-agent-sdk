@@ -56,7 +56,23 @@ func (l *Transfer) GetStore() *Store {
 func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.greaterStart(since)
+	events, err := l.greaterStart(since)
+	if err != nil {
+		return nil, err
+	}
+	if events == nil {
+		return nil, nil
+	}
+	if len(events) > 0 {
+		last := events[len(events)-1]
+		if len(last.Blocks) > 0 {
+			lastBlock := last.Blocks[len(last.Blocks)-1]
+			l.seq = lastBlock.GetStart() + 1
+		} else {
+			l.seq = last.Start + last.Offset
+		}
+	}
+	return events, nil
 }
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
@@ -195,6 +211,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 	events := cache.Slice()
 	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
+
 	return events, nil
 }
 
