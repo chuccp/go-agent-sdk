@@ -292,18 +292,16 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     pendingChatRef.current = []
     setPendingQuestion(null)
     setInitialMessages(null) // 回到加载态，运行时将随新历史重建
-    // 分页加载历史事件：每次用上一页最后事件的 start+offset 作为下一页的 since
-    const pageSize = 50
+    // 分页加载历史事件：每次用上一页最后事件的 start+offset 作为下一页的 since，读到空停止
     ;(async () => {
       try {
         const allEvents: ChatEvent[] = []
         let since = 0
         while (true) {
           if (cancelled) return
-          const page = await getSessionEvents(sessionId, since, pageSize)
+          const page = await getSessionEvents(sessionId, since)
           if (page.length === 0) break
           allEvents.push(...page)
-          if (page.length < pageSize) break // 最后一页
           const last = page[page.length - 1]
           since = last.start + last.offset
         }
