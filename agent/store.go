@@ -151,7 +151,7 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 	if err != nil {
 		return nil, err
 	}
-	if after != nil {
+	if len(after) > 0 {
 		lastAfter := after[len(after)-1]
 		if lastAfter.Start > s.summary.Start {
 			if s.history.IsEmpty() {

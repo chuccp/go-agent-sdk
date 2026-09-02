@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
