@@ -91,10 +91,15 @@ func (c *Chat) deleteSession(request *web.Request) (any, error) {
 // Query params: since (起始 start，默认 0), limit (每页条数，默认 50)
 func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 	sessionId := request.ParamUint("id")
-	since := request.QueryUint64("since")
-	limit := request.QueryInt("limit")
-	if limit <= 0 {
-		limit = 50
+	var since uint64
+	if s := request.Query("since"); s != "" {
+		since, _ = strconv.ParseUint(s, 10, 64)
+	}
+	limit := 50
+	if l := request.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
 	}
 	messages, err := c.agent.History(sessionId, since, limit)
 	if err != nil {
