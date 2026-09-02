@@ -45,7 +45,7 @@ func (s *Session) HandleStop() error {
 	return nil
 }
 
-func (s *Session) getChatClient(ctx context.Context, id string, start uint64) error {
+func (s *Session) getChatClient(id string, start uint64) error {
 	if util.IsBlank(id) {
 		return errors.New("id is blank")
 	}
@@ -55,11 +55,8 @@ func (s *Session) getChatClient(ctx context.Context, id string, start uint64) er
 		s.lock.Unlock()
 		return nil
 	}
-	chatClient, err := s.chatManager.GetClient(id, start)
-	if err != nil {
-		s.lock.Unlock()
-		return err
-	}
+	session := s.chatManager.GetOrCreateSession(id)
+	chatClient := session.CreateClient(context.Background(), start)
 	s.chatClient = chatClient
 	s.lock.Unlock()
 	s.hasClient <- true
@@ -70,7 +67,11 @@ func (s *Session) ReadEvent() []*agent.Event {
 
 	for {
 		if s.chatClient != nil {
-			return s.chatClient.ReadEvents()
+			events, err := s.chatClient.ReadEvents()
+			if err != nil {
+				return nil
+			}
+			return events
 		}
 		if !<-s.hasClient {
 			break

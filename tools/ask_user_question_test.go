@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -223,10 +224,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("ask-s2")
-	client, err := manager.GetClient("ask-s2", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("ask-s2").CreateClient(context.Background(), 0)
 	defer client.Close()
 
 	args := map[string]any{

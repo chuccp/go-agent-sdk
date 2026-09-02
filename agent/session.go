@@ -101,12 +101,6 @@ func (s *Session) checkTimeout() {
 	}
 }
 
-// History 返回当前会话的完整历史。
-func (s *Session) History() []*chat.Message {
-	return s.transfer.history()
-
-}
-
 func (s *Session) SetSessionTimeout(sessionTimeout uint) {
 	s.sessionTimeout = sessionTimeout
 }

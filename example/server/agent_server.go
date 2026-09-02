@@ -71,19 +71,27 @@ func (r *Agent) GetSession() *Session {
 	return newSession(r.agentManager)
 }
 
-func (r *Agent) History(id uint) ([]*entity.ChatMessage, error) {
-	messages, err := r.agentManager.History(cast.ToString(id))
+// History 分页获取会话历史事件。
+// since: 起始 start 位置（返回 Start >= since 的事件），limit: 最大返回条数。
+func (r *Agent) History(id uint, since uint64, limit int) ([]*entity.ChatMessage, error) {
+	session, ok := r.agentManager.GetSession(cast.ToString(id))
+	if !ok {
+		return nil, nil
+	}
+	events, err := session.LoadMessagesAfter(since)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*entity.ChatMessage, 0, len(messages))
-	for _, m := range messages {
-		contentJSON, _ := json.Marshal(m.Content)
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	result := make([]*entity.ChatMessage, 0, len(events))
+	for _, ev := range events {
+		blocksJSON, _ := json.Marshal(ev.Blocks)
 		result = append(result, &entity.ChatMessage{
-			Start:   m.Start,
-			Offset:  m.Offset,
-			Role:    string(m.Role),
-			Content: string(contentJSON),
+			Start:   ev.Start,
+			Offset:  ev.Offset,
+			Content: string(blocksJSON),
 		})
 	}
 	return result, nil

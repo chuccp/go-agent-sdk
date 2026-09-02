@@ -13,6 +13,7 @@ import (
 
 // ChatSessionService provides business logic for chat session and message CRUD.
 // It wraps the model layer and is consumed by REST handlers via core.GetService.
+// Implements agent.MessageStore interface for persistent message storage.
 type ChatSessionService struct {
 	context      *core.Context
 	sessionModel *model.ChatSessionModel
@@ -54,18 +55,11 @@ func (s *ChatSessionService) DeleteSession(ctx context.Context, id uint) error {
 	return s.sessionModel.WithContext(ctx).DeleteByPK(id)
 }
 
-// GetSessionMessages returns all messages for a session ordered by creation time.
-func (s *ChatSessionService) GetSessionMessages(sessionId uint) ([]*entity.ChatMessage, error) {
-	return s.messageModel.Query().
-		Where("session_id = ?", sessionId).
-		Order("created_at asc").
-		All()
-}
+// ── agent.MessageStore 接口实现 ──
 
-// LoadHistory loads the chat history for a session from the database,
-// converting stored rows back to SDK chat.Message format.
-// Implements agent.HistoryStore interface.
-func (s *ChatSessionService) LoadHistory(sessionID string) ([]*chat.Message, error) {
+// LoadAfter 读取 Start >= since 的原始消息，按 Start 升序，最多 limit 条。
+// 实现 agent.MessageStore 接口。
+func (s *ChatSessionService) LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error) {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
 	if err != nil {
 		return nil, nil // invalid sessionID, treat as new session
@@ -84,6 +78,9 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]*chat.Message, err
 
 	messages := make([]*chat.Message, 0, len(rows))
 	for _, row := range rows {
+		if uint64(row.Start) < since {
+			continue
+		}
 		msg := &chat.Message{
 			Role:   chat.Role(row.Role),
 			Start:  row.Start,
@@ -99,13 +96,16 @@ func (s *ChatSessionService) LoadHistory(sessionID string) ([]*chat.Message, err
 			}
 		}
 		messages = append(messages, msg)
+		if len(messages) >= limit {
+			break
+		}
 	}
 	return messages, nil
 }
 
-// AppendMessages persists new messages for a session to the database (incremental insert).
-// Implements chat.HistoryStore interface.
-func (s *ChatSessionService) AppendMessages(sessionID string, messages []*chat.Message) error {
+// Append 增量追加本批次新产生的消息。
+// 实现 agent.MessageStore 接口。
+func (s *ChatSessionService) Append(sessionID string, messages []*chat.Message) error {
 	id, err := strconv.ParseUint(sessionID, 10, 64)
 	if err != nil {
 		return nil
@@ -125,5 +125,17 @@ func (s *ChatSessionService) AppendMessages(sessionID string, messages []*chat.M
 			return err
 		}
 	}
+	return nil
+}
+
+// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩。
+// 实现 agent.MessageStore 接口。当前不支持压缩，始终返回 nil。
+func (s *ChatSessionService) LoadSummary(sessionID string) (*chat.Message, error) {
+	return nil, nil
+}
+
+// SaveSummary 保存压缩摘要。
+// 实现 agent.MessageStore 接口。当前不支持压缩，空实现。
+func (s *ChatSessionService) SaveSummary(sessionID string, summary *chat.Message) error {
 	return nil
 }

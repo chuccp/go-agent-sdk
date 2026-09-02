@@ -91,7 +91,10 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 		if !hasValue {
 			return nil, nil
 		}
-		events := c.readEvents.readEvents(c)
+		events, err := c.readEvents.readEvents(c)
+		if err != nil {
+			return nil, err
+		}
 		if len(events) > 0 {
 			return events, nil
 		}

@@ -134,32 +134,40 @@ func execToolText(t *testing.T, exec agent.ToolExecutor, turn *agent.Turn) strin
 }
 
 // collectUntilDone 读事件直到 done block。
+// 注意：事件按 Start 降序返回，DoneBlock（最大 Start）出现在批次前面，
+// 但工具输出块（较小 Start）在同一批次中排在后面，因此必须处理完整个批次再返回。
 func collectUntilDone(t *testing.T, client *agent.Client) []*agent.Event {
 	t.Helper()
-	ch := make(chan []*agent.Event, 1)
-	go func() {
-		var events []*agent.Event
-		for {
-			batch := client.ReadEvents()
-			if len(batch) == 0 {
-				ch <- events
-				return
-			}
-			for _, evt := range batch {
-				events = append(events, evt)
-				if _, ok := evt.Blocks[0].(*chat.DoneBlock); ok {
-					ch <- events
-					return
+	var events []*agent.Event
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("15s 超时未收到 done (collected %d events so far)", len(events))
+			return events
+		default:
+		}
+		batch, err := client.ReadEvents()
+		if err != nil {
+			t.Fatalf("ReadEvents error: %v", err)
+			return events
+		}
+		if len(batch) == 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		hasDone := false
+		for _, evt := range batch {
+			events = append(events, evt)
+			for _, b := range evt.Blocks {
+				if _, ok := b.(*chat.DoneBlock); ok {
+					hasDone = true
 				}
 			}
 		}
-	}()
-	select {
-	case events := <-ch:
-		return events
-	case <-time.After(15 * time.Second):
-		t.Fatal("15s 超时未收到 done")
-		return nil
+		if hasDone {
+			return events
+		}
 	}
 }
 
@@ -200,10 +208,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	activate, execNode, stepDone, status, finish := workflow.NewFlowTools(wf)
 	manager.AddTools(activate, execNode, stepDone, status, finish)
 
-	client, err := manager.GetClient("flow-e2e", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("flow-e2e").CreateClient(context.Background(), 0)
 	client.WriteText("给我 5 岁孩子写个太空故事")
 	events := collectUntilDone(t, client)
 

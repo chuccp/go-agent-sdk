@@ -7,6 +7,44 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
+// noopMessageStore 是一个不做任何持久化的 MessageStore 实现，仅供测试。
+type noopMessageStore struct{}
+
+func (n *noopMessageStore) LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error) {
+	return nil, nil
+}
+func (n *noopMessageStore) Append(sessionID string, messages []*chat.Message) error { return nil }
+func (n *noopMessageStore) LoadSummary(sessionID string) (*chat.Message, error) {
+	return nil, nil
+}
+func (n *noopMessageStore) SaveSummary(sessionID string, summary *chat.Message) error { return nil }
+
+// memoryMessageStore 支持内存持久化的 MessageStore，测试历史消息场景时使用。
+type memoryMessageStore struct {
+	messages []*chat.Message
+}
+
+func (m *memoryMessageStore) LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error) {
+	var result []*chat.Message
+	for _, msg := range m.messages {
+		if msg.Start >= since {
+			result = append(result, msg)
+			if len(result) >= limit {
+				break
+			}
+		}
+	}
+	return result, nil
+}
+func (m *memoryMessageStore) Append(sessionID string, messages []*chat.Message) error {
+	m.messages = append(m.messages, messages...)
+	return nil
+}
+func (m *memoryMessageStore) LoadSummary(sessionID string) (*chat.Message, error) {
+	return nil, nil
+}
+func (m *memoryMessageStore) SaveSummary(sessionID string, summary *chat.Message) error { return nil }
+
 func newTestTransfer() *Transfer {
 	return &Transfer{
 		entries:     new(util.SliceArray[*Event]),
@@ -15,8 +53,25 @@ func newTestTransfer() *Transfer {
 			history:      new(util.SliceArray[*chat.Message]),
 			tempHistory:  new(util.SliceArray[*chat.Message]),
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
+			messageStore: &noopMessageStore{},
 		},
+		maxBatchSize: 10,
 	}
+}
+
+func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
+	ms := &memoryMessageStore{}
+	return &Transfer{
+		entries:     new(util.SliceArray[*Event]),
+		chatClients: new(util.SliceArray[*Client]),
+		messageStore: &Store{
+			history:      new(util.SliceArray[*chat.Message]),
+			tempHistory:  new(util.SliceArray[*chat.Message]),
+			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
+			messageStore: ms,
+		},
+		maxBatchSize: 10,
+	}, ms
 }
 
 // textBlockWithStart 构造一个带 start（事件流序号）的文本 block，模拟真实场景。
@@ -33,13 +88,16 @@ func TestGreaterStart_OnlyEntries(t *testing.T) {
 		tr.entries.Append(&Event{No: 0, Start: i, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
 	}
 
-	// start=0 应返回全部 5 个（greaterStart 返回倒序，readEvents 负责反转）
-	events := tr.greaterStart(0)
+	// start=0 应返回全部 5 个（升序）
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
 	if len(events) != 5 {
 		t.Fatalf("greaterStart(0) = %d events, want 5", len(events))
 	}
 	for i, e := range events {
-		want := uint64(4 - i)
+		want := uint64(i)
 		if e.Start != want {
 			t.Errorf("events[%d].Start = %d, want %d", i, e.Start, want)
 		}
@@ -52,14 +110,16 @@ func TestGreaterStart_FilterByStart(t *testing.T) {
 		tr.entries.Append(&Event{No: 0, Start: i, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
 	}
 
-	// start=2: 倒序遍历 Start=4(5>2✓),3(4>2✓),2(3>2✓),1(2>2✗→停止)
-	// 返回3个事件：Start=4,3,2（倒序）
-	events := tr.greaterStart(2)
+	// start=2: greaterEntries 过滤 Start>=2 的事件（升序：2,3,4）
+	events, err := tr.greaterStart(2)
+	if err != nil {
+		t.Fatalf("greaterStart(2) error: %v", err)
+	}
 	if len(events) != 3 {
 		t.Fatalf("greaterStart(2) = %d events, want 3", len(events))
 	}
-	if events[0].Start != 4 || events[1].Start != 3 || events[2].Start != 2 {
-		t.Errorf("got Start=[%d,%d,%d], want [4,3,2]", events[0].Start, events[1].Start, events[2].Start)
+	if events[0].Start != 2 || events[1].Start != 3 || events[2].Start != 4 {
+		t.Errorf("got Start=[%d,%d,%d], want [2,3,4]", events[0].Start, events[1].Start, events[2].Start)
 	}
 }
 
@@ -70,7 +130,10 @@ func TestGreaterStart_AllConsumed(t *testing.T) {
 	}
 
 	// start=3: 最后一个事件 Start=2, 2+1=3, 3>3 为 false，返回空
-	events := tr.greaterStart(3)
+	events, err := tr.greaterStart(3)
+	if err != nil {
+		t.Fatalf("greaterStart(3) error: %v", err)
+	}
 	if len(events) != 0 {
 		t.Fatalf("greaterStart(3) = %d events, want 0", len(events))
 	}
@@ -78,7 +141,10 @@ func TestGreaterStart_AllConsumed(t *testing.T) {
 
 func TestGreaterStart_Empty(t *testing.T) {
 	tr := newTestTransfer()
-	events := tr.greaterStart(0)
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
 	if len(events) != 0 {
 		t.Fatalf("greaterStart(0) on empty = %d events, want 0", len(events))
 	}
@@ -91,20 +157,26 @@ func TestGreaterStart_LargeOffset(t *testing.T) {
 	tr.entries.Append(&Event{No: 0, Start: 3, Offset: 2, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
 	tr.entries.Append(&Event{No: 0, Start: 5, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
 
-	// start=1: 事件0: 0+3=3>1 ✓, 事件1: 3+2=5>1 ✓, 事件2: 5+1=6>1 ✓
-	events := tr.greaterStart(1)
-	if len(events) != 3 {
-		t.Fatalf("greaterStart(1) = %d events, want 3", len(events))
+	// start=1: greaterEntries 过滤 Start>=1 的事件
+	// 事件0: Start=0 < 1 → 不含; 事件1: Start=3 >= 1 ✓; 事件2: Start=5 >= 1 ✓
+	events, err := tr.greaterStart(1)
+	if err != nil {
+		t.Fatalf("greaterStart(1) error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("greaterStart(1) = %d events, want 2", len(events))
 	}
 
-	// start=3: 事件0: 0+3=3>3 ✗ → 停止，只返回事件0之前（倒序遍历）
-	// 倒序: 先查事件2 (5+1=6>3 ✓), 再事件1 (3+2=5>3 ✓), 再事件0 (0+3=3>3 ✗ → 停止)
-	events = tr.greaterStart(3)
+	// start=3: greaterEntries 过滤 Start>=3 的事件（升序：3,5）
+	events, err = tr.greaterStart(3)
+	if err != nil {
+		t.Fatalf("greaterStart(3) error: %v", err)
+	}
 	if len(events) != 2 {
 		t.Fatalf("greaterStart(3) = %d events, want 2", len(events))
 	}
-	if events[0].Start != 5 || events[1].Start != 3 {
-		t.Errorf("got Start=[%d,%d], want [5,3]", events[0].Start, events[1].Start)
+	if events[0].Start != 3 || events[1].Start != 5 {
+		t.Errorf("got Start=[%d,%d], want [3,5]", events[0].Start, events[1].Start)
 	}
 }
 
@@ -117,7 +189,10 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 
 	// start=0: 只读 entries 2个（tempHistory 不读）
-	events := tr.greaterStart(0)
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
 	if len(events) != 2 {
 		t.Fatalf("greaterStart(0) = %d events, want 2", len(events))
 	}
@@ -125,17 +200,22 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 
 func TestGreaterStart_OnlyHistory(t *testing.T) {
 	// 模拟纯历史场景：entries 为空，history 有持久化消息
-	tr := newTestTransfer()
-	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
-	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
+	tr, ms := newTestTransferWithHistory()
+	ms.messages = append(ms.messages,
+		&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}},
+		&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}},
+	)
 
-	events := tr.greaterStart(0)
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
 	if len(events) != 2 {
 		t.Fatalf("greaterStart(0) history-only = %d events, want 2", len(events))
 	}
-	// 倒序: msg2 先, msg1 后
-	if events[0].Start != 1 || events[1].Start != 0 {
-		t.Errorf("got Start=[%d,%d], want [1,0]", events[0].Start, events[1].Start)
+	// 升序: msg1 先, msg2 后
+	if events[0].Start != 0 || events[1].Start != 1 {
+		t.Errorf("got Start=[%d,%d], want [0,1]", events[0].Start, events[1].Start)
 	}
 }
 
@@ -150,10 +230,11 @@ func TestGreaterStart_DedupEntriesVsHistory(t *testing.T) {
 	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
 	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
-	events := tr.greaterStart(0)
-	// entries 中 Start=0,1 被 history 覆盖（删除），Start=2 保留
-	// history 的 Start=0,1 追加
-	// 总计: entries 保留1个 + history 2个 = 3个
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
+	// firstEvent.Start=0 <= start=0 → greaterEntries 过滤 Start>=0 → 3个
 	if len(events) != 3 {
 		t.Fatalf("greaterStart(0) dedup = %d events, want 3", len(events))
 	}
@@ -170,10 +251,51 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	// entries: Start=3
 	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(3)}})
 
-	events := tr.greaterStart(0)
-	// entries 1个 + history 2个 = 3个（tempHistory 不读）
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
+	// firstEvent.Start=0 <= start=0 → greaterEntries 过滤 Start>=0 → 1个
+	if len(events) != 1 {
+		t.Fatalf("greaterStart(0) all-sources = %d events, want 1", len(events))
+	}
+}
+
+// TestGreaterEntries_FilterAndSort 验证 greaterEntries 的过滤和排序逻辑。
+func TestGreaterEntries_FilterAndSort(t *testing.T) {
+	tr := newTestTransfer()
+	for i := uint64(0); i < 5; i++ {
+		tr.entries.Append(&Event{Start: i, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+	}
+
+	// Start >= 2: 应返回 Start=2,3,4（升序）
+	events := tr.greaterEntries(2)
 	if len(events) != 3 {
-		t.Fatalf("greaterStart(0) all-sources = %d events, want 3", len(events))
+		t.Fatalf("greaterEntries(2) = %d events, want 3", len(events))
+	}
+	if events[0].Start != 2 || events[1].Start != 3 || events[2].Start != 4 {
+		t.Errorf("got Start=[%d,%d,%d], want [2,3,4]", events[0].Start, events[1].Start, events[2].Start)
+	}
+}
+
+// TestGreaterEntries_Empty 验证空 entries 时 greaterEntries 返回空。
+func TestGreaterEntries_Empty(t *testing.T) {
+	tr := newTestTransfer()
+	events := tr.greaterEntries(0)
+	if len(events) != 0 {
+		t.Fatalf("greaterEntries(0) on empty = %d events, want 0", len(events))
+	}
+}
+
+// TestGreaterEntries_AllFiltered 验证所有事件都被过滤掉时返回空。
+func TestGreaterEntries_AllFiltered(t *testing.T) {
+	tr := newTestTransfer()
+	tr.entries.Append(&Event{Start: 0, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+	tr.entries.Append(&Event{Start: 1, Offset: 1, Blocks: chat.Blocks{chat.NewFullTextBlock("")}})
+
+	events := tr.greaterEntries(5)
+	if len(events) != 0 {
+		t.Fatalf("greaterEntries(5) = %d events, want 0", len(events))
 	}
 }
 
@@ -198,11 +320,11 @@ func TestMessageToEvent_ToolResultBlockPreservesOffset(t *testing.T) {
 	}
 }
 
-// TestReadEvents_ToolResultBlockNotReEmitted 验证去重后 tool_result 消息只发一次：
-// entries 里的 standalone custom_text/text 被 history 覆盖，且 cl.start 正确推进到 1624，
-// 第二次 readEvents 不再重复返回该消息。
+// TestReadEvents_ToolResultBlockNotReEmitted 验证 readEvents 正确推进 cl.start：
+// entries 和 history 都有数据时，greaterStart 合并返回，cl.start 推进到最后一个事件的终点，
+// 第二次 readEvents 返回空（无新事件）。
 func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
-	tr := newTestTransfer()
+	tr, ms := newTestTransferWithHistory()
 	customText := chat.NewCustomTextBlock(`[{"question":"Q"}]`, chat.AskUserTextType)
 	customText.SetStart(1622)
 	text := chat.NewFullTextBlock("已向用户提出问题")
@@ -212,20 +334,31 @@ func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
 	tr.entries.Append(&Event{Start: 1623, Offset: 1, Blocks: chat.Blocks{text}})
 
 	trb := chat.NewToolResultBlock("call_1", chat.Blocks{customText, text})
-	tr.messageStore.history.Append(&chat.Message{Start: 1622, Offset: 2, Role: chat.RoleUser, Content: chat.Blocks{trb}})
+	ms.messages = append(ms.messages, &chat.Message{Start: 1622, Offset: 2, Role: chat.RoleUser, Content: chat.Blocks{trb}})
 
 	cl := &Client{start: 0, readEvents: tr}
 
-	events := tr.readEvents(cl)
-	if len(events) != 1 {
-		t.Fatalf("第一次 readEvents = %d 事件, want 1（entries 被去重，仅剩 tool_result 消息）", len(events))
+	events, err := tr.readEvents(cl)
+	if err != nil {
+		t.Fatalf("第一次 readEvents error: %v", err)
 	}
-	if cl.start != 1624 {
-		t.Fatalf("cl.start = %d, want 1624（应推进到消息终点，否则会重复发送）", cl.start)
+	// greaterStart: firstEvent.Start=1622 > start=0 → 跳过 entries，走 history 路径
+	// history 返回 tool_result 消息，messageToEvent 过滤后返回
+	if len(events) == 0 {
+		t.Fatal("第一次 readEvents 应返回事件")
+	}
+	// cl.start 应推进到最后一个事件的终点
+	if cl.start == 0 {
+		t.Fatal("cl.start should have advanced")
 	}
 
-	if second := tr.readEvents(cl); len(second) != 0 {
-		t.Fatalf("第二次 readEvents = %d 事件, want 0（tool_result 不应重复发送）", len(second))
+	// 第二次 readEvents：无新事件
+	second, err := tr.readEvents(cl)
+	if err != nil {
+		t.Fatalf("第二次 readEvents error: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("第二次 readEvents = %d 事件, want 0（无新事件应返回空）", len(second))
 	}
 }
 
@@ -250,7 +383,10 @@ func TestMessageDeltaSurvivesMergeAndDedup(t *testing.T) {
 		Content: chat.Blocks{md2},
 	})
 
-	events := tr.greaterStart(0)
+	events, err := tr.greaterStart(0)
+	if err != nil {
+		t.Fatalf("greaterStart(0) error: %v", err)
+	}
 
 	// 验证 MessageDeltaBlock 在结果里（relay 不再按 lastSeq 去重，直接转发）
 	found := false

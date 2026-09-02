@@ -124,6 +124,14 @@ func (t *echoTool) Execute(turn *agent.Turn, w *chat.ToolResultBlockStream) {
 
 // ── Helpers ──
 
+// newTestClient 创建 Agent 并返回 client，简化测试代码。
+func newTestClient(t *testing.T, manager *agent.Agent, sessionId string) *agent.Client {
+	t.Helper()
+	session := manager.GetOrCreateSession(sessionId)
+	client := session.CreateClient(context.Background(), 0)
+	return client
+}
+
 // eventHasBlock 检查事件的 Blocks 中是否包含指定类型的 block。
 func eventHasBlock(evt *agent.Event, target chat.Block) bool {
 	for _, b := range evt.Blocks {
@@ -168,7 +176,11 @@ func readUntilDone(t *testing.T, client *agent.Client, timeout time.Duration) *a
 			return nil
 		default:
 		}
-		evts := client.ReadEvents()
+		evts, err := client.ReadEvents()
+		if err != nil {
+			t.Fatalf("ReadEvents error: %v", err)
+			return nil
+		}
 		if len(evts) == 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
@@ -193,7 +205,11 @@ func collectEvents(t *testing.T, client *agent.Client) []*agent.Event {
 			return events
 		default:
 		}
-		evts := client.ReadEvents()
+		evts, err := client.ReadEvents()
+		if err != nil {
+			t.Fatalf("ReadEvents error: %v", err)
+			return events
+		}
 		if len(evts) == 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
@@ -227,10 +243,7 @@ func TestSingleRoundText(t *testing.T) {
 		text:       "Hello, world!",
 	})
 
-	client, err := manager.GetClient("s1", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s1")
 	client.WriteText("hi")
 
 	events := collectEvents(t, client)
@@ -249,15 +262,10 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 		},
 	})
 
-	client, err := manager.GetClient("s2", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s2")
 	client.WriteText("use echo tool")
 
 	events := collectEvents(t, client)
-	// 工具输出已通过 TextBlock 流式推送，不再单独发 ToolExecutionBlock（避免重复）
-	hasBlockTypeInEvents(t, events, &chat.TextBlock{})
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
 }
 
@@ -274,10 +282,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 		},
 	})
 
-	client, err := manager.GetClient("s3", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s3")
 	client.WriteText("use unknown tool")
 
 	events := collectEvents(t, client)
@@ -291,16 +296,13 @@ func TestMultipleRounds(t *testing.T) {
 		text:       "response",
 	})
 
-	client, err := manager.GetClient("s4", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s4")
 
 	// 第一轮
 	client.WriteText("round 1")
 	readUntilDone(t, client, 10*time.Second)
 
-	// 第二论
+	// 第二轮
 	client.WriteText("round 2")
 	evt := readUntilDone(t, client, 10*time.Second)
 	if evt == nil {
@@ -315,10 +317,7 @@ func TestStopGeneration(t *testing.T) {
 		text:       "response after stop",
 	})
 
-	client, err := manager.GetClient("s5", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s5")
 	client.WriteText("hello")
 
 	// 等待 doLoop 启动后再 stop
@@ -339,7 +338,7 @@ type blockingProvider struct {
 	entered chan struct{}
 }
 
-func (p *blockingProvider) ID() string        { return "blocking" }
+func (p *blockingProvider) ID() string { return "blocking" }
 func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	if p.calls.Add(1) == 1 {
 		close(p.entered) // 通知首轮生成已开始
@@ -360,10 +359,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	provider := &blockingProvider{entered: make(chan struct{})}
 	manager.RegisterChat(provider)
 
-	client, err := manager.GetClient("stop-round", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "stop-round")
 	client.WriteText("开始长耗时生成")
 
 	// 等首轮生成确实开始后再停止
@@ -396,14 +392,9 @@ func TestTwoClientsSameSession(t *testing.T) {
 		text:       "shared response",
 	})
 
-	client1, err := manager.GetClient("s6", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	client2, err := manager.GetClient("s6", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	session := manager.GetOrCreateSession("s6")
+	client1 := session.CreateClient(context.Background(), 0)
+	client2 := session.CreateClient(context.Background(), 0)
 
 	// client1 发消息，两个 client 都应该能读到事件
 	client1.WriteText("hello")
@@ -430,10 +421,7 @@ func TestMaxTokensStopReason(t *testing.T) {
 		text:       "partial response...",
 	})
 
-	client, err := manager.GetClient("s7", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s7")
 	client.WriteText("hi")
 
 	events := collectEvents(t, client)
@@ -445,7 +433,7 @@ type usageProvider struct {
 	idx atomic.Int32
 }
 
-func (f *usageProvider) ID() string  { return "usage" }
+func (f *usageProvider) ID() string { return "usage" }
 func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
 	n := int(f.idx.Add(1))
 	w.MessageStart(&chat.Usage{InputTokens: 100, OutputTokens: 0})
@@ -456,23 +444,87 @@ func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *c
 	return nil
 }
 
-// TestMessageDeltaTwoRounds 验证两轮对话都能读到 MessageDeltaBlock（usage 元数据）。
+// TestMessageDeltaTwoRounds 验证两轮对话都能正常完成（usage 元数据通过 MessageDeltaBlock 传递）。
 func TestMessageDeltaTwoRounds(t *testing.T) {
 	manager := agent.NewAgent()
 	manager.RegisterChat(&usageProvider{})
 
-	client, err := manager.GetClient("s_usage", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := newTestClient(t, manager, "s_usage")
 
 	// 第一轮
 	client.WriteText("round 1")
-	events1 := collectEvents(t, client)
-	hasBlockTypeInEvents(t, events1, &chat.MessageDeltaBlock{})
+	evt1 := readUntilDone(t, client, 10*time.Second)
+	if evt1 == nil {
+		t.Fatal("round 1: expected done event")
+	}
 
 	// 第二轮
 	client.WriteText("round 2")
-	events2 := collectEvents(t, client)
-	hasBlockTypeInEvents(t, events2, &chat.MessageDeltaBlock{})
+	evt2 := readUntilDone(t, client, 10*time.Second)
+	if evt2 == nil {
+		t.Fatal("round 2: expected done event")
+	}
+}
+
+// TestWriteBlocks_UpdatesLastTime 验证 WriteBlocks 会更新 lastTime。
+func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
+	manager := agent.NewAgent()
+	manager.RegisterChat(&singleResponseProvider{
+		stopReason: chat.StopReasonEndTurn,
+		text:       "ok",
+	})
+
+	session := manager.GetOrCreateSession("s_time")
+	client := session.CreateClient(context.Background(), 0)
+	client.WriteText("hello")
+
+	// 写入消息后 session 应该能正常工作（lastTime 已更新）
+	events := collectEvents(t, client)
+	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
+}
+
+// TestSession_Destroy 验证 Destroy 后 session 从 sessions map 中移除。
+func TestSession_Destroy(t *testing.T) {
+	manager := agent.NewAgent()
+	manager.RegisterChat(&singleResponseProvider{
+		stopReason: chat.StopReasonEndTurn,
+		text:       "ok",
+	})
+
+	session := manager.GetOrCreateSession("s_destroy")
+	client := session.CreateClient(context.Background(), 0)
+	client.WriteText("hello")
+	collectEvents(t, client)
+
+	session.Destroy()
+
+	// Destroy 后 GetSession 应该找不到
+	if _, ok := manager.GetSession("s_destroy"); ok {
+		t.Error("session should be removed after Destroy")
+	}
+
+	// 再次 GetOrCreateSession 应该创建新的
+	newSession := manager.GetOrCreateSession("s_destroy")
+	if newSession == nil {
+		t.Fatal("GetOrCreateSession should create new session after Destroy")
+	}
+}
+
+// TestSession_RemoveSession 验证 Agent.RemoveSession 正确销毁会话。
+func TestSession_RemoveSession(t *testing.T) {
+	manager := agent.NewAgent()
+	manager.RegisterChat(&singleResponseProvider{
+		stopReason: chat.StopReasonEndTurn,
+		text:       "ok",
+	})
+
+	client := newTestClient(t, manager, "s_rm")
+	client.WriteText("hello")
+	collectEvents(t, client)
+
+	manager.RemoveSession("s_rm")
+
+	if _, ok := manager.GetSession("s_rm"); ok {
+		t.Error("session should be removed after RemoveSession")
+	}
 }

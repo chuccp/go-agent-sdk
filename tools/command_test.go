@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func readEventsUntilIdle(client *agent.Client, idle time.Duration) []*agent.Even
 	for {
 		ch := make(chan []*agent.Event, 1)
 		go func() {
-			evts := client.ReadEvents()
+			evts, _ := client.ReadEvents()
 			ch <- evts
 		}()
 		select {
@@ -84,10 +85,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 func TestCommand_WithSessionContext(t *testing.T) {
 	manager := agent.NewAgent()
 	ctx := manager.SessionContext("cmd-s1")
-	client, err := manager.GetClient("cmd-s1", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("cmd-s1").CreateClient(context.Background(), 0)
 	defer client.Close()
 
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为

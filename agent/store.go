@@ -114,6 +114,9 @@ func (s *Store) History() []*chat.Message {
 func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.messageStore == nil {
+		return nil, nil
+	}
 	if s.summary == nil {
 		summary, err := s.messageStore.LoadSummary(s.sessionID)
 		if err != nil {

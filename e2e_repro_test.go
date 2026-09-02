@@ -58,7 +58,7 @@ func waitForDone(t *testing.T, client *agent.Client, label string) {
 	ch := make(chan result, 1)
 	go func() {
 		for {
-			events := client.ReadEvents()
+			events, _ := client.ReadEvents()
 			if len(events) == 0 {
 				ch <- result{}
 				return
@@ -100,10 +100,7 @@ func TestTwoRoundsWithTool(t *testing.T) {
 	manager.AddTools(&fakeTool{})
 	manager.RegisterChat(&fakeProvider{})
 
-	client, err := manager.GetClient("session-1", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("session-1").CreateClient(context.Background(), 0)
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
 	client.WriteText("请使用 fake_tool 工具")

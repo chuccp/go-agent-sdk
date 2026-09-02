@@ -49,6 +49,10 @@ export async function deleteSession(id: number): Promise<void> {
   await request<void>(`/api/chat/sessions/${id}`, { method: 'DELETE' })
 }
 
-export async function getSessionMessages(id: number): Promise<ChatMessage[]> {
-  return request<ChatMessage[]>(`/api/chat/sessions/${id}/messages`)
+export async function getSessionMessages(id: number, since?: number, limit?: number): Promise<ChatMessage[]> {
+  const params = new URLSearchParams()
+  if (since !== undefined) params.set('since', String(since))
+  if (limit !== undefined) params.set('limit', String(limit))
+  const qs = params.toString()
+  return request<ChatMessage[]>(`/api/chat/sessions/${id}/messages${qs ? '?' + qs : ''}`)
 }

@@ -138,10 +138,7 @@ func TestFlowIteration(t *testing.T) {
 	activate, execNode, stepDone, _, finish := workflow.NewFlowTools(wf)
 	manager.AddTools(activate, execNode, stepDone, finish)
 
-	client, err := manager.GetClient("flow-iter", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("flow-iter").CreateClient(context.Background(), 0)
 	client.WriteText("把「小狐狸看月亮」扩写成故事")
 	events := collectUntilDone(t, client)
 

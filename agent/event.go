@@ -80,6 +80,7 @@ func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
+	// events 按 Start 升序排列，最后一个元素是最新事件。
 	lastEvent := events[len(events)-1]
 	cl.start = lastEvent.Start + lastEvent.Offset
 	l.resetLock.Lock()
@@ -153,7 +154,7 @@ func messageToEvent(m *chat.Message, start uint64) *Event {
 	return &Event{Start: evStart, Offset: evOffset, Blocks: blocks}
 }
 
-// greaterEntries 从内存 entries 中筛选 Start >= start 的事件，按 Start 降序返回。
+// greaterEntries 从内存 entries 中筛选 Start >= start 的事件，按 Start 升序返回。
 func (l *Transfer) greaterEntries(start uint64) []*Event {
 	cache := new(util.SliceArray[*Event])
 	for _, v := range iter.Seq2[int, *Event](l.entries.Iter) {
@@ -162,7 +163,7 @@ func (l *Transfer) greaterEntries(start uint64) []*Event {
 		}
 	}
 	events := cache.Slice()
-	sort.Slice(events, func(i, j int) bool { return events[i].Start > events[j].Start })
+	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
 	return events
 }
 
@@ -193,7 +194,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 		cache.Append(event)
 	}
 	events := cache.Slice()
-	sort.Slice(events, func(i, j int) bool { return events[i].Start > events[j].Start })
+	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
 	return events, nil
 }
 

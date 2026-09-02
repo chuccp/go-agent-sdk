@@ -87,12 +87,16 @@ func (c *Chat) deleteSession(request *web.Request) (any, error) {
 	return web.Ok("deleted"), nil
 }
 
-// getSessionMessages returns all messages for a session ordered by creation time.
-// 从 DB 读取完整字段（id/session_id/start/offset/created_at），而非 SDK 内存，
-// 避免返回的历史消息丢失这些元数据。
+// getSessionMessages 通过 agent API 分页获取会话历史消息。
+// Query params: since (起始 start，默认 0), limit (每页条数，默认 50)
 func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 	sessionId := request.ParamUint("id")
-	messages, err := c.chatSessionService.GetSessionMessages(sessionId)
+	since := request.QueryUint64("since")
+	limit := request.QueryInt("limit")
+	if limit <= 0 {
+		limit = 50
+	}
+	messages, err := c.agent.History(sessionId, since, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -72,10 +72,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	provider := &askUserProvider{}
 	manager.RegisterChat(provider)
 
-	client, err := manager.GetClient("ask-e2e", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	client := manager.GetOrCreateSession("ask-e2e").CreateClient(context.Background(), 0)
 	defer client.Close()
 
 	// ── 第一轮：触发 ask_user_question ──
