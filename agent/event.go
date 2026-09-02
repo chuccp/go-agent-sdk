@@ -74,33 +74,6 @@ func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	}
 	return events, nil
 }
-
-//// loadAllEvents 合并 entries 和 history 中 Start >= since 的事件，按 Start 升序返回。
-//// 与 greaterStart 不同：不依赖 firstEvent.Start 做分支，始终合并两个数据源。
-//func (l *Transfer) loadAllEvents(since uint64) []*Event {
-//	cache := new(util.SliceArray[*Event])
-//
-//	// 1. 从 entries 取运行时事件
-//	for _, v := range iter.Seq2[int, *Event](l.entries.Iter) {
-//		if v.Start >= since {
-//			cache.Append(v)
-//		}
-//	}
-//
-//	// 2. 从持久化存储加载历史消息
-//	messages, err := l.messageStore.LoadMessagesAfter(since, l.maxBatchSize)
-//	if err == nil {
-//		for _, msg := range messages {
-//			event := messageToEvent(msg, since)
-//			cache.Append(event)
-//		}
-//	}
-//
-//	events := cache.Slice()
-//	sort.Slice(events, func(i, j int) bool { return events[i].Start < events[j].Start })
-//	return events
-//}
-
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	event := NewEvent(no, l.seq, block)
