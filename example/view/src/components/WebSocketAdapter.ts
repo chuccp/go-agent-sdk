@@ -382,7 +382,11 @@ export function createStreamingAdapter(): ChatModelAdapter {
         }
       }
 
-      // 结果队列：每轮对话内容独立入队，不会互相覆盖
+      // 结果队列：每次入队的是「截至当前」的完整序列化内容。
+      // 框架 ChatModelAdapter.run 的每次 yield 都是整体替换（updateMessage 用
+      // initialContent + r.content 重写 content，而非追加），所以 segments 必须持续累积，
+      // 绝不能 segments.length = 0 —— 否则流式 delta 每次只产出单字符，界面只会
+      // 反复闪现最后一个字符，而不是累积显示。
       const resultQueue: ChatModelRunResult[] = []
 
       const push = () => {
@@ -390,7 +394,6 @@ export function createStreamingAdapter(): ChatModelAdapter {
         if (combined) {
           resultQueue.push({ content: [{ type: 'text' as const, text: combined }] })
         }
-        segments.length = 0
       }
 
       const handleEvent = (evt: StreamEvent) => {
