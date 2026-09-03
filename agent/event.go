@@ -55,12 +55,12 @@ func NewTransfer(sessionId string, compressor Compressor, historyStore MessageSt
 	transfer.defaultStore = NewStore(transfer.no, transfer.sessionId, transfer, transfer.compressor, transfer.historyStore)
 	return transfer
 }
-func (l *Transfer) GetDefaultStore() *Store {
+func (l *Transfer) AgentStore() *Store {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.defaultStore
 }
-func (l *Transfer) GetTempStore() *Store {
+func (l *Transfer) SubAgentStore() *Store {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.no++

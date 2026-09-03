@@ -23,8 +23,8 @@ type fakeLoopContext struct {
 
 func (f *fakeLoopContext) SessionId() string                             { return f.id }
 func (f *fakeLoopContext) GetChat() *chat.Chat                           { return chat.NewChat() }
-func (f *fakeLoopContext) GetNewAgentStore() *agent.Store                { return nil }
-func (f *fakeLoopContext) GetStore() *agent.Store                        { return nil }
+func (f *fakeLoopContext) SubAgentStore() *agent.Store                   { return nil }
+func (f *fakeLoopContext) AgentStore() *agent.Store                      { return nil }
 func (f *fakeLoopContext) AppendMainAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendMainUserMessage(_ *chat.BlockGroup)      {}
 

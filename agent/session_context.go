@@ -16,8 +16,8 @@ type SessionContext struct {
 	opts      *chat.Config
 }
 
-func (c *SessionContext) GetNewAgentStore() *Store {
-	return c.transfer.GetTempStore()
+func (c *SessionContext) SubAgentStore() *Store {
+	return c.transfer.SubAgentStore()
 
 }
 
@@ -36,17 +36,17 @@ func (c *SessionContext) GetOptions() *chat.Config {
 // SessionId 返回会话 ID。
 func (c *SessionContext) SessionId() string { return c.sessionId }
 
-func (c *SessionContext) GetStore() *Store {
-	return c.transfer.GetDefaultStore()
+func (c *SessionContext) AgentStore() *Store {
+	return c.transfer.AgentStore()
 }
 
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
 	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
-	c.GetStore().AppendHistory(userMsg)
+	c.AgentStore().AppendHistory(userMsg)
 }
 func (c *SessionContext) AppendMainAssistantMessage(blocks *chat.BlockGroup) {
 	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
-	c.GetStore().AppendHistory(assistantMsg)
+	c.AgentStore().AppendHistory(assistantMsg)
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。

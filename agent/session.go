@@ -73,7 +73,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 	}
 	s.loop = NewLoopBuilder(sessionContext).
 		Config(config.config).
-		Store(transfer.GetDefaultStore()).
+		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
 		Build()
 	util.Go(func() {
