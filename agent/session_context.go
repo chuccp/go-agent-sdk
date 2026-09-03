@@ -16,6 +16,7 @@ type SessionContext struct {
 	opts      *chat.Config
 }
 
+// SubAgentStore 返回子代理专用的临时 Store（每次调用新建，不落历史）。仅子代理使用，其余代码请用 AgentStore。
 func (c *SessionContext) SubAgentStore() *Store {
 	return c.transfer.SubAgentStore()
 

@@ -60,6 +60,7 @@ func (l *Transfer) AgentStore() *Store {
 	defer l.mu.Unlock()
 	return l.defaultStore
 }
+// SubAgentStore 为子代理创建隔离的临时 Store：每次调用递增 no 并返回新实例，且不落历史。仅子代理使用。
 func (l *Transfer) SubAgentStore() *Store {
 	l.mu.Lock()
 	defer l.mu.Unlock()
