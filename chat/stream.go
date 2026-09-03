@@ -48,7 +48,6 @@ func (a *assemblerBlock) flush() (UseDeltaBlock, bool) {
 		a.block.ParseStream(a.stream)
 		a.stream.Reset()
 		a.active = false
-		a.block.SetStart(a.blockStart)
 		a.blockStart = 0
 		return a.block, true
 	}
@@ -171,7 +170,6 @@ func (s *BlockStream) sendBlock(block Block) uint64 {
 	if s.receiver != nil {
 		start := s.receiver.SendBlock(block)
 		// 记录 block 在事件流中的序号，供 relay 按 block 粒度去重
-		block.SetStart(start)
 		if s.firstStart == 0 {
 			s.firstStart = start
 		}

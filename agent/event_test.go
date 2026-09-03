@@ -74,11 +74,10 @@ func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
 	}, ms
 }
 
-// textBlockWithStart 构造一个带 start（事件流序号）的文本 block，模拟真实场景。
-func textBlockWithStart(start uint64) *chat.TextBlock {
-	b := chat.NewFullTextBlock("")
-	b.SetStart(start)
-	return b
+// textBlockWithStart 构造测试用文本块。block 级 start 字段已移除，
+// 事件序号现由 Event / Message 的 Start/Offset 承载；参数仅为兼容既有测试保留。
+func textBlockWithStart(_ uint64) *chat.TextBlock {
+	return chat.NewFullTextBlock("")
 }
 
 func TestGreaterStart_OnlyEntries(t *testing.T) {
@@ -300,36 +299,13 @@ func TestGreaterEntries_AllFiltered(t *testing.T) {
 	}
 }
 
-// TestMessageToEvent_ToolResultBlockPreservesOffset 验证 ToolResultBlock 消息
-// 的 event 沿用 message 自身 Offset（2），不被重算缩成 1——否则 cl.start 推进不足、
-// 消息会被 relay 反复重发（前端看到 tool_result 重复输出）。
-func TestMessageToEvent_ToolResultBlockPreservesOffset(t *testing.T) {
-	tr := newTestTransfer()
-	customText := chat.NewCustomTextBlock(`[{"question":"Q"}]`, chat.AskUserTextType)
-	customText.SetStart(1622)
-	text := chat.NewFullTextBlock("已向用户提出问题")
-	text.SetStart(1623)
-	trb := chat.NewToolResultBlock("call_1", chat.Blocks{customText, text})
-
-	tr.messageStore.history.Append(&chat.Message{
-		Start: 1622, Offset: 2, Role: chat.RoleUser, Content: chat.Blocks{trb},
-	})
-
-	ev := messageToEvent(tr.messageStore.history.Get(0), 0)
-	if ev.Start != 1622 || ev.Offset != 2 {
-		t.Fatalf("messageToEvent = Start %d / Offset %d, want 1622 / 2（不应缩成 1）", ev.Start, ev.Offset)
-	}
-}
-
 // TestReadEvents_ToolResultBlockNotReEmitted 验证 readEvents 正确推进 cl.start：
-// entries 和 history 都有数据时，greaterStart 合并返回，cl.start 推进到最后一个事件的终点，
-// 第二次 readEvents 返回空（无新事件）。
+// entries 和 history 都有数据时，greaterStart 返回整条 message，cl.start 推进到
+// message 的终点（Start+Offset），第二次 readEvents 返回空（无新事件）。
 func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
 	tr, ms := newTestTransferWithHistory()
 	customText := chat.NewCustomTextBlock(`[{"question":"Q"}]`, chat.AskUserTextType)
-	customText.SetStart(1622)
 	text := chat.NewFullTextBlock("已向用户提出问题")
-	text.SetStart(1623)
 
 	tr.entries.Append(&Event{Start: 1622, Offset: 1, Blocks: chat.Blocks{customText}})
 	tr.entries.Append(&Event{Start: 1623, Offset: 1, Blocks: chat.Blocks{text}})
@@ -343,8 +319,6 @@ func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("第一次 readEvents error: %v", err)
 	}
-	// greaterStart: firstEvent.Start=1622 > start=0 → 跳过 entries，走 history 路径
-	// history 返回 tool_result 消息，messageToEvent 过滤后返回
 	if len(events) == 0 {
 		t.Fatal("第一次 readEvents 应返回事件")
 	}
@@ -363,45 +337,30 @@ func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
 	}
 }
 
-// TestMessageDeltaSurvivesMergeAndDedup 模拟第一轮 message 持久化后，
-// readEvents + relay block 去重流程，验证 MessageDeltaBlock 不丢失。
-func TestMessageDeltaSurvivesMergeAndDedup(t *testing.T) {
-	tr := newTestTransfer()
+// TestMergeToolsBlockGroup_MinMax 验证 mergeToolsBlockGroup 用最小 Start / 最大 End
+// 计算合并区间，不依赖 blockGroups 的顺序（并发执行时完成顺序 ≠ seq 顺序）。
+func TestMergeToolsBlockGroup_MinMax(t *testing.T) {
+	l := &Loop{}
 
-	// entries：live MessageDeltaBlock(274) + DoneBlock(275)
-	md := chat.NewMessageDeltaBlock(&chat.Usage{InputTokens: 100, OutputTokens: 50})
-	md.SetStart(274)
-	tr.entries.Append(&Event{Start: 274, Offset: 1, Blocks: chat.Blocks{md}})
-	done := chat.NewDoneBlock()
-	done.SetStart(275)
-	tr.entries.Append(&Event{Start: 275, Offset: 1, Blocks: chat.Blocks{done}})
-
-	// history：assistant message，Content 含 MessageDeltaBlock(start=274)
-	md2 := chat.NewMessageDeltaBlock(&chat.Usage{InputTokens: 100, OutputTokens: 50})
-	md2.SetStart(274)
-	tr.messageStore.history.Append(&chat.Message{
-		Start: 2, Offset: 273, Role: chat.RoleAssistant,
-		Content: chat.Blocks{md2},
-	})
-
-	events, err := tr.greaterStart(0)
-	if err != nil {
-		t.Fatalf("greaterStart(0) error: %v", err)
+	// 串行（有序连续）场景：两个 blockGroup 顺序排列且区间相邻
+	ordered := []*chat.BlockGroup{
+		{Start: 10, Offset: 3}, // 覆盖 [10,13)
+		{Start: 13, Offset: 3}, // 覆盖 [13,16)
+	}
+	bg := l.mergeToolsBlockGroup(ordered, chat.Blocks{})
+	if bg.Start != 10 || bg.Offset != 6 {
+		t.Fatalf("ordered: Start=%d Offset=%d, want 10/6", bg.Start, bg.Offset)
 	}
 
-	// 验证 MessageDeltaBlock 在结果里（relay 不再按 lastSeq 去重，直接转发）
-	found := false
-	for _, ev := range events {
-		for _, b := range ev.Blocks {
-			if mb, ok := b.(*chat.MessageDeltaBlock); ok {
-				found = true
-				if mb.GetStart() != 274 {
-					t.Errorf("MessageDeltaBlock start=%d, want 274", mb.GetStart())
-				}
-			}
-		}
+	// 并发（交错、乱序、span 重叠）场景：
+	// 工具 A 的块落在 seq 10、12、15；工具 B 落在 11、13、14。
+	// 各自 Start / Start+Offset 端点仍准确，但 blockGroups 按完成顺序排列。
+	interleaved := []*chat.BlockGroup{
+		{Start: 11, Offset: 4}, // 工具 B：firstStart=11, maxEnd=14 → Start+Offset=15
+		{Start: 10, Offset: 6}, // 工具 A：firstStart=10, maxEnd=15 → Start+Offset=16
 	}
-	if !found {
-		t.Error("MessageDeltaBlock not found in greaterStart result")
+	bg = l.mergeToolsBlockGroup(interleaved, chat.Blocks{})
+	if bg.Start != 10 || bg.Offset != 6 {
+		t.Fatalf("interleaved: Start=%d Offset=%d, want 10/6", bg.Start, bg.Offset)
 	}
 }

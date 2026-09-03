@@ -314,20 +314,7 @@ func TestAskUserQuestion_ImplementsToolExecutor(t *testing.T) {
 	var _ agent.ToolExecutor = NewAskUserQuestionTool()
 }
 
-// ── CustomTextBlock(ask_user) 序列化与 SetStart 安全 ──
-
-// TestAskUserBlock_SetStartNoPanic 验证 CustomTextBlock 嵌入 BaseBlock 后，
-// BlockStream 写入时调用 SetStart 不再因内嵌接口为 nil 而 panic。
-func TestAskUserBlock_SetStartNoPanic(t *testing.T) {
-	b := chat.NewCustomTextBlock(`[{"question":"What?"}]`, chat.AskUserTextType)
-	b.SetStart(42)
-	if b.GetStart() != 42 {
-		t.Fatalf("GetStart = %d, want 42", b.GetStart())
-	}
-	if b.ForContext() {
-		t.Error("CustomTextBlock.ForContext() should be false (not fed into LLM context)")
-	}
-}
+// ── CustomTextBlock(ask_user) 序列化 ──
 
 // TestAskUserBlock_RoundTrip 验证 ask_user 自定义文本块随历史持久化无损往返，
 // 且往返后仍是 CustomTextBlock（不再是降级为纯文本块）。

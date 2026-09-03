@@ -52,18 +52,13 @@ type UseDeltaBlock interface {
 // 供 relay 按 block 粒度去重（比按 Event 粒度更精确，避免 message 合并后
 // 因 Event.Start 为旧值而被整体跳过）。
 type BaseBlock struct {
-	Start uint64    `json:"start,omitempty"`
-	Type  BlockType `json:"type"`
+	Type BlockType `json:"type"`
 }
 
-func (b *BaseBlock) GetStart() uint64   { return b.Start }
-func (b *BaseBlock) SetStart(s uint64)  { b.Start = s }
 func (b *BaseBlock) GetType() BlockType { return b.Type }
 
 type Block interface {
 	ForContext() bool
-	GetStart() uint64
-	SetStart(uint64)
 	GetType() BlockType
 }
 
@@ -316,7 +311,6 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 		ID    string          `json:"id"`
 		Name  string          `json:"name"`
 		Input json.RawMessage `json:"input"`
-		Start uint64          `json:"start"`
 		Type  BlockType       `json:"type"`
 	}
 	var a toolUseAlias
@@ -325,7 +319,6 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 	}
 	b.ID = a.ID
 	b.Name = a.Name
-	b.BaseBlock.Start = a.Start
 	b.BaseBlock.Type = a.Type
 	if len(a.Input) > 0 {
 		obj, err := value.NewObjectFromJson(a.Input)
@@ -358,13 +351,6 @@ func NewToolResultBlock(id string, content []Block) *ToolResultBlock {
 		BaseBlock: BaseBlock{Type: ToolResultBlockType},
 		ToolUseID: id,
 		Content:   content,
-	}
-	// 取 content 里 block 的最小 start（>0）作为 ToolResultBlock 的 start，
-	// 供 relay 按 block 粒度去重。
-	for _, c := range content {
-		if s := c.GetStart(); s > 0 && (b.Start == 0 || s < b.Start) {
-			b.Start = s
-		}
 	}
 	return b
 }

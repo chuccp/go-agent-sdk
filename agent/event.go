@@ -60,7 +60,6 @@ func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 	l.mu.Lock()
 	event := NewEvent(no, l.seq, block)
-	block.SetStart(event.Start)
 	l.seq++
 	l.entries.Append(event)
 	l.pending++
@@ -111,45 +110,9 @@ func (l *Transfer) reset(minStart uint64) {
 // 过滤逻辑：从「最后一个 start <= start 的 block」作为起点往后取——起点之前的 block
 // 已被客户端消费，起点（含等于 start）及之后的 block 需重发，保证内容不丢。
 // start == 0 的 block（未记录序号）不参与起点定位，始终保留。
-func messageToEvent(m *chat.Message, start uint64) *Event {
-	from := 0
-	for i, b := range m.Content {
-		if s := b.GetStart(); s != 0 && s <= start {
-			from = i
-		}
-	}
-	blocks := m.Content[from:]
+func messageToEvent(m *chat.Message) *Event {
 
-	// 按过滤后的 blocks 重新计算 Start/Offset：
-	// Start 取最小 start，Offset = 最大 start - 最小 start + 1。
-	// ToolResultBlock 等内容跨多个 start 的复合块，顶层 GetStart() 只返回内容里的最小
-	// start，若不下钻会漏掉末尾子块、把 Offset 算小（导致 cl.start 推进不足、消息被重复发送）。
-	var minStart, maxStart uint64
-	consider := func(s uint64) {
-		if s == 0 {
-			return
-		}
-		if minStart == 0 || s < minStart {
-			minStart = s
-		}
-		if s > maxStart {
-			maxStart = s
-		}
-	}
-	for _, b := range blocks {
-		consider(b.GetStart())
-		if tr, ok := b.(*chat.ToolResultBlock); ok {
-			for _, c := range tr.Content {
-				consider(c.GetStart())
-			}
-		}
-	}
-	evStart, evOffset := m.Start, m.Offset
-	if minStart > 0 {
-		evStart = minStart
-		evOffset = maxStart - minStart + 1
-	}
-	return &Event{Start: evStart, Offset: evOffset, Blocks: blocks}
+	return &Event{Start: m.Start, Offset: m.Offset, Blocks: m.Content}
 }
 
 // greaterEntries 从内存 entries 中筛选 Start >= start 的事件，按 Start 升序返回。
@@ -188,7 +151,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 		return nil, nil
 	}
 	for _, msg := range messages {
-		event := messageToEvent(msg, start)
+		event := messageToEvent(msg)
 		cache.Append(event)
 	}
 	events := cache.Slice()
@@ -197,17 +160,9 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	if l.entries.IsEmpty() {
 		if len(events) > 0 {
 			last := events[len(events)-1]
-			if len(last.Blocks) > 0 {
-				lastBlock := last.Blocks[len(last.Blocks)-1]
-				seq := lastBlock.GetStart() + 1
-				if seq > l.seq {
-					l.seq = seq
-				}
-			} else {
-				seq := last.Start + last.Offset
-				if seq > l.seq {
-					l.seq = seq
-				}
+			seq := last.Start + last.Offset
+			if seq > l.seq {
+				l.seq = seq
 			}
 		}
 	}
