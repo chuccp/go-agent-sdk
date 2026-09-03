@@ -54,8 +54,8 @@ func newTestTransfer() *Transfer {
 			tempHistory:  new(util.SliceArray[*chat.Message]),
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 			messageStore: &noopMessageStore{},
+			maxBatchSize: 10,
 		},
-		maxBatchSize: 10,
 	}
 }
 
@@ -69,8 +69,8 @@ func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
 			tempHistory:  new(util.SliceArray[*chat.Message]),
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 			messageStore: ms,
+			maxBatchSize: 10,
 		},
-		maxBatchSize: 10,
 	}, ms
 }
 

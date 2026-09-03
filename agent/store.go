@@ -79,12 +79,9 @@ type Store struct {
 	compressorManager *CompressorManager
 	doneManifest      *splitManifest
 	sessionID         string
+	loaded            bool
 	summary           *chat.Message
-
-	// loaded 是「持久化历史已拉取完成」的标识：History() 在读取历史前会等待它关闭，
-	// 保证进程重启后，用户消息处理不会拿到尚未拉取的空/不完整历史。
-	loaded     chan struct{}
-	loadedOnce sync.Once
+	maxBatchSize      int
 }
 
 func (s *Store) IsEmpty() bool {
@@ -109,10 +106,6 @@ func (s *Store) AppendTemp(c ...*chat.Message) {
 }
 
 func (s *Store) History() []*chat.Message {
-	// 有持久化存储时，等「拉取完了」再读历史，避免进程重启后拿到未加载的空历史。
-	if s.messageStore != nil {
-		s.waitLoaded()
-	}
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	result := make([]*chat.Message, s.history.Len()+s.tempHistory.Len())
@@ -121,36 +114,46 @@ func (s *Store) History() []*chat.Message {
 	return result
 }
 
-// markLoaded 标记持久化历史已拉取完成（幂等）。loaded 为 nil（直接构造的 Store）时跳过。
-func (s *Store) markLoaded() {
-	if s.loaded == nil {
-		return
-	}
-	s.loadedOnce.Do(func() { close(s.loaded) })
-}
-
-// waitLoaded 阻塞直到持久化历史拉取完成。loaded 为 nil（直接构造的 Store）时不等待。
-func (s *Store) waitLoaded() {
-	if s.loaded == nil {
-		return
-	}
-	<-s.loaded
-}
-func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, error) {
+func (s *Store) LoadAllHistory() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	// 无论成功失败，本次「拉取」动作已完成，标记以便 History() 解除等待。
-	defer s.markLoaded()
-	if s.messageStore == nil {
-		return nil, nil
+	err := s.loadSummary()
+	if err != nil {
+		return err
 	}
-	if limit <= 0 {
-		return nil, nil
+	if s.loaded {
+		return nil
+	}
+	start := s.summary.Start
+	if !s.history.IsEmpty() {
+		last := s.history.Last()
+		start = last.Start + last.Offset
+	}
+	for {
+		after, err := s.messageStore.LoadAfter(s.sessionID, start, s.maxBatchSize)
+		if err != nil {
+			return err
+		}
+		s.mergeHistory(after)
+		if len(after) < s.maxBatchSize {
+			s.loaded = true
+			break
+		} else {
+			last := s.history.Last()
+			start = last.Start + last.Offset
+		}
+	}
+	return nil
+}
+
+func (s *Store) loadSummary() error {
+	if s.messageStore == nil {
+		return nil
 	}
 	if s.summary == nil {
 		summary, err := s.messageStore.LoadSummary(s.sessionID)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if summary == nil {
 			s.summary = &chat.Message{
@@ -160,7 +163,23 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 			s.summary = summary
 		}
 	}
+	return nil
+}
 
+func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	limit := s.maxBatchSize
+	if s.messageStore == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	err := s.loadSummary()
+	if err != nil {
+		return nil, err
+	}
 	// 冷启动预热：缓存为空且 since 越过压缩节点时，把 [summary.Start, since] 的活跃
 	// 历史拉进缓存，保证 History()（LLM 上下文）完整。压缩节点之前（Start <= summary.Start）
 	// 的旧消息已被摘要取代，不进内存缓存。
@@ -215,6 +234,9 @@ func (s *Store) LoadMessagesAfter(since uint64, limit int) ([]*chat.Message, err
 		return nil, err
 	}
 	s.mergeHistory(after)
+	if len(after) == 0 || len(after) < limit {
+		s.loaded = true
+	}
 	return after, nil
 }
 
@@ -280,12 +302,13 @@ func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 }
 func NewStore(sessionId string, compressor Compressor, messageStore MessageStore) *Store {
 	return &Store{
+		maxBatchSize:      10,
 		sessionID:         sessionId,
 		messageStore:      messageStore,
 		compressorManager: NewCompressorManager(compressor),
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),
-		loaded:            make(chan struct{}),
+		loaded:            messageStore == nil,
 		doneManifest: &splitManifest{
 			starts: new(util.SliceArray[uint64]),
 		},

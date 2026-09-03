@@ -2,7 +2,6 @@ package agent
 
 import (
 	"testing"
-	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 )
@@ -80,7 +79,7 @@ func TestLoadMessagesAfter_SpanningMessage(t *testing.T) {
 		seedMsg(5, 1), // 占 5
 	}})
 
-	got, err := store.LoadMessagesAfter(2, 10)
+	got, err := store.LoadMessagesAfter(2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +97,7 @@ func TestLoadMessagesAfter_ExactBoundary(t *testing.T) {
 		seedMsg(4, 1), // 占 [4,4]
 	}})
 
-	got, err := store.LoadMessagesAfter(2, 10)
+	got, err := store.LoadMessagesAfter(2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,19 +107,20 @@ func TestLoadMessagesAfter_ExactBoundary(t *testing.T) {
 	}
 }
 
-func TestLoadMessagesAfter_Limit(t *testing.T) {
+func TestLoadMessagesAfter_MaxBatchSize(t *testing.T) {
 	var msgs []*chat.Message
 	for i := 1; i <= 10; i++ {
 		msgs = append(msgs, seedMsg(uint64(i), 1))
 	}
 	store := newStoreWith(&seedMessageStore{messages: msgs})
+	store.maxBatchSize = 4 // 直接设批次大小，验证 LoadAfter 按批次截断
 
-	got, err := store.LoadMessagesAfter(0, 4)
+	got, err := store.LoadMessagesAfter(0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []uint64{1, 2, 3, 4}; !equalStarts(got, want) {
-		t.Fatalf("LoadMessagesAfter(0,4) = %v, want %v", starts(got), want)
+		t.Fatalf("LoadMessagesAfter(0) = %v, want %v", starts(got), want)
 	}
 }
 
@@ -132,8 +132,9 @@ func TestLoadMessagesAfter_AdvancingCursor(t *testing.T) {
 		msgs = append(msgs, seedMsg(uint64(i), 1))
 	}
 	store := newStoreWith(&seedMessageStore{messages: msgs})
+	store.maxBatchSize = 4
 
-	got1, err := store.LoadMessagesAfter(0, 4)
+	got1, err := store.LoadMessagesAfter(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestLoadMessagesAfter_AdvancingCursor(t *testing.T) {
 		t.Fatalf("first = %v, want %v", starts(got1), want)
 	}
 
-	got2, err := store.LoadMessagesAfter(5, 4)
+	got2, err := store.LoadMessagesAfter(5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +161,7 @@ func TestLoadMessagesAfter_SummaryBoundary(t *testing.T) {
 		summary: &chat.Message{Start: 5},
 	})
 
-	got, err := store.LoadMessagesAfter(5, 10)
+	got, err := store.LoadMessagesAfter(5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestLoadMessagesAfter_SinceBeforeSummary(t *testing.T) {
 		summary: &chat.Message{Start: 5},
 	})
 
-	got, err := store.LoadMessagesAfter(3, 10)
+	got, err := store.LoadMessagesAfter(3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,11 +204,11 @@ func TestLoadMessagesAfter_SinceBeforeSummary_AfterWarmup(t *testing.T) {
 	})
 
 	// 先用 since=6（> summary.Start）预热，缓存只装活跃消息。
-	if _, err := store.LoadMessagesAfter(6, 10); err != nil {
+	if _, err := store.LoadMessagesAfter(6); err != nil {
 		t.Fatal(err)
 	}
 	// 再用 since=3（< summary.Start）请求，必须返回 [3,4,5,6,7]。
-	got, err := store.LoadMessagesAfter(3, 10)
+	got, err := store.LoadMessagesAfter(3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +219,7 @@ func TestLoadMessagesAfter_SinceBeforeSummary_AfterWarmup(t *testing.T) {
 
 func TestLoadMessagesAfter_EmptyStore(t *testing.T) {
 	store := newStoreWith(&seedMessageStore{})
-	got, err := store.LoadMessagesAfter(0, 10)
+	got, err := store.LoadMessagesAfter(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestLoadMessagesAfter_EmptyStore(t *testing.T) {
 
 func TestLoadMessagesAfter_NilStore(t *testing.T) {
 	store := newStoreWith(nil)
-	got, err := store.LoadMessagesAfter(0, 10)
+	got, err := store.LoadMessagesAfter(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,46 +239,18 @@ func TestLoadMessagesAfter_NilStore(t *testing.T) {
 	}
 }
 
-func TestLoadMessagesAfter_NonPositiveLimit(t *testing.T) {
-	store := newStoreWith(&seedMessageStore{messages: []*chat.Message{seedMsg(1, 1)}})
-	got, err := store.LoadMessagesAfter(0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("want 0, got %d", len(got))
-	}
-}
-
-// TestStore_HistoryWaitsForLoad 验证「等拉取完了才处理用户消息」：
-// History() 在持久化历史尚未拉取时会阻塞，直到 LoadMessagesAfter 完成拉取后才返回完整历史，
-// 避免进程重启后拿到空/不完整的历史去拼 LLM 请求。
-func TestStore_HistoryWaitsForLoad(t *testing.T) {
+// TestStore_LoadAllHistory 验证 LoadAllHistory 把持久化历史完整拉进缓存，
+// 供 History()（LLM 上下文）在进程重启后拿到完整历史。
+func TestStore_LoadAllHistory(t *testing.T) {
 	store := newStoreWith(&seedMessageStore{messages: []*chat.Message{
 		seedMsg(1, 1), seedMsg(2, 1), seedMsg(3, 1),
 	}})
 
-	done := make(chan []*chat.Message, 1)
-	go func() { done <- store.History() }()
-
-	// 尚未拉取，History 应阻塞（不返回）。
-	select {
-	case got := <-done:
-		t.Fatalf("History 应在拉取完成前阻塞，却返回了 %v", starts(got))
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	// 触发回放拉取，History 应解除阻塞并返回完整历史。
-	if _, err := store.LoadMessagesAfter(0, 10); err != nil {
+	if err := store.LoadAllHistory(); err != nil {
 		t.Fatal(err)
 	}
 
-	select {
-	case got := <-done:
-		if want := []uint64{1, 2, 3}; !equalStarts(got, want) {
-			t.Fatalf("History() = %v, want %v", starts(got), want)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("History 未在拉取完成后解除阻塞")
+	if want := []uint64{1, 2, 3}; !equalStarts(store.History(), want) {
+		t.Fatalf("History() = %v, want %v", starts(store.History()), want)
 	}
 }

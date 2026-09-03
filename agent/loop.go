@@ -101,6 +101,11 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 				l.inbox.Reset()
 				l.runLock.Unlock()
 			}()
+			err := l.store.LoadAllHistory()
+			if err != nil {
+				l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+				return
+			}
 			l.do()
 		}, func(r any) {
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))

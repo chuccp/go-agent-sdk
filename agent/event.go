@@ -35,7 +35,6 @@ type Transfer struct {
 	pending          uint64
 	chatClients      *util.SliceArray[*Client]
 	messageStore     *Store
-	maxBatchSize     int
 	messageLastStart uint64
 }
 
@@ -44,7 +43,6 @@ func NewTransfer(sessionId string, compressor Compressor, historyStore MessageSt
 		entries:          new(util.SliceArray[*Event]),
 		chatClients:      new(util.SliceArray[*Client]),
 		messageStore:     NewStore(sessionId, compressor, historyStore),
-		maxBatchSize:     10,
 		messageLastStart: 0,
 	}
 
@@ -179,7 +177,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 
 	// 2. 从持久化存储加载历史消息
-	messages, err := l.messageStore.LoadMessagesAfter(start, l.maxBatchSize)
+	messages, err := l.messageStore.LoadMessagesAfter(start)
 	if err != nil {
 		return nil, err
 	}
