@@ -13,6 +13,8 @@ const (
 	defaultClientTimeout  = 300
 )
 
+// Config 构建期配置。setter 与 Copy 均加锁，可安全地一边配置一边创建 Agent；
+// CreateAgent 内部 Copy 一份，之后对原 Config 的修改不影响已创建的 Agent。
 type Config struct {
 	lock           *sync.RWMutex
 	chat           *chat.Chat
@@ -26,6 +28,8 @@ type Config struct {
 }
 
 func (m *Config) ChatOption(opt ...chat.Option) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	for _, o := range opt {
 		o(m.config)
 	}
@@ -83,6 +87,8 @@ func (m *Config) RegisterChat(chatService chat.Service) {
 // Copy 返回 Config 的独立副本：锁、工具列表、chat.Config 各自新建，
 // chat / historyStore / compressor 等共享资源沿用原指针。
 func (m *Config) Copy() *Config {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
 	config := m.config
 	if config != nil {
 		config = chat.Combine(config)
