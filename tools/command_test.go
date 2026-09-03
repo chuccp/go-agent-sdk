@@ -81,7 +81,8 @@ func TestCommand_StreamingOutput(t *testing.T) {
 // TestCommand_WithSessionContext 验证有 SessionContext 时工具正常执行：
 // 完整输出进入 tool_result blocks，同时 SessionContext 收到事件。
 func TestCommand_WithSessionContext(t *testing.T) {
-	manager := agent.NewAgent()
+	config := agent.NewConfig()
+	manager := config.CreateAgent(context.Background())
 	ctx := manager.SessionContext("cmd-s1")
 	client := manager.GetOrCreateSession("cmd-s1").CreateClient(context.Background(), 0)
 	defer client.Close()

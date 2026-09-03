@@ -128,34 +128,6 @@ func TestCheckTimeout_NoTimeout(t *testing.T) {
 	}
 }
 
-func TestCheckTimeout_CancelsOnContextDone(t *testing.T) {
-	// 当 ctx 被取消时，checkTimeout 应退出
-	ctx, cancel := newTestContext()
-	s := &Session{
-		ctx:            ctx,
-		cancel:         cancel,
-		sessionTimeout: 1, // 1秒
-		lastTime:       util.GetSecondTime(),
-		sessions:       NewSessions(),
-	}
-
-	done := make(chan struct{})
-	go func() {
-		s.checkTimeout()
-		close(done)
-	}()
-
-	// 立即取消 context
-	cancel()
-
-	select {
-	case <-done:
-		// ok
-	case <-time.After(2 * time.Second):
-		t.Fatal("checkTimeout should exit when context is cancelled")
-	}
-}
-
 func TestCheckTimeout_DestroysOnTimeout(t *testing.T) {
 	sessions := NewSessions()
 	ctx, cancel := newTestContext()
@@ -192,7 +164,7 @@ func TestCheckTimeout_DestroysOnTimeout(t *testing.T) {
 	}
 }
 
-func TestCheckTimeout_ResetsOnActivity(t *testing.T) {
+func TestCheckTimeout_ActiveSessionNotDestroyed(t *testing.T) {
 	sessions := NewSessions()
 	ctx, cancel := newTestContext()
 	defer cancel()
@@ -207,25 +179,10 @@ func TestCheckTimeout_ResetsOnActivity(t *testing.T) {
 	}
 	sessions.Add(s)
 
-	done := make(chan struct{})
-	go func() {
-		s.checkTimeout()
-		close(done)
-	}()
+	s.checkTimeout()
 
-	// 等1.5秒后刷新 lastTime（模拟活动）
-	time.Sleep(1500 * time.Millisecond)
-	s.lastTime = util.GetSecondTime()
-
-	// 再等2秒——如果 lastTime 刷新成功，不应该超时
-	select {
-	case <-done:
-		t.Fatal("checkTimeout should not destroy while session is active")
-	case <-time.After(2 * time.Second):
-		// ok — session 仍然存活
+	_, ok := sessions.Get("active-test")
+	if !ok {
+		t.Error("active session should not be destroyed")
 	}
-
-	// 清理
-	cancel()
-	<-done
 }

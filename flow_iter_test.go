@@ -70,7 +70,7 @@ func (f *iterFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *iterFakeProvider) ID() string        { return "iter-fake" }
+func (f *iterFakeProvider) ID() string { return "iter-fake" }
 func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	if len(req.Tools) == 0 {
 		// 零上下文节点调用：按 System 模板识别节点
@@ -129,15 +129,16 @@ func mustJSON(v any) string {
 // TestFlowIteration 迭代链路端到端：split 产出 JSON 数组 → expand 逐项执行
 // （{{item}} 渲染 + {{prev}} 滑动窗口 + item 进度事件）→ merge 消费聚合数组。
 func TestFlowIteration(t *testing.T) {
-	manager := agent.NewAgent()
+	config := agent.NewConfig()
 	llm := &iterFakeProvider{}
-	manager.RegisterChat(llm)
+	config.RegisterChat(llm)
 	wf := workflow.NewManager()
 	wf.AddWorkflow(newExpandFlow())
 
 	activate, execNode, stepDone, _, finish := workflow.NewFlowTools(wf)
-	manager.AddTools(activate, execNode, stepDone, finish)
+	config.AddTools(activate, execNode, stepDone, finish)
 
+	manager := config.CreateAgent(context.Background())
 	client := manager.GetOrCreateSession("flow-iter").CreateClient(context.Background(), 0)
 	client.WriteText("把「小狐狸看月亮」扩写成故事")
 	events := collectUntilDone(t, client)

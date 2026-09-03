@@ -3,35 +3,40 @@ package agent
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
 type Sessions struct {
-	sessions map[string]*Session
-	sync.RWMutex
+	sessions sync.Map
 }
 
 func (s *Sessions) Add(session *Session) {
-	s.Lock()
-	defer s.Unlock()
-	s.sessions[session.sessionContext.sessionId] = session
+	s.sessions.Store(session.sessionContext.sessionId, session)
 }
+
 func (s *Sessions) Remove(sessionId string) {
-	s.Lock()
-	defer s.Unlock()
-	delete(s.sessions, sessionId)
+	s.sessions.Delete(sessionId)
 }
+
+func (s *Sessions) ForEach(f func(session *Session) bool) {
+	s.sessions.Range(func(key, value interface{}) bool {
+		session := value.(*Session)
+		return f(session)
+	})
+}
+
 func (s *Sessions) Get(sessionId string) (*Session, bool) {
-	s.RLock()
-	defer s.RUnlock()
-	session, ok := s.sessions[sessionId]
-	return session, ok
+	v, ok := s.sessions.Load(sessionId)
+	if !ok {
+		return nil, false
+	}
+	return v.(*Session), true
 }
+
 func NewSessions() *Sessions {
-	return &Sessions{sessions: make(map[string]*Session)}
+	return &Sessions{}
 }
 
 // Session 会话门面：会话状态集中于 SessionContext，
@@ -76,9 +81,6 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
 		Build()
-	util.Go(func() {
-		s.checkTimeout()
-	})
 	return s
 }
 
@@ -86,18 +88,8 @@ func (s *Session) checkTimeout() {
 	if s.sessionTimeout == 0 {
 		return
 	}
-	ticker := time.NewTicker(time.Duration(s.sessionTimeout) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-			if util.GetSecondTime()-s.lastTime > int64(s.sessionTimeout) {
-				s.Destroy()
-				return
-			}
-		}
+	if util.GetSecondTime()-s.lastTime > int64(s.sessionTimeout) {
+		s.Destroy()
 	}
 }
 

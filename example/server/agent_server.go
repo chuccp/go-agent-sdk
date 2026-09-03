@@ -28,7 +28,7 @@ type Agent struct {
 
 func (r *Agent) Init(ctx *core.Context) error {
 	r.ctx = ctx
-	r.agentManager = agent.NewAgent()
+	config := agent.NewConfig()
 	providers, err := core.UnmarshalKeyConfig[[]*Provider](configKey, ctx)
 	if err != nil {
 		return err
@@ -36,25 +36,27 @@ func (r *Agent) Init(ctx *core.Context) error {
 	r.chatSessionService = core.GetService[*service.ChatSessionService](ctx)
 	r.storeFlow = core.GetService[*flow.StoreFlow](ctx)
 
-	r.agentManager.AddTools(tools.NewCommandTool(), tools.NewAskUserQuestionTool())
+	config.AddTools(tools.NewCommandTool(), tools.NewAskUserQuestionTool())
 
 	wf := workflow.NewManager()
 	wf.AddWorkflow(r.storeFlow.GetFlow(), r.storeFlow.GetExpandFlow())
 	// flow 工具组（v3 剧本式）：activate_flow / exec_node / flow_step_done / flow_status / finish_flow
 	activateFlow, execNode, stepDone, flowStatus, finishFlow := workflow.NewFlowTools(wf)
-	r.agentManager.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
-	r.agentManager.HistoryStore(r.chatSessionService)
+	config.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
+	config.HistoryStore(r.chatSessionService)
 
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
 	// agent.PromptProvider 机制自动拼进每轮 System），此处只留通用人设
-	r.agentManager.SystemPrompt("你是一个智能助手。")
+	config.SystemPrompt("你是一个智能助手。")
 
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model
 		if util.EqualsAnyIgnoreCase(provider.Type, anthropic.TYPE...) {
-			r.agentManager.RegisterChat(anthropic.NewService(key, provider.BaseUrl, provider.ApiKey, provider.Model))
+			config.RegisterChat(anthropic.NewService(key, provider.BaseUrl, provider.ApiKey, provider.Model))
 		}
 	}
+	r.agentManager = config.CreateAgent(r.ctx)
+
 	log.Info("Agent initialized (go-agent-sdk)", zap.Int("providers", len(providers)))
 	return nil
 }

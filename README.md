@@ -76,35 +76,38 @@ import (
 )
 
 func main() {
-	// 1. 创建 Agent
-	a := agent.NewAgent()
-	a.ChatOption(
+	// 1. 创建配置
+	config := agent.NewConfig()
+	config.ChatOption(
 		chat.WithModel("claude-sonnet-4-6"),
 		chat.WithMaxTokens(4096),
 		chat.WithThinking(chat.ThinkingLow),
 	)
 
 	// 2. 注册 LLM 提供商（Service 通过 ID() 标识自身，首个注册的为默认）
-	a.RegisterChat(anthropic.NewService("my-provider", baseUrl, apiKey, "claude-sonnet-4-6"))
+	config.RegisterChat(anthropic.NewService("my-provider", baseUrl, apiKey, "claude-sonnet-4-6"))
 
 	// 3. 注册工具（可选）
-	a.AddTools(tools.NewCommandTool())
+	config.AddTools(tools.NewCommandTool())
 
 	// 4. 设置持久化（可选，实现 MessageStore 接口）
-	a.SetHistoryStore(myMessageStore)
+	config.HistoryStore(myMessageStore)
 
 	// 5. 设置超时（可选，秒）
-	a.SetSessionTimeout(600)  // 会话空闲超时
-	a.SetClientTimeout(300)   // 客户端空闲超时
+	config.SessionTimeout(600) // 会话空闲超时
+	config.ClientTimeout(300)  // 客户端空闲超时
 
-	// 6. 获取会话 + 创建客户端
+	// 6. 基于配置创建 Agent（内部启动后台超时清理循环）
+	a := config.CreateAgent(context.Background())
+
+	// 7. 获取会话 + 创建客户端
 	session := a.GetOrCreateSession("session-1")
 	client := session.CreateClient(context.Background(), 0)
 
-	// 7. 发送消息
+	// 8. 发送消息
 	client.WriteText("你好，帮我查看当前目录")
 
-	// 8. 读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
+	// 9. 读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
 	for {
 		events, err := client.ReadEvents()
 		if err != nil {
@@ -286,27 +289,30 @@ pnpm dev
 ## 配置选项
 
 ```go
-a := agent.NewAgent()
+config := agent.NewConfig()
 
 // ChatOption 配置 LLM 请求参数
-a.ChatOption(
+config.ChatOption(
     chat.WithModel("claude-opus-4-7"),
     chat.WithMaxTokens(8192),
     chat.WithThinking(chat.ThinkingHigh),
 )
 
-// SetSystem 设置全局系统提示词
-a.SetSystem("你是一个智能助手。")
+// SystemPrompt 设置全局系统提示词
+config.SystemPrompt("你是一个智能助手。")
 
 // 超时配置（秒）
-a.SetSessionTimeout(600)  // 会话空闲超时，到期自动销毁
-a.SetClientTimeout(300)   // 客户端空闲超时
+config.SessionTimeout(600)  // 会话空闲超时，到期自动销毁
+config.ClientTimeout(300)   // 客户端空闲超时
 
-// SetHistoryStore 设置持久化（实现 MessageStore 接口）
-a.SetHistoryStore(myMessageStore)
+// HistoryStore 设置持久化（实现 MessageStore 接口）
+config.HistoryStore(myMessageStore)
 
-// SetCompressor 设置上下文压缩策略
-a.SetCompressor(myCompressor)
+// Compressor 设置上下文压缩策略
+config.Compressor(myCompressor)
+
+// CreateAgent 基于配置创建 Agent（内部启动后台超时清理循环）
+a := config.CreateAgent(context.Background())
 ```
 
 ## License

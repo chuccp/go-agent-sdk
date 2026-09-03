@@ -233,12 +233,13 @@ func hasBlockTypeInEvents(t *testing.T, events []*agent.Event, block chat.Block)
 // ── Tests ──
 
 func TestSingleRoundText(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "Hello, world!",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s1")
 	client.WriteText("hi")
 
@@ -247,17 +248,18 @@ func TestSingleRoundText(t *testing.T) {
 }
 
 func TestToolUseWithRegisteredTool(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.AddTools(&echoTool{})
+	config := agent.NewConfig()
+	config.AddTools(&echoTool{})
 
 	// 第一次返回 tool_use，第二次返回 end_turn
-	manager.RegisterChat(&orderedProvider{
+	config.RegisterChat(&orderedProvider{
 		responses: []orderedResponse{
 			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "echo"}}, reason: chat.StopReasonToolUse},
 			{text: "tool result processed", reason: chat.StopReasonEndTurn},
 		},
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s2")
 	client.WriteText("use echo tool")
 
@@ -266,18 +268,19 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 }
 
 func TestToolUse_UnknownTool(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.AddTools(&echoTool{}) // 只注册 echo，不注册 other_tool
+	config := agent.NewConfig()
+	config.AddTools(&echoTool{}) // 只注册 echo，不注册 other_tool
 
 	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
 	// → 第二轮 LLM → done
-	manager.RegisterChat(&orderedProvider{
+	config.RegisterChat(&orderedProvider{
 		responses: []orderedResponse{
 			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
 			{text: "unknown tool handled", reason: chat.StopReasonEndTurn},
 		},
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s3")
 	client.WriteText("use unknown tool")
 
@@ -286,12 +289,13 @@ func TestToolUse_UnknownTool(t *testing.T) {
 }
 
 func TestMultipleRounds(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s4")
 
 	// 第一轮
@@ -307,12 +311,13 @@ func TestMultipleRounds(t *testing.T) {
 }
 
 func TestStopGeneration(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "response after stop",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s5")
 	client.WriteText("hello")
 
@@ -351,10 +356,11 @@ func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages,
 // Stop 中止正在生成的当前轮（以 done 结束而非 error 事件），
 // 后续新消息照常触发新一轮（停止只对单轮生效）。
 func TestStopOnlyAffectsCurrentRound(t *testing.T) {
-	manager := agent.NewAgent()
+	config := agent.NewConfig()
 	provider := &blockingProvider{entered: make(chan struct{})}
-	manager.RegisterChat(provider)
+	config.RegisterChat(provider)
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "stop-round")
 	client.WriteText("开始长耗时生成")
 
@@ -382,12 +388,13 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 }
 
 func TestTwoClientsSameSession(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "shared response",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	session := manager.GetOrCreateSession("s6")
 	client1 := session.CreateClient(context.Background(), 0)
 	client2 := session.CreateClient(context.Background(), 0)
@@ -411,12 +418,13 @@ func TestTwoClientsSameSession(t *testing.T) {
 }
 
 func TestMaxTokensStopReason(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonMaxTokens,
 		text:       "partial response...",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s7")
 	client.WriteText("hi")
 
@@ -442,9 +450,10 @@ func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *c
 
 // TestMessageDeltaTwoRounds 验证两轮对话都能正常完成（usage 元数据通过 MessageDeltaBlock 传递）。
 func TestMessageDeltaTwoRounds(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&usageProvider{})
+	config := agent.NewConfig()
+	config.RegisterChat(&usageProvider{})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s_usage")
 
 	// 第一轮
@@ -464,12 +473,13 @@ func TestMessageDeltaTwoRounds(t *testing.T) {
 
 // TestWriteBlocks_UpdatesLastTime 验证 WriteBlocks 会更新 lastTime。
 func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "ok",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	session := manager.GetOrCreateSession("s_time")
 	client := session.CreateClient(context.Background(), 0)
 	client.WriteText("hello")
@@ -481,12 +491,13 @@ func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
 
 // TestSession_Destroy 验证 Destroy 后 session 从 sessions map 中移除。
 func TestSession_Destroy(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "ok",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	session := manager.GetOrCreateSession("s_destroy")
 	client := session.CreateClient(context.Background(), 0)
 	client.WriteText("hello")
@@ -508,12 +519,13 @@ func TestSession_Destroy(t *testing.T) {
 
 // TestSession_RemoveSession 验证 Agent.RemoveSession 正确销毁会话。
 func TestSession_RemoveSession(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.RegisterChat(&singleResponseProvider{
+	config := agent.NewConfig()
+	config.RegisterChat(&singleResponseProvider{
 		stopReason: chat.StopReasonEndTurn,
 		text:       "ok",
 	})
 
+	manager := config.CreateAgent(context.Background())
 	client := newTestClient(t, manager, "s_rm")
 	client.WriteText("hello")
 	collectEvents(t, client)

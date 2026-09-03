@@ -20,7 +20,7 @@ type askUserProvider struct {
 	lastReq atomic.Pointer[chat.Messages]
 }
 
-func (f *askUserProvider) ID() string        { return "ask" }
+func (f *askUserProvider) ID() string { return "ask" }
 func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.lastReq.Store(req)
 	n := f.calls.Add(1)
@@ -67,11 +67,12 @@ func findInBlocks(blocks chat.Blocks) *chat.CustomTextBlock {
 // 用户提问 → LLM 调 ask_user_question → ask_user block 推前端 → 工具不阻塞，
 // 本轮正常走到 done → 用户回答作为普通消息触发新一轮 → done。
 func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.AddTools(tools.NewAskUserQuestionTool())
+	config := agent.NewConfig()
+	config.AddTools(tools.NewAskUserQuestionTool())
 	provider := &askUserProvider{}
-	manager.RegisterChat(provider)
+	config.RegisterChat(provider)
 
+	manager := config.CreateAgent(context.Background())
 	client := manager.GetOrCreateSession("ask-e2e").CreateClient(context.Background(), 0)
 	defer client.Close()
 

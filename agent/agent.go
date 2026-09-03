@@ -1,65 +1,18 @@
 package agent
 
 import (
+	"context"
 	"sync"
-
-	"github.com/chuccp/go-agent-sdk/chat"
+	"time"
 )
 
 // Agent agent管理器
 type Agent struct {
 	sessions *Sessions
-	lock     *sync.RWMutex
+	lock     sync.RWMutex
 	config   *Config
 }
 
-func NewAgent() *Agent {
-	return &Agent{
-		sessions: NewSessions(),
-		lock:     new(sync.RWMutex),
-		config:   NewConfig(),
-	}
-}
-func (m *Agent) ChatOption(opt ...chat.Option) {
-	for _, o := range opt {
-		o(m.config.config)
-	}
-}
-func (m *Agent) AddTools(exec ...ToolExecutor) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.toolExecutors = append(m.config.toolExecutors, exec...)
-}
-
-// SystemPrompt 设置全局系统提示词，对之后新建的会话生效。
-func (m *Agent) SystemPrompt(systemPrompt string) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.systemPrompt = systemPrompt
-}
-
-// HistoryStore 设置聊天记录持久化实现。
-// 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *Agent) HistoryStore(store MessageStore) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.historyStore = store
-}
-
-// Compressor 设置上下文压缩策略和持久化实现。
-// 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
-// store 可为 nil（无持久化，重启丢失压缩状态）。
-func (m *Agent) Compressor(c Compressor) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.compressor = c
-}
-
-func (m *Agent) RegisterChat(chatService chat.Service) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.chat.Register(chatService)
-}
 func (m *Agent) GetOrCreateSession(sessionId string) *Session {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -94,20 +47,6 @@ func (m *Agent) SessionContext(sessionId string) *SessionContext {
 	return session.sessionContext
 }
 
-// SessionTimeout 秒
-func (m *Agent) SessionTimeout(sessionTimeout uint) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.sessionTimeout = sessionTimeout
-}
-
-// ClientTimeout 秒
-func (m *Agent) ClientTimeout(clientTimeout uint) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.config.clientTimeout = clientTimeout
-}
-
 // RemoveSession 关闭并移除指定会话。若会话不存在则无操作。
 func (m *Agent) RemoveSession(sessionsId string) {
 	m.lock.Lock()
@@ -115,5 +54,27 @@ func (m *Agent) RemoveSession(sessionsId string) {
 	s, ok := m.sessions.Get(sessionsId)
 	if ok {
 		s.Destroy()
+	}
+}
+
+// run 启动后台清理循环：周期性遍历会话，销毁空闲超时的会话。
+// 该方法会阻塞，通常放在独立 goroutine 中运行；ctx 取消时退出。
+func (m *Agent) run(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			m.sessions.ForEach(func(session *Session) bool {
+				session.Destroy()
+				return true
+			})
+			return
+		case <-ticker.C:
+			m.sessions.ForEach(func(session *Session) bool {
+				session.checkTimeout()
+				return true
+			})
+		}
 	}
 }

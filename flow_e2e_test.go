@@ -47,7 +47,7 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 	}
 }
 
-func (f *flowFakeProvider) ID() string        { return "flow-fake" }
+func (f *flowFakeProvider) ID() string { return "flow-fake" }
 func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	if len(req.Tools) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
@@ -84,7 +84,7 @@ type fakeStoryNode struct {
 	last *chat.Messages
 }
 
-func (f *fakeStoryNode) ID() string        { return "story-fake" }
+func (f *fakeStoryNode) ID() string { return "story-fake" }
 func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.last = req
 	emitText(w, "这是一个关于海洋的故事。")
@@ -195,15 +195,16 @@ func hasBlockType(events []*agent.Event, target chat.Block) bool {
 // ==================== 端到端：主 LLM 按剧本完整走完 story003 ====================
 
 func TestFlowEndToEnd(t *testing.T) {
-	manager := agent.NewAgent()
+	config := agent.NewConfig()
 	mainLLM := &flowFakeProvider{}
-	manager.RegisterChat(mainLLM)
+	config.RegisterChat(mainLLM)
 	wf := workflow.NewManager()
 	wf.AddWorkflow(newStoryFlow())
 
 	activate, execNode, stepDone, status, finish := workflow.NewFlowTools(wf)
-	manager.AddTools(activate, execNode, stepDone, status, finish)
+	config.AddTools(activate, execNode, stepDone, status, finish)
 
+	manager := config.CreateAgent(context.Background())
 	client := manager.GetOrCreateSession("flow-e2e").CreateClient(context.Background(), 0)
 	client.WriteText("给我 5 岁孩子写个太空故事")
 	events := collectUntilDone(t, client)
@@ -256,13 +257,14 @@ func TestFlowEndToEnd(t *testing.T) {
 // ==================== 护栏：未激活/跳步/漏步 ====================
 
 func TestFlowGuards(t *testing.T) {
-	manager := agent.NewAgent()
+	config := agent.NewConfig()
 	storyLLM := &fakeStoryNode{}
-	manager.RegisterChat(storyLLM)
+	config.RegisterChat(storyLLM)
 	wf := workflow.NewManager()
 	wf.AddWorkflow(newStoryFlow())
 
 	activate, execNode, _, _, finish := workflow.NewFlowTools(wf)
+	manager := config.CreateAgent(context.Background())
 	sctx := manager.SessionContext("flow-guards")
 	turn := func(args map[string]any) *agent.Turn {
 		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))

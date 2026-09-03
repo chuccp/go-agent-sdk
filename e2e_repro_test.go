@@ -21,7 +21,7 @@ type fakeProvider struct {
 	calls int
 }
 
-func (f *fakeProvider) ID() string        { return "fake" }
+func (f *fakeProvider) ID() string { return "fake" }
 func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
 	f.calls++
 	if f.calls == 1 {
@@ -96,10 +96,11 @@ func filterStack(s string) string {
 
 // TestTwoRoundsWithTool 复现：第一轮工具调用 + 第二轮普通对话。
 func TestTwoRoundsWithTool(t *testing.T) {
-	manager := agent.NewAgent()
-	manager.AddTools(&fakeTool{})
-	manager.RegisterChat(&fakeProvider{})
+	config := agent.NewConfig()
+	config.AddTools(&fakeTool{})
+	config.RegisterChat(&fakeProvider{})
 
+	manager := config.CreateAgent(context.Background())
 	client := manager.GetOrCreateSession("session-1").CreateClient(context.Background(), 0)
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
