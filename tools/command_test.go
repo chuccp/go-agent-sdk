@@ -27,7 +27,7 @@ type ctxReceiver struct {
 }
 
 func (r *ctxReceiver) SendBlock(block chat.Block) uint64 {
-	return r.ctx.GetTempStore().SendBlock(block)
+	return r.ctx.GetNewAgentStore().SendBlock(block)
 }
 
 // collectText 从 BlockStream 的已组装 blocks 中提取全部文本。

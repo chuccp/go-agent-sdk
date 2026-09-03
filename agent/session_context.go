@@ -16,6 +16,11 @@ type SessionContext struct {
 	opts      *chat.Config
 }
 
+func (c *SessionContext) GetNewAgentStore() *Store {
+	return c.transfer.GetTempStore()
+
+}
+
 func (c *SessionContext) GetChat() *chat.Chat {
 	return c.chat
 }
@@ -32,13 +37,6 @@ func (c *SessionContext) GetOptions() *chat.Config {
 func (c *SessionContext) SessionId() string { return c.sessionId }
 
 func (c *SessionContext) GetStore() *Store {
-	return c.transfer.GetDefaultStore()
-}
-
-func (c *SessionContext) GetTempStore() *Store {
-	return c.transfer.GetTempStore()
-}
-func (c *SessionContext) GetDefaultStore() *Store {
 	return c.transfer.GetDefaultStore()
 }
 

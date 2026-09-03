@@ -15,8 +15,8 @@ type LoopContext interface {
 	context.Context
 	SessionId() string
 	GetChat() *chat.Chat
-	GetTempStore() *Store
-	GetDefaultStore() *Store
+	GetNewAgentStore() *Store
+	GetStore() *Store
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
 }
