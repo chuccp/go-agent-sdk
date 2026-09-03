@@ -19,12 +19,21 @@ func (o *Object) Put(key string, value Value) {
 	o.data[key] = value
 }
 func (o *Object) Get(key string) Value {
+	if o == nil {
+		return nil
+	}
 	return o.data[key]
 }
 func (o *Object) IsEmpty() bool {
+	if o == nil {
+		return true
+	}
 	return len(o.data) == 0
 }
 func (o *Object) GetMustString(key string) string {
+	if o == nil {
+		return ""
+	}
 	v := o.Get(key)
 	if v == nil {
 		log.Panic("GetString: " + key + " not found ")
@@ -49,6 +58,9 @@ func (o *Object) GetString(key string) string {
 }
 
 func (o *Object) HasKey(key string) bool {
+	if o == nil {
+		return false
+	}
 	_, ok := o.data[key]
 	return ok
 }
@@ -103,10 +115,16 @@ func (o *Object) AddAll(other *Object) {
 }
 
 func (o *Object) Delete(key string) {
+	if o == nil {
+		return
+	}
 	delete(o.data, key)
 }
 
 func (o *Object) ForEach(fn func(key string, value Value) bool) {
+	if o == nil {
+		return
+	}
 	for k, v := range o.data {
 		if !fn(k, v) {
 			break
@@ -117,6 +135,9 @@ func (o *Object) ForEach(fn func(key string, value Value) bool) {
 // Iter 返回一个迭代器函数，支持 Go 1.23+ 的 for-range 语法。
 // 遍历顺序不确定（底层为 map）。
 func (o *Object) Iter(yield func(k string, v Value) bool) {
+	if o == nil {
+		return
+	}
 	for k, v := range o.data {
 		if !yield(k, v) {
 			return
