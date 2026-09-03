@@ -174,9 +174,7 @@ func (l *Loop) buildRequest() *chat.Messages {
 		messages.Messages = append(messages.Messages, msg)
 	}
 	// 翻转（倒序收集的）
-	for i, j := 0, len(messages.Messages)-1; i < j; i, j = i+1, j-1 {
-		messages.Messages[i], messages.Messages[j] = messages.Messages[j], messages.Messages[i]
-	}
+	slices.Reverse(messages.Messages)
 	if len(toolExecutors) > 0 {
 		tools := make([]chat.ToolFunction, 0, len(toolExecutors))
 		for _, exec := range toolExecutors {
