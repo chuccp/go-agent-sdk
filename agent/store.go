@@ -24,6 +24,13 @@ type MessageStore interface {
 	SaveSummary(sessionID string, summary *chat.Message) error
 }
 
+type SendEvent interface {
+	sendEvent(event *Event)
+	getSeq() uint64
+	storeSeq(seq uint64)
+	getAndAddSeq() uint64
+}
+
 type splitManifest struct {
 	starts *util.SliceArray[uint64]
 }
@@ -82,6 +89,8 @@ type Store struct {
 	loaded            bool
 	summary           *chat.Message
 	maxBatchSize      int
+	sendEvent         SendEvent
+	no                uint64
 }
 
 func (s *Store) IsEmpty() bool {
@@ -142,6 +151,10 @@ func (s *Store) LoadAllHistory() error {
 			last := s.history.Last()
 			start = last.Start + last.Offset
 		}
+	}
+	if !s.history.IsEmpty() {
+		last := s.history.Last()
+		s.sendEvent.storeSeq(last.Start + last.Offset)
 	}
 	return nil
 }
@@ -294,14 +307,26 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.tempHistory.Append(c)
+}
 
+func (s *Store) SendBlock(block chat.Block) uint64 {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	event := NewEvent(s.no, s.sendEvent.getAndAddSeq(), block)
+	s.sendEvent.sendEvent(event)
+	return event.Start
 }
 
 func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 	return s.doneManifest.hasSplit(slice)
 }
-func NewStore(sessionId string, compressor Compressor, messageStore MessageStore) *Store {
+func (s *Store) No() uint64 {
+	return s.no
+}
+func NewStore(no uint64, sessionId string, sendEvent SendEvent, compressor Compressor, messageStore MessageStore) *Store {
 	return &Store{
+		no:                no,
+		sendEvent:         sendEvent,
 		maxBatchSize:      10,
 		sessionID:         sessionId,
 		messageStore:      messageStore,

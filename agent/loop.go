@@ -14,14 +14,14 @@ import (
 type LoopContext interface {
 	context.Context
 	SessionId() string
-	SendBlock(no uint64, block chat.Block) uint64
 	GetChat() *chat.Chat
+	GetTempStore() *Store
+	GetDefaultStore() *Store
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
 }
 
 type Loop struct {
-	no            uint64
 	inbox         *util.SliceQueue[*chat.UserBlock]
 	loopContext   LoopContext
 	service       chat.Service
@@ -42,10 +42,9 @@ type LoopBuilder struct {
 	loop *Loop
 }
 
-func NewLoopBuilder(No uint64, loopContext LoopContext) *LoopBuilder {
+func NewLoopBuilder(loopContext LoopContext) *LoopBuilder {
 	pContext, plCancel := context.WithCancel(loopContext)
 	return &LoopBuilder{loop: &Loop{
-		no:            No,
 		loopContext:   loopContext,
 		toolExecutors: make([]ToolExecutor, 0),
 		inbox:         new(util.SliceQueue[*chat.UserBlock]),
@@ -73,7 +72,7 @@ func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
-	start := l.loopContext.SendBlock(l.no, block)
+	start := l.store.SendBlock(block)
 	return start
 }
 

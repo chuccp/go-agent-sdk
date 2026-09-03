@@ -21,15 +21,13 @@ func (r *blockRecorder) SendBlock(block chat.Block) uint64 {
 	return 0
 }
 
-// ctxReceiver 适配 SessionContext.SendBlock(no, block) 到 BlockReceiver 接口。
+// ctxReceiver 适配 SessionContext 的临时 Store 到 BlockReceiver 接口。
 type ctxReceiver struct {
 	ctx *agent.SessionContext
-	seq uint64
 }
 
 func (r *ctxReceiver) SendBlock(block chat.Block) uint64 {
-	r.seq++
-	return r.ctx.SendBlock(r.seq, block)
+	return r.ctx.GetTempStore().SendBlock(block)
 }
 
 // collectText 从 BlockStream 的已组装 blocks 中提取全部文本。

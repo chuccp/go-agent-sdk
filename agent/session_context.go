@@ -32,12 +32,14 @@ func (c *SessionContext) GetOptions() *chat.Config {
 func (c *SessionContext) SessionId() string { return c.sessionId }
 
 func (c *SessionContext) GetStore() *Store {
-	return c.transfer.GetStore()
+	return c.transfer.GetDefaultStore()
 }
 
-// SendBlock 追加事件到存储并通知所有客户端。
-func (c *SessionContext) SendBlock(no uint64, block chat.Block) uint64 {
-	return c.transfer.SendBlock(no, block)
+func (c *SessionContext) GetTempStore() *Store {
+	return c.transfer.GetTempStore()
+}
+func (c *SessionContext) GetDefaultStore() *Store {
+	return c.transfer.GetDefaultStore()
 }
 
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {

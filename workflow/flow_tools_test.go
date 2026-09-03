@@ -22,8 +22,9 @@ type fakeLoopContext struct {
 }
 
 func (f *fakeLoopContext) SessionId() string                             { return f.id }
-func (f *fakeLoopContext) SendBlock(_ uint64, _ chat.Block) uint64       { return 0 }
 func (f *fakeLoopContext) GetChat() *chat.Chat                           { return chat.NewChat() }
+func (f *fakeLoopContext) GetTempStore() *agent.Store                    { return nil }
+func (f *fakeLoopContext) GetDefaultStore() *agent.Store                 { return nil }
 func (f *fakeLoopContext) AppendMainAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendMainUserMessage(_ *chat.BlockGroup)      {}
 

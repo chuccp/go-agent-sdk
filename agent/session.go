@@ -71,9 +71,9 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		transfer:       transfer,
 		lastTime:       util.GetSecondTime(),
 	}
-	s.loop = NewLoopBuilder(0, sessionContext).
+	s.loop = NewLoopBuilder(sessionContext).
 		Config(config.config).
-		Store(transfer.GetStore()).
+		Store(transfer.GetDefaultStore()).
 		ToolExecutor(config.toolExecutors...).
 		Build()
 	util.Go(func() {

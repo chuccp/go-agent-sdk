@@ -49,7 +49,7 @@ func newTestTransfer() *Transfer {
 	return &Transfer{
 		entries:     new(util.SliceArray[*Event]),
 		chatClients: new(util.SliceArray[*Client]),
-		messageStore: &Store{
+		defaultStore: &Store{
 			history:      new(util.SliceArray[*chat.Message]),
 			tempHistory:  new(util.SliceArray[*chat.Message]),
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
@@ -64,7 +64,7 @@ func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
 	return &Transfer{
 		entries:     new(util.SliceArray[*Event]),
 		chatClients: new(util.SliceArray[*Client]),
-		messageStore: &Store{
+		defaultStore: &Store{
 			history:      new(util.SliceArray[*chat.Message]),
 			tempHistory:  new(util.SliceArray[*chat.Message]),
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
@@ -185,7 +185,7 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 	tr.entries.Append(&Event{Start: 0, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(0)}})
 	tr.entries.Append(&Event{Start: 1, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(1)}})
 	// tempHistory 有1条消息 (Start=2)——save 前 tempHistory 不读取，entries 兜底
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
+	tr.defaultStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 
 	// start=0: 只读 entries 2个（tempHistory 不读）
 	events, err := tr.greaterStart(0)
@@ -226,8 +226,8 @@ func TestGreaterStart_DedupEntriesVsHistory(t *testing.T) {
 		tr.entries.Append(&Event{Start: i, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(i)}})
 	}
 	// history: Start=0,1 (持久化的用户/助手消息，覆盖 entries 中的前两个)
-	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
-	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
+	tr.defaultStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.defaultStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
 	events, err := tr.greaterStart(0)
 	if err != nil {
@@ -243,10 +243,10 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	// history 与 entries 两个数据源，验证完整合并（tempHistory 不读取）
 	tr := newTestTransfer()
 	// history: Start=0,1
-	tr.messageStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
-	tr.messageStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
+	tr.defaultStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
+	tr.defaultStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 	// tempHistory: Start=2（save 前不读）
-	tr.messageStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
+	tr.defaultStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 	// entries: Start=3
 	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(3)}})
 

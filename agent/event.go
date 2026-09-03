@@ -6,6 +6,7 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
@@ -28,27 +29,42 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 }
 
 type Transfer struct {
-	seq              uint64
 	mu               sync.RWMutex
 	resetLock        sync.RWMutex
 	entries          *util.SliceArray[*Event]
-	pending          uint64
 	chatClients      *util.SliceArray[*Client]
-	messageStore     *Store
+	defaultStore     *Store
 	messageLastStart uint64
+	sessionId        string
+	compressor       Compressor
+	historyStore     MessageStore
+	no               uint64
+	seq              atomic.Uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
-	return &Transfer{
+	transfer := &Transfer{
+		sessionId:        sessionId,
+		compressor:       compressor,
+		historyStore:     historyStore,
 		entries:          new(util.SliceArray[*Event]),
 		chatClients:      new(util.SliceArray[*Client]),
-		messageStore:     NewStore(sessionId, compressor, historyStore),
 		messageLastStart: 0,
+		no:               0,
 	}
-
+	transfer.defaultStore = NewStore(transfer.no, transfer.sessionId, transfer, transfer.compressor, transfer.historyStore)
+	return transfer
 }
-func (l *Transfer) GetStore() *Store {
-	return l.messageStore
+func (l *Transfer) GetDefaultStore() *Store {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.defaultStore
+}
+func (l *Transfer) GetTempStore() *Store {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.no++
+	return NewStore(l.no, l.sessionId, l, l.compressor, nil)
 }
 
 func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
@@ -57,16 +73,24 @@ func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	return l.greaterStart(since)
 
 }
-func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
+
+func (l *Transfer) sendEvent(event *Event) {
 	l.mu.Lock()
-	event := NewEvent(no, l.seq, block)
-	l.seq++
 	l.entries.Append(event)
-	l.pending++
 	l.mu.Unlock()
 	l.flush()
-	return event.Start
 }
+
+func (l *Transfer) getSeq() uint64 {
+	return l.seq.Load()
+}
+func (l *Transfer) getAndAddSeq() uint64 {
+	return l.seq.Add(1)
+}
+func (l *Transfer) storeSeq(seq uint64) {
+	l.seq.Store(seq)
+}
+
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -82,10 +106,10 @@ func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	cl.start = lastEvent.Start + lastEvent.Offset
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
-	lastStart, fa := l.messageStore.hasSplit(l.chatClients.Slice())
+	lastStart, fa := l.defaultStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
-		err := l.messageStore.save(lastStart)
+		err := l.defaultStore.save(lastStart)
 		if err != nil {
 			lastEvent.Blocks = append(lastEvent.Blocks, chat.NewErrorBlock(err.Error()))
 		}
@@ -140,7 +164,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 
 	// 2. 从持久化存储加载历史消息
-	messages, err := l.messageStore.LoadMessagesAfter(start)
+	messages, err := l.defaultStore.LoadMessagesAfter(start)
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +185,8 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 		if len(events) > 0 {
 			last := events[len(events)-1]
 			seq := last.Start + last.Offset
-			if seq > l.seq {
-				l.seq = seq
+			if seq > l.getSeq() {
+				l.storeSeq(seq)
 			}
 		}
 	}
@@ -171,8 +195,8 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if start > l.seq {
-		start = l.seq
+	if start > l.getSeq() {
+		start = l.getSeq()
 	}
 	chatClient := NewClient(ctx, handler, start, l)
 	l.chatClients.Append(chatClient)
@@ -193,32 +217,15 @@ func (l *Transfer) deleteClient(client *Client) {
 	l.chatClients.Remove(client)
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
-	lastStart, fa := l.messageStore.hasSplit(l.chatClients.Slice())
+	lastStart, fa := l.defaultStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
-		err := l.messageStore.save(lastStart)
+		err := l.defaultStore.save(lastStart)
 		if err != nil {
 			log.Printf("Error offering chat Session: %v", err)
 		}
 	}
 }
 func (l *Transfer) history() []*chat.Message {
-	return l.messageStore.History()
-}
-
-func (l *Transfer) minPosition() uint64 {
-	// 调用方已持有 l.mu，无需再加锁
-	if l.chatClients.Len() == 0 {
-		return 0
-	}
-	var m uint64
-	first := true
-	for i := 0; i < l.chatClients.Len(); i++ {
-		v := l.chatClients.Get(i).start
-		if first || v < m {
-			m = v
-			first = false
-		}
-	}
-	return m
+	return l.defaultStore.History()
 }
