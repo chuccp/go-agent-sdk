@@ -273,8 +273,8 @@ func (s *Store) mergeHistory(after []*chat.Message) {
 }
 
 func (s *Store) RecordDone(minStart uint64) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.doneManifest.addSplit(minStart)
 }
 
@@ -310,14 +310,16 @@ func (s *Store) AppendHistory(c *chat.Message) {
 }
 
 func (s *Store) SendBlock(block chat.Block) uint64 {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	// 不加 s.lock：s.no 为构造后只读字段，getAndAddSeq 原子，sendEvent 内部自持 l.mu。
+	// 若在此持 s.lock 再进 sendEvent(l.mu)，会与 readEvents(l.mu → hasSplit → s.lock) 形成 ABBA 死锁。
 	event := NewEvent(s.no, s.sendEvent.getAndAddSeq(), block)
 	s.sendEvent.sendEvent(event)
 	return event.Start
 }
 
 func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	return s.doneManifest.hasSplit(slice)
 }
 func (s *Store) No() uint64 {

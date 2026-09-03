@@ -33,6 +33,7 @@ type Loop struct {
 	store         *Store
 	lContext      context.Context
 	lCancel       context.CancelFunc
+	ctxLock       sync.Mutex
 	seq           atomic.Uint64
 	toolExecutors []ToolExecutor
 	config        *chat.Config
@@ -188,10 +189,12 @@ func (l *Loop) buildRequest() *chat.Messages {
 func (l *Loop) loop() bool {
 	l.runLock.Unlock()
 	defer l.runLock.Lock()
+	l.ctxLock.Lock()
 	if l.lCancel != nil {
 		l.lCancel()
 	}
 	l.lContext, l.lCancel = context.WithCancel(l.pContext)
+	l.ctxLock.Unlock()
 
 	blockGroup, stopReason, err := l.chatWithStream()
 
@@ -404,6 +407,8 @@ func (l *Loop) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
 }
 
 func (l *Loop) Stop() {
+	l.ctxLock.Lock()
+	defer l.ctxLock.Unlock()
 	if l.lCancel != nil {
 		l.lCancel()
 	}
