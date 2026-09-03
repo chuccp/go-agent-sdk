@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,8 +164,8 @@ func (l *Loop) buildRequest() *chat.Messages {
 		Messages: make([]chat.Message, 0, len(history)),
 		Config:   effective,
 	}
-	for i := len(history) - 1; i >= 0; i-- {
-		m := history[i]
+	for _, m := range slices.Backward(history) {
+
 		msg := *m
 		msg.Content = l.blocksForContext(m.Content)
 		if len(msg.Content) == 0 {
