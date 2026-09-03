@@ -162,6 +162,24 @@ UserBlock          { BlockUserType string; ID uint64; Content Blocks } // 用户
 ErrorBlock         { Text string }
 ```
 
+### 动态值（value）
+
+`value` 包提供一套可独立使用的动态 JSON 值类型（`Object` / `Array` / `Text` / `Number` / `Bool` / `Null` / `Stream`），可作为工具入参等动态结构的统一载体：
+
+```go
+import "github.com/chuccp/go-agent-sdk/value"
+
+obj := value.NewObject()
+obj.PutAny("level", chat.ThinkingHigh) // 原生类型 / 命名类型自动转换
+obj.Put("n", value.NewInt(3))          // int/float 区分保留，序列化为 3 而非 3.0
+obj.GetString("level")                 // "high"
+obj.GetInt("n")                        // 3
+
+raw := obj.ToJSON()                    // 序列化，字符串不二次转义
+```
+
+命名类型（如 `ThinkingLevel` / `Role`）经反射兜底不会漏成 null；所有读方法对 nil 接收者安全，返回零值而非 panic。工具入参 `ToolUseBlock.Input` 即由 `*value.Object` 承载。
+
 ### 事件流与断线续传
 
 每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start` 即可从活跃事件缓冲区（`entries`）增量续读。事件按 **Start 升序** 返回。
