@@ -14,6 +14,22 @@
 - **多提供商** — Provider Registry 支持注册多个 LLM 后端，运行时选择
 - **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text
 
+## 设计优势
+
+### 低成本断线续传（无 broker）
+
+断线续传没有走「消息队列 / 消费组 / ack」的常规路线，而是把它退化成一个**单调递增序号 + 区间判断**的纯内存问题：
+
+- 每条消息携带事件区间 `[Start, Start+Offset)`，与全局单调 `seq` 对齐；
+- 客户端只持有一个 `uint64` 的 `start` 游标，重连 = 带 `start` 重新挂上；
+- `Client` 无状态，断开即丢，服务端不感知也不关心客户端断过。
+
+因此**不依赖 Kafka / Redis / broker，单进程即可**，运维成本为零，也规避了「谁负责 ack」的分布式难题。
+
+### 生成与传输解耦
+
+客户端断开不会中断服务端生成：`Session`/`Loop`/`Transfer` 照常运行，事件继续进入活跃缓冲区 `entries`，客户端重连后凭 `start` 一次性补读积压事件，像什么都没发生过。
+
 ## 架构概览
 
 ```
