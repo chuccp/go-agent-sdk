@@ -280,19 +280,6 @@ func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup,
 	}
 	return l.mergeToolsBlockGroup(blockGroups, results), stopReason
 }
-
-//func (l *Loop) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
-//	var bg chat.BlockGroup
-//	bg.Start = blockGroups[0].Start
-//	if len(blockGroups) == 1 {
-//		bg.Offset = blockGroups[0].Offset
-//	} else {
-//		bg.Offset = blockGroups[len(blockGroups)-1].Offset + blockGroups[len(blockGroups)-1].Start - bg.Start
-//	}
-//	bg.Content = results
-//	return &bg
-//}
-
 func (l *Loop) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
 	minStart := blockGroups[0].Start
 	maxEnd := blockGroups[0].Start + blockGroups[0].Offset
