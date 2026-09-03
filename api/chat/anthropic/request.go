@@ -9,13 +9,21 @@ type ThinkingConfig struct {
 	BudgetTokens int    `json:"budget_tokens,omitempty"  ` // 思考链最大 token 预算（仅 enabled 时有效）
 }
 
+// SystemBlock 是 system 提示的内容块。Anthropic 要求 system 携带缓存断点时
+// 必须用内容块数组（而非字符串）表达。
+type SystemBlock struct {
+	Type         string             `json:"type"` // 固定 "text"
+	Text         string             `json:"text"`
+	CacheControl *chat.CacheControl `json:"cache_control,omitempty"`
+}
+
 // Request 是发给 LLM Messages API 的完整请求体。
 type Request struct {
 	Model     string          `json:"model"`      // 模型 ID，如 "claude-opus-4-8"
 	MaxTokens int             `json:"max_tokens"` // 最大生成 token 数
 	Messages  []*chat.Message `json:"messages"`   // 对话历史（user/assistant 交替）
 	// 可选字段
-	System        string              `json:"system,omitempty"`         // 系统提示（独立于 messages）
+	System        []SystemBlock       `json:"system,omitempty"`         // 系统提示（带缓存断点的内容块）
 	Tools         []chat.ToolFunction `json:"tools,omitempty"`          // 可用工具列表
 	Thinking      *ThinkingConfig     `json:"thinking,omitempty"`       // 扩展思考配置
 	Stream        bool                `json:"stream,omitempty"`         // 是否流式返回
@@ -61,7 +69,7 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 	if config != nil {
 		request.Model = config.GetModel()
 		request.MaxTokens = config.GetMaxTokens()
-		request.System = config.GetSystemPrompt()
+		request.System = newSystemBlocks(config.GetSystemPrompt())
 		request.Thinking = toThinkingConfig(config.GetThinking())
 	}
 	if request.MaxTokens == 0 {
@@ -72,7 +80,25 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 		for i := range chatMessages.Messages {
 			request.Messages = append(request.Messages, &chatMessages.Messages[i])
 		}
-		request.Tools = chatMessages.Tools
+		if len(chatMessages.Tools) > 0 {
+			request.Tools = make([]chat.ToolFunction, len(chatMessages.Tools))
+			copy(request.Tools, chatMessages.Tools)
+			for i := range request.Tools {
+				request.Tools[i].CacheControl = &chat.CacheControl{Type: "ephemeral"}
+			}
+		}
 	}
 	return request
+}
+
+// newSystemBlocks 把系统提示组装为带缓存断点的 system 内容块；空提示返回 nil。
+func newSystemBlocks(systemPrompt string) []SystemBlock {
+	if systemPrompt == "" {
+		return nil
+	}
+	return []SystemBlock{{
+		Type:         "text",
+		Text:         systemPrompt,
+		CacheControl: &chat.CacheControl{Type: "ephemeral"},
+	}}
 }

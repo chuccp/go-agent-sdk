@@ -5,12 +5,19 @@ package chat
 
 // ==================== Tool ====================
 
+// CacheControl 标记提示词缓存的断点（Anthropic prompt caching 的 ephemeral cache）。
+// 挂在 system 内容块 / 工具定义 / 消息内容块上，命中后复用缓存、降低成本与延迟。
+type CacheControl struct {
+	Type string `json:"type"` // 固定 "ephemeral"
+}
+
 // ToolFunction 是发给模型的工具定义。模型据此生成 tool_use content block。
 type ToolFunction struct {
 	Name          string           `json:"name"`                     // 工具名称（唯一标识）
 	Description   string           `json:"description"`              // 工具功能描述（模型据此决定是否调用）
 	InputSchema   map[string]any   `json:"input_schema"`             // 输入参数的 JSON Schema
 	InputExamples []map[string]any `json:"input_examples,omitempty"` // 调用示例（可选）
+	CacheControl  *CacheControl    `json:"cache_control,omitempty"`  // 提示词缓存断点
 }
 
 // ==================== Message ====================
