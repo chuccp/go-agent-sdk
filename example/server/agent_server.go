@@ -68,9 +68,6 @@ func (r *Agent) Run() error {
 	<-r.ctx.Done()
 	return nil
 }
-func (r *Agent) GetSession() *Session {
-	return newSession(r.agentManager)
-}
 
 // History 获取会话历史事件（与 WebSocket 推送格式一致）。
 func (r *Agent) History(id uint, since uint64) ([]*agent.Event, error) {
@@ -89,4 +86,8 @@ func (r *Agent) HandleChat(chat *agent.Client, message *entity.WsChatMessage) er
 func (r *Agent) HandleStop(chat *agent.Client, message *entity.WsStopMessage) error {
 	chat.Stop()
 	return nil
+}
+
+func (r *Agent) GetAgent() *agent.Agent {
+	return r.agentManager
 }

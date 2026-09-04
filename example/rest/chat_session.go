@@ -46,8 +46,8 @@ func (c *Chat) Init(ctx *core.Context) error {
 	ctx.Post("/api/chat/sessions", c.createSession)
 	ctx.Delete("/api/chat/sessions/:id", c.deleteSession)
 	ctx.Get("/api/chat/sessions/:id/messages", c.getSessionMessages)
-	ctx.WebSocket("/ws/chat", c.HandleWebSocket)
-	log.Info("Chat REST routes registered (go-agent-sdk)", zap.String("ws", "/ws/chat"))
+	ctx.WebSocket("/ws/chat/:id", c.HandleWebSocket)
+	log.Info("Chat REST routes registered (go-agent-sdk)", zap.String("ws", "/ws/chat/:id"))
 	return nil
 }
 
@@ -114,16 +114,24 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	}
 	defer stream.Close()
 	stream.Conn().SetReadLimit(10 * 1024 * 1024)
-
-	session := c.agent.GetSession()
-	defer session.Release()
-
+	request := webSocket.Request()
+	sessionId := request.ParamUint("id")
+	var start uint64
+	if s := request.Query("start"); s != "" {
+		start, _ = strconv.ParseUint(s, 10, 64)
+	}
+	session := c.agent.GetAgent().GetOrCreateSession(strconv.Itoa(int(sessionId)))
+	client := session.CreateClient(webSocket.Request().Ctx(), start)
 	sdkutil.Go(func() {
 		// 事件去重由 Transfer.readEvents（cl.start 递增）与 mergeMessages（block 级别
 		// 精确去重）保证。relay 这里不做 lastSeq 单调递增去重——那会跳过 message 里
 		// 排序后 start 小于已发事件的 block（如 MessageDeltaBlock）。
 		for {
-			events := session.ReadEvent()
+			events, err := client.ReadEvents()
+			if err != nil {
+				writeError(stream, err)
+				return
+			}
 			if events == nil {
 				log.Info("[RELAY] ReadEvent returned nil, exiting")
 				return
@@ -160,20 +168,9 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 			}
 			switch m := msg.(type) {
 			case *entity.WsChatMessage:
-				if err := session.HandleChat(m); err != nil {
-					writeError(stream, err)
-				}
-			case *entity.WsCreateMessage:
-				if err := session.CreateChat(m); err != nil {
-					writeError(stream, err)
-				} else {
-					// 回执：通知前端会话已就绪，可以开始发送消息
-					writeCreated(stream, m.SessionId)
-				}
+				client.WriteText(m.Message)
 			case *entity.WsStopMessage:
-				if err := session.HandleStop(); err != nil {
-					writeError(stream, err)
-				}
+				client.Stop()
 			}
 		case websocket.MessageBinary:
 

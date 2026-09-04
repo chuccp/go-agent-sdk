@@ -276,22 +276,92 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const createdRef = useRef(false)
   const pendingChatRef = useRef<string[]>([]) // 回执到达前暂存的聊天消息报文
 
-  // ── sendCreate: WS 打开后发送 create 消息，接入事件流（从 start 位置开始） ──
-  const sendCreate = useCallback(() => {
-    const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) return
-    if (startRef.current === null) return // 历史尚未加载完成
-    ws.send(JSON.stringify({ type: 'create', session_id: sessionIdRef.current, start: startRef.current }))
-  }, [])
-
   useEffect(() => {
     const controller = new AbortController()
     startRef.current = null
     createdRef.current = false
     pendingChatRef.current = []
     setPendingQuestion(null)
-    // 分页加载历史事件：不设 initialMessages=null，避免重渲染取消异步
+
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout>
+    let mounted = true
+
+    const connect = (start: number) => {
+      if (!mounted || controller.signal.aborted) return
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}`)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setupStreamBridge(ws!)
+        setStopCallback(() => {
+          if (ws!.readyState === WebSocket.OPEN) {
+            ws!.send(JSON.stringify({ type: 'stop' }))
+          }
+        })
+        setAskUserHandler(json => {
+          try {
+            setPendingQuestion(JSON.parse(json) as AskUserQuestion[])
+          } catch { /* ignore parse errors */ }
+        })
+        // 后端从 URL 参数创建 session，无需 create/created 握手，直接标记就绪
+        createdRef.current = true
+        // 补发 WS 未就绪期间暂存的消息
+        for (const payload of pendingChatRef.current) {
+          ws!.send(payload)
+        }
+        pendingChatRef.current = []
+        triggerStream()
+      }
+
+      ws.onmessage = (evt: MessageEvent) => {
+        try {
+          const msg = JSON.parse(evt.data)
+          const blocks = msg.blocks
+          if (!Array.isArray(blocks)) return
+          for (const block of blocks) {
+            if (block.type === 'User') {
+              const content = block.content?.[0]?.text || ''
+              const msgId = block.id ?? String(msg.start ?? 0)
+              if (block.block_user_type === 'queued') {
+                setQueuedMessages(prev => [...prev, { id: msgId, status: 'queued' as const }])
+              } else if (block.block_user_type === 'consume') {
+                console.log('[ws] User block (consume):', content.substring(0, 30))
+                setQueuedMessages(prev =>
+                  prev.map(m => (m.id === msgId ? { ...m, status: 'consumed' as const } : m))
+                )
+                setTimeout(() => {
+                  setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
+                }, 600)
+                const consumeKey = String(msgId)
+                if (consumedIdsRef.current.has(consumeKey)) {
+                  return
+                }
+                consumedIdsRef.current.add(consumeKey)
+                if (content) {
+                  consumeMessageRef.current(content)
+                }
+              } else {
+                setQueuedMessages(prev => [...prev, { id: msgId, status: 'consumed' as const }])
+                setTimeout(() => {
+                  setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
+                }, 600)
+              }
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      ws.onclose = () => {
+        if (mounted && !controller.signal.aborted) reconnectTimer = setTimeout(() => connect(start), 2000)
+      }
+      ws.onerror = () => {}
+    }
+
+    // 分页加载历史事件，完成后用 start 建立 WS 连接
     ;(async () => {
+      let start = 0
       try {
         const allEvents: ChatEvent[] = []
         let since = 0
@@ -305,18 +375,24 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
         if (controller.signal.aborted) return
         extractUsageFromEvents(allEvents)
         const last = allEvents[allEvents.length - 1]
-        startRef.current = last ? last.start + last.offset : 0
+        start = last ? last.start + last.offset : 0
+        startRef.current = start
         setInitialMessages(buildDisplayMessages(allEvents))
-        sendCreate()
       } catch {
         if (controller.signal.aborted) return
         startRef.current = 0
         setInitialMessages([])
-        sendCreate()
       }
+      connect(start)
     })()
-    return () => { controller.abort() }
-  }, [sessionId, sendCreate])
+
+    return () => {
+      mounted = false
+      clearTimeout(reconnectTimer)
+      controller.abort()
+      ws?.close()
+    }
+  }, [sessionId])
 
   // 消息队列（仅展示后端返回的排队状态）
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
@@ -338,9 +414,6 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       return
     }
 
-    // 初始化会话（幂等；历史加载完成后携带事件流起始位置）
-    sendCreate()
-
     // 发送聊天消息：未收到 created 回执时暂存，由回执触发补发
     const chatMsg: Record<string, string> = { type: 'chat', message: text.trim() }
     const thinking = thinkingRef.current
@@ -351,7 +424,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     } else {
       pendingChatRef.current.push(payload)
     }
-  }, [sendCreate])
+  }, [])
 
   // ── submitAnswer: 提交 ask_user 回答：直发后端（绕过客户端队列，
   // 避免 isRunning 永真导致的队列死锁）并清除问题卡片 ──
@@ -365,110 +438,6 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const consumeMessageRef = useRef<(text: string) => void>(() => {})
   // 已处理过的 consume 消息 id：防止同一条用户消息被重复消费导致回显两遍
   const consumedIdsRef = useRef<Set<string>>(new Set())
-
-  // ── WebSocket 连接 + 事件处理 ──
-  useEffect(() => {
-    let ws: WebSocket | null = null
-    let reconnectTimer: ReturnType<typeof setTimeout>
-    let mounted = true
-
-    const connect = () => {
-      if (!mounted) return
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat`)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        // 安装流事件桥接
-        setupStreamBridge(ws!)
-        // 设置停止回调
-        setStopCallback(() => {
-          if (ws!.readyState === WebSocket.OPEN) {
-            ws!.send(JSON.stringify({ type: 'stop' }))
-          }
-        })
-        // 设置 ask_user 事件处理：渲染问题卡片
-        setAskUserHandler(json => {
-          try {
-            setPendingQuestion(JSON.parse(json) as AskUserQuestion[])
-          } catch { /* ignore parse errors */ }
-        })
-        // 历史已加载完成则立即接入事件流（重连时恢复）
-        sendCreate()
-        // 立即启动 adapter 处理事件（包括 WS 推送的历史事件），不等用户消息触发
-        triggerStream()
-      }
-
-      ws.onmessage = (evt: MessageEvent) => {
-        try {
-          const msg = JSON.parse(evt.data)
-          // created 回执仍是顶层 {type: "created", ...}
-          if (msg.type === 'created') {
-            // 会话就绪回执：补发暂存的聊天消息，之后可直接发送
-            createdRef.current = true
-            for (const payload of pendingChatRef.current) {
-              ws!.send(payload)
-            }
-            pendingChatRef.current = []
-            return
-          }
-          // 事件格式：{no, start, offset, blocks: [{type, ...}, ...]}
-          const blocks = msg.blocks
-          if (!Array.isArray(blocks)) return
-          for (const block of blocks) {
-            if (block.type === 'User') {
-              // 用户消息状态变更（替代旧的 message_sent/queued/consumed）
-              const content = block.content?.[0]?.text || ''
-              // 稳定消息 ID：sent/queued/consume 三条状态事件共享同一 id（后端 UserBlock.id），
-              // 用于队列栏状态迁移与清理；缺失时退回事件 seq
-              const msgId = block.id ?? String(msg.start ?? 0)
-              if (block.block_user_type === 'queued') {
-                // 消息进入等待队列
-                setQueuedMessages(prev => [...prev, { id: msgId, status: 'queued' as const }])
-              } else if (block.block_user_type === 'consume') {
-                // 后端确认消费：同一条消息由 queued 迁移为 consumed，并触发显示 + 启动流
-                console.log('[ws] User block (consume):', content.substring(0, 30))
-                setQueuedMessages(prev =>
-                  prev.map(m => (m.id === msgId ? { ...m, status: 'consumed' as const } : m))
-                )
-                setTimeout(() => {
-                  setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
-                }, 600)
-                // 同一条用户消息只显示一次：重复的 consume 回执直接忽略
-                const consumeKey = String(msgId)
-                if (consumedIdsRef.current.has(consumeKey)) {
-                  return
-                }
-                consumedIdsRef.current.add(consumeKey)
-                if (content) {
-                  consumeMessageRef.current(content)
-                }
-              } else {
-                // sent：消息已被受理，仅更新状态栏，不触发显示
-                setQueuedMessages(prev => [...prev, { id: msgId, status: 'consumed' as const }])
-                setTimeout(() => {
-                  setQueuedMessages(prev => prev.filter(m => m.id !== msgId))
-                }, 600)
-              }
-            }
-          }
-        } catch { /* ignore */ }
-      }
-
-      ws.onclose = () => {
-        if (mounted) reconnectTimer = setTimeout(connect, 2000)
-      }
-      ws.onerror = () => {}
-    }
-
-    connect()
-
-    return () => {
-      mounted = false
-      clearTimeout(reconnectTimer)
-      ws?.close()
-    }
-  }, [sendCreate])
 
   // ── Adapter + Runtime ──
   const adapter = useMemo(() => createStreamingAdapter(), [])
