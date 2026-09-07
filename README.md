@@ -7,11 +7,12 @@
 - **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 `start` 独立追踪读取进度，互不阻塞
 - **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
 - **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
-- **流式对话** — SSE 流式输出，实时推送 thinking / text 增量
+- **消息发送与接收分离** — Session 负责发送消息，Client 仅负责接收事件流
+- **流式对话** — WebSocket 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
 - **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
-- **多提供商** — Provider Registry 支持注册多个 LLM 后端，运行时选择
+- **多提供商** — ServiceStore 支持注册多个 LLM 后端，运行时选择
 - **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text
 
 ## 架构概览
@@ -19,7 +20,7 @@
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │  Agent                                                        │
-│  ├── ProviderRegistry (多 LLM 后端)                            │
+│  ├── Chat (ServiceStore 管理多 LLM 后端)                       │
 │  ├── ToolExecutors (工具注册)                                   │
 │  └── Sessions map[id] → Session                               │
 │                  └── Session                                   │
@@ -105,13 +106,13 @@ func main() {
 	)
 
 	// 2. 注册 LLM 提供商（Service 通过 ID() 标识自身，首个注册的为默认）
-	config.RegisterChat(anthropic.NewService("my-provider", baseUrl, apiKey, "claude-sonnet-4-6"))
+	config.RegisterChat(anthropic.NewService("my-provider", "https://api.anthropic.com", "your-api-key", "claude-sonnet-4-6"))
 
 	// 3. 注册工具（可选）
 	config.AddTools(tools.NewCommandTool())
 
 	// 4. 设置持久化（可选，实现 MessageStore 接口）
-	config.HistoryStore(myMessageStore)
+	// config.HistoryStore(myMessageStore)
 
 	// 5. 设置超时（可选，秒）
 	config.SessionTimeout(600) // 会话空闲超时
@@ -120,14 +121,16 @@ func main() {
 	// 6. 基于配置创建 Agent（内部启动后台超时清理循环）
 	a := config.CreateAgent(context.Background())
 
-	// 7. 获取会话 + 创建客户端
+	// 7. 获取会话
 	session := a.GetOrCreateSession("session-1")
-	client := session.CreateClient(context.Background(), 0)
 
 	// 8. 发送消息（Session 负责发送，Client 仅负责接收事件流）
 	session.WriteText("你好，帮我查看当前目录")
 
-	// 9. 读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
+	// 9. 创建客户端读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
+	client := session.CreateClient(context.Background(), 0)
+	defer client.Close()
+
 	for {
 		events, err := client.ReadEvents()
 		if err != nil {
@@ -273,16 +276,24 @@ GET /api/chat/sessions/:id/messages?since=0
 
 - `since` — 起始 `start` 位置（返回 `Start >= since` 的事件），默认 0
 
-通过 `agent.History(sessionId, since)` → `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
+通过 `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
 
 ## WebSocket 协议
+
+### 连接
+
+WebSocket 连接通过 URL 参数传递会话 ID 和起始位置：
+
+```
+ws://localhost:19009/ws/chat/:id?start=0
+```
+
+- `:id` — 会话 ID
+- `start` — 起始事件位置（用于断线续传），默认 0
 
 ### 客户端 → 服务端
 
 ```json
-// 初始化/续接会话（幂等，可在每次发送前调用）
-{"type": "create", "session_id": 1, "start": 0}
-
 // 发送消息（thinking 可选：off / low / medium / high）
 {"type": "chat", "message": "你好", "thinking": "low"}
 
@@ -319,9 +330,9 @@ GET /api/chat/sessions/:id/messages?since=0
 {"no":0,"start":10,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
 ```
 
-> **块形态**：实时流以 `start` + `delta` 增量块推送；`create` 后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
+> **块形态**：实时流以 `start` + `delta` 增量块推送；连接后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
 
-前端采用 **send/display 分离**：消息通过 WebSocket 直接发送，收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器。
+前端采用 **send/display 分离**：消息通过 REST API 发送，收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器。
 
 ## 运行示例
 
@@ -336,6 +347,20 @@ cd example/view
 pnpm install
 pnpm dev
 # → http://localhost:5173
+```
+
+### REST API
+
+示例应用还提供了 REST API 用于发送消息和停止生成：
+
+```bash
+# 发送消息
+POST /api/chat/sessions/:id/messages
+Content-Type: application/json
+{"message": "你好", "thinking": "low"}
+
+# 停止生成
+POST /api/chat/sessions/:id/stop
 ```
 
 ## 配置选项
@@ -360,8 +385,11 @@ config.ClientTimeout(300)   // 客户端空闲超时
 // HistoryStore 设置持久化（实现 MessageStore 接口）
 config.HistoryStore(myMessageStore)
 
-// Compressor 设置上下文压缩策略
+// Compressor 设置上下文压缩策略（可选）
 config.Compressor(myCompressor)
+
+// RegisterChat 注册 LLM 提供商（可注册多个，首个为默认）
+config.RegisterChat(anthropic.NewService("provider-id", baseUrl, apiKey, model))
 
 // CreateAgent 基于配置创建 Agent（内部启动后台超时清理循环）
 a := config.CreateAgent(context.Background())
