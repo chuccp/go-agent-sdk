@@ -174,9 +174,7 @@ func main() {
 ```go
 type Block interface {
     ForContext() bool       // 声明该块是否进入 LLM 上下文
-    GetStart() uint64       // 该块在事件流中的序号（供 relay 按 block 粒度去重）
-    SetStart(uint64)
-    GetType() BlockType
+    GetType() BlockType     // 块类型标识
 }
 
 // 具体类型（均嵌入 BaseBlock）
