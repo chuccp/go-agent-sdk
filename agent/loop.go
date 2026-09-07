@@ -62,8 +62,8 @@ func (b *LoopBuilder) Store(store *Store) *LoopBuilder {
 	b.loop.store = store
 	return b
 }
-func (b *LoopBuilder) Config(config ...*chat.Config) *LoopBuilder {
-	b.loop.config.Merge(config...)
+func (b *LoopBuilder) Config(config *chat.Config) *LoopBuilder {
+	b.loop.config = config
 	return b
 }
 func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {

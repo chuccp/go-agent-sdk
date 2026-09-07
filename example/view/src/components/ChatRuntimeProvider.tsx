@@ -16,7 +16,7 @@ import {
   setSkipNextStop,
   setLatestUsage,
 } from './WebSocketAdapter'
-import { getSessionEvents, sendMessage, stopGeneration, type ChatEvent } from '../api/chat'
+import { getSessionEvents, sendMessage, stopGeneration, setThinking, type ChatEvent } from '../api/chat'
 
 // ── 历史事件转换（与 WebSocket 实时流共用 block type 分发逻辑） ──
 
@@ -384,14 +384,22 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const [pendingQuestion, setPendingQuestion] = useState<AskUserQuestion[] | null>(null)
 
   // 思考等级
-  const [thinkingLevel, setThinkingLevel] = useState<string>('off')
+  const [thinkingLevel, setThinkingLevelState] = useState<string>('off')
   const thinkingRef = useRef(thinkingLevel)
   thinkingRef.current = thinkingLevel
+
+  const setThinkingLevel = useCallback((level: string) => {
+    setThinkingLevelState(level)
+    thinkingRef.current = level
+    setThinking(sessionIdRef.current, level).catch(err => {
+      console.error('[setThinkingLevel] failed:', err)
+    })
+  }, [])
 
   // ── sendDirect: 通过 REST API 发送消息到后端 ──
   const sendDirect = useCallback((text: string) => {
     console.log('[sendDirect] sending:', text.substring(0, 30))
-    sendMessage(sessionIdRef.current, text.trim(), thinkingRef.current).catch(err => {
+    sendMessage(sessionIdRef.current, text.trim()).catch(err => {
       console.error('[sendDirect] failed:', err)
     })
   }, [])

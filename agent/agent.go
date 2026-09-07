@@ -13,20 +13,23 @@ type Agent struct {
 	config   *Config
 }
 
-func (m *Agent) GetOrCreateSession(sessionId string) *Session {
+func (m *Agent) GetOrCreateSession(sessionId string, options ...Option) *Session {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	return m.getOrCreateSession(sessionId)
+	return m.getOrCreateSession(sessionId, options...)
 }
 
 // getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
-func (m *Agent) getOrCreateSession(sessionId string) *Session {
+func (m *Agent) getOrCreateSession(sessionId string, options ...Option) *Session {
 	if c, ok := m.sessions.Get(sessionId); ok {
 		return c
 	}
-	session := newSession(sessionId, m.config, m.sessions)
-	session.sessionTimeout = m.config.sessionTimeout
-	session.clientTimeout = m.config.clientTimeout
+	config := m.config.Copy()
+	for _, option := range options {
+		option(config)
+	}
+	session := newSession(sessionId, config, m.sessions)
+
 	m.sessions.Add(session)
 	return session
 }

@@ -98,6 +98,16 @@ func (r *Agent) HandleStop(id uint, message *entity.WsStopMessage) error {
 	return nil
 }
 
+func (r *Agent) HandleThinking(id uint, level string) error {
+	session, ok := r.agentManager.GetSession(cast.ToString(id))
+	if !ok {
+		return errors.New("session not found")
+	}
+	thinkingLevel := chat.ThinkingLevel(level)
+	session.UpdateChatOption(chat.WithThinking(thinkingLevel))
+	return nil
+}
+
 func (r *Agent) GetAgent() *agent.Agent {
 	return r.agentManager
 }

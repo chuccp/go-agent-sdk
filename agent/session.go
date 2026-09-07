@@ -77,6 +77,8 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		cancel:         cancel,
 		sessions:       sessions,
 		transfer:       transfer,
+		sessionTimeout: config.sessionTimeout,
+		clientTimeout:  config.clientTimeout,
 		lastTime:       util.GetSecondTime(),
 	}
 	s.loop = NewLoopBuilder(sessionContext).
@@ -85,6 +87,11 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		ToolExecutor(config.toolExecutors...).
 		Build()
 	return s
+}
+func (s *Session) UpdateChatOption(option ...chat.Option) {
+	for _, option := range option {
+		s.sessionContext.GetConfig().Option(option)
+	}
 }
 
 func (s *Session) checkTimeout() {

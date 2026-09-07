@@ -65,6 +65,9 @@ func (m *Config) SystemPrompt(systemPrompt string) {
 func (m *Config) Thinking(level ThinkingLevel) {
 	m.object.PutAny(string(ThinkingConfigKey), level)
 }
+func (m *Config) ID(id string) {
+	m.object.PutAny(string(IDConfigKey), id)
+}
 
 func (m *Config) GetID() string {
 	return m.object.GetString(string(IDConfigKey))

@@ -44,9 +44,10 @@ func (c *Chat) Init(ctx *core.Context) error {
 	ctx.Post("/api/chat/sessions", c.createSession)
 	ctx.Delete("/api/chat/sessions/:id", c.deleteSession)
 	ctx.Get("/api/chat/sessions/:id/messages", c.getSessionMessages)
-	// Chat actions（发送消息 / 停止生成）
+	// Chat actions（发送消息 / 停止生成 / 设置思考程度）
 	ctx.Post("/api/chat/sessions/:id/messages", c.sendMessage)
 	ctx.Post("/api/chat/sessions/:id/stop", c.stopGeneration)
+	ctx.Put("/api/chat/sessions/:id/thinking", c.setThinking)
 	ctx.WebSocket("/ws/chat/:id", c.HandleWebSocket)
 	log.Info("Chat REST routes registered (go-agent-sdk)", zap.String("ws", "/ws/chat/:id"))
 	return nil
@@ -111,8 +112,7 @@ func (c *Chat) sendMessage(request *web.Request) (any, error) {
 		return nil, err
 	}
 	msg := &entity.WsChatMessage{
-		Message:  jsonObj.GetString("message"),
-		Thinking: jsonObj.GetString("thinking"),
+		Message: jsonObj.GetString("message"),
 	}
 	if err := c.agent.HandleChat(id, msg); err != nil {
 		return nil, err
@@ -127,6 +127,23 @@ func (c *Chat) stopGeneration(request *web.Request) (any, error) {
 		return nil, err
 	}
 	return web.Ok("stopped"), nil
+}
+
+// setThinking 设置会话的思考程度。
+func (c *Chat) setThinking(request *web.Request) (any, error) {
+	id := request.ParamUint("id")
+	jsonObj, err := request.Json()
+	if err != nil {
+		return nil, err
+	}
+	level := jsonObj.GetString("level")
+	if level == "" {
+		level = "off"
+	}
+	if err := c.agent.HandleThinking(id, level); err != nil {
+		return nil, err
+	}
+	return web.Ok("thinking set to " + level), nil
 }
 
 // ── WebSocket handler ──────────────────────────────────────────────────
