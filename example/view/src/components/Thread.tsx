@@ -265,6 +265,7 @@ const segmentStyles: Record<string, React.CSSProperties> = {
     background: '#faf5ff', fontSize: 12.5, lineHeight: 1.6,
     color: '#8b5cf6', fontStyle: 'italic',
     maxHeight: 100, overflowY: 'auto',
+    transition: 'all 0.2s ease-in-out',
   },
   tool: {
     margin: '6px 0', padding: '6px 12px',
@@ -344,9 +345,9 @@ function AssistantMessage() {
               )
             )
           ) : (
-            <MessagePrimitive.Content
-              components={{ Text: () => <MarkdownTextPrimitive remarkPlugins={[remarkGfm]} /> }}
-            />
+            <div>
+              <Markdown remarkPlugins={[remarkGfm]}>{raw}</Markdown>
+            </div>
           )}
         </div>
       </div>
