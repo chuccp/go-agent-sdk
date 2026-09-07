@@ -283,7 +283,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     const connect = (start: number) => {
       if (!mounted || controller.signal.aborted) return
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}`)
+      const level = thinkingRef.current
+      const levelParam = level && level !== 'off' ? `&level=${level}` : ''
+      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}${levelParam}`)
 
       ws.onopen = () => {
         setupStreamBridge(ws!)
