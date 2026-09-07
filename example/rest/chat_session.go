@@ -10,6 +10,7 @@ import (
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/server"
 	"github.com/chuccp/go-agent-sdk/example/service"
+	"github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/web"
@@ -164,7 +165,12 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	if s := request.Query("start"); s != "" {
 		start, _ = strconv.ParseUint(s, 10, 64)
 	}
-	session := c.agent.GetAgent().GetOrCreateSession(strconv.Itoa(int(sessionId)))
+	options := make([]chat.Option, 0)
+	level := request.Query("level")
+	if util.IsNotBlank(level) {
+		options = append(options, chat.WithThinking(chat.ThinkingLevel(level)))
+	}
+	session := c.agent.GetAgent().GetOrCreateSession(strconv.Itoa(int(sessionId)), agent.WithChatOption(options...))
 	client := session.CreateClient(webSocket.Request().Ctx(), start)
 	defer client.Close()
 	for {
