@@ -60,6 +60,7 @@ func (l *Transfer) AgentStore() *Store {
 	defer l.mu.Unlock()
 	return l.defaultStore
 }
+
 // SubAgentStore 为子代理创建隔离的临时 Store：每次调用递增 no 并返回新实例，且不落历史。仅子代理使用。
 func (l *Transfer) SubAgentStore() *Store {
 	l.mu.Lock()
@@ -193,13 +194,13 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 	return events, nil
 }
-func (l *Transfer) GetChatClient(ctx context.Context, start uint64, handler handler) *Client {
+func (l *Transfer) GetChatClient(ctx context.Context, start uint64) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if start > l.getSeq() {
 		start = l.getSeq()
 	}
-	chatClient := NewClient(ctx, handler, start, l)
+	chatClient := NewClient(ctx, start, l)
 	l.chatClients.Append(chatClient)
 	return chatClient
 }

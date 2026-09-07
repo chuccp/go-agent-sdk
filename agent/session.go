@@ -57,6 +57,9 @@ func (s *Session) WriteBlocks(blocks ...chat.Block) {
 	s.lastTime = util.GetSecondTime()
 	s.loop.HandleMessage(blocks)
 }
+func (s *Session) WriteText(message string) {
+	s.WriteBlocks(chat.NewFullTextBlock(message))
+}
 
 func newSession(id string, config *Config, sessions *Sessions) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -109,7 +112,7 @@ func (s *Session) LoadMessagesAfter(since uint64) ([]*Event, error) {
 
 // CreateClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
 func (s *Session) CreateClient(ctx context.Context, start uint64) *Client {
-	client := s.transfer.GetChatClient(ctx, start, s)
+	client := s.transfer.GetChatClient(ctx, start)
 	client.clientTimeout = s.clientTimeout
 	return client
 }
