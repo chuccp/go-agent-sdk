@@ -51,3 +51,16 @@ export async function getSessionEvents(id: number, since?: number): Promise<Chat
   const qs = params.toString()
   return request<ChatEvent[]>(`/api/chat/sessions/${id}/messages${qs ? '?' + qs : ''}`)
 }
+
+export async function sendMessage(id: number, message: string, thinking?: string): Promise<void> {
+  const body: Record<string, string> = { message }
+  if (thinking && thinking !== 'off') body.thinking = thinking
+  await request<void>(`/api/chat/sessions/${id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function stopGeneration(id: number): Promise<void> {
+  await request<void>(`/api/chat/sessions/${id}/stop`, { method: 'POST' })
+}

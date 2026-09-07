@@ -3,6 +3,7 @@ package server
 import (
 	"sync"
 
+	"emperror.dev/errors"
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/api/chat/anthropic"
 	"github.com/chuccp/go-agent-sdk/example/entity"
@@ -78,13 +79,21 @@ func (r *Agent) History(id uint, since uint64) ([]*agent.Event, error) {
 	return session.LoadMessagesAfter(since)
 }
 
-func (r *Agent) HandleChat(chat *agent.Client, message *entity.WsChatMessage) error {
-	chat.WriteText(message.Message)
+func (r *Agent) HandleChat(id uint, message *entity.WsChatMessage) error {
+	session, ok := r.agentManager.GetSession(cast.ToString(id))
+	if !ok {
+		return errors.New("session not found")
+	}
+	session.WriteText(message.Message)
 	return nil
 }
 
-func (r *Agent) HandleStop(chat *agent.Client, message *entity.WsStopMessage) error {
-	chat.Stop()
+func (r *Agent) HandleStop(id uint, message *entity.WsStopMessage) error {
+	session, ok := r.agentManager.GetSession(cast.ToString(id))
+	if !ok {
+		return errors.New("session not found")
+	}
+	session.Stop()
 	return nil
 }
 

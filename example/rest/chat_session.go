@@ -10,11 +10,9 @@ import (
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/server"
 	"github.com/chuccp/go-agent-sdk/example/service"
-	sdkutil "github.com/chuccp/go-agent-sdk/util"
 	"github.com/chuccp/go-web-frame/core"
 	"github.com/chuccp/go-web-frame/log"
 	"github.com/chuccp/go-web-frame/web"
-	"github.com/coder/websocket"
 	"go.uber.org/zap"
 )
 
@@ -46,6 +44,9 @@ func (c *Chat) Init(ctx *core.Context) error {
 	ctx.Post("/api/chat/sessions", c.createSession)
 	ctx.Delete("/api/chat/sessions/:id", c.deleteSession)
 	ctx.Get("/api/chat/sessions/:id/messages", c.getSessionMessages)
+	// Chat actions（发送消息 / 停止生成）
+	ctx.Post("/api/chat/sessions/:id/messages", c.sendMessage)
+	ctx.Post("/api/chat/sessions/:id/stop", c.stopGeneration)
 	ctx.WebSocket("/ws/chat/:id", c.HandleWebSocket)
 	log.Info("Chat REST routes registered (go-agent-sdk)", zap.String("ws", "/ws/chat/:id"))
 	return nil
@@ -102,6 +103,32 @@ func (c *Chat) getSessionMessages(request *web.Request) (any, error) {
 	return web.Data(events), nil
 }
 
+// sendMessage 接收前端发送的聊天消息，转发给 agent 处理。
+func (c *Chat) sendMessage(request *web.Request) (any, error) {
+	id := request.ParamUint("id")
+	jsonObj, err := request.Json()
+	if err != nil {
+		return nil, err
+	}
+	msg := &entity.WsChatMessage{
+		Message:  jsonObj.GetString("message"),
+		Thinking: jsonObj.GetString("thinking"),
+	}
+	if err := c.agent.HandleChat(id, msg); err != nil {
+		return nil, err
+	}
+	return web.Ok("sent"), nil
+}
+
+// stopGeneration 请求停止当前会话的生成。
+func (c *Chat) stopGeneration(request *web.Request) (any, error) {
+	id := request.ParamUint("id")
+	if err := c.agent.HandleStop(id, &entity.WsStopMessage{}); err != nil {
+		return nil, err
+	}
+	return web.Ok("stopped"), nil
+}
+
 // ── WebSocket handler ──────────────────────────────────────────────────
 
 // HandleWebSocket is the entry point for web WebSocket connections.
@@ -122,61 +149,31 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 	}
 	session := c.agent.GetAgent().GetOrCreateSession(strconv.Itoa(int(sessionId)))
 	client := session.CreateClient(webSocket.Request().Ctx(), start)
-	sdkutil.Go(func() {
-		// 事件去重由 Transfer.readEvents（cl.start 递增）与 mergeMessages（block 级别
-		// 精确去重）保证。relay 这里不做 lastSeq 单调递增去重——那会跳过 message 里
-		// 排序后 start 小于已发事件的 block（如 MessageDeltaBlock）。
-		for {
-			events, err := client.ReadEvents()
-			if err != nil {
-				writeError(stream, err)
-				return
-			}
-			if events == nil {
-				log.Info("[RELAY] ReadEvent returned nil, exiting")
-				return
-			}
-			for _, event := range events {
-				if len(event.Blocks) == 0 {
-					continue
-				}
-				data, err := json.Marshal(event)
-				if err != nil {
-					writeError(stream, err)
-					continue
-				}
-				if err := stream.WriteText(stream.Context(), data); err != nil {
-					log.Debug("WebSocket write ended", zap.Error(err))
-					return
-				}
-			}
-
-		}
-	})
-
+	defer client.Close()
 	for {
-		messageType, message, err := stream.Read(stream.Context())
+		events, err := client.ReadEvents()
 		if err != nil {
-			log.Debug("WebSocket read ended", zap.Error(err))
+			writeError(stream, err)
 			break
 		}
-		switch messageType {
-		case websocket.MessageText:
-			msg, err := entity.ParseMessage(message)
-			if err != nil {
-				return err
-			}
-			switch m := msg.(type) {
-			case *entity.WsChatMessage:
-				client.WriteText(m.Message)
-			case *entity.WsStopMessage:
-				client.Stop()
-			}
-		case websocket.MessageBinary:
-
+		if events == nil {
+			log.Info("[RELAY] ReadEvent returned nil, exiting")
+			break
 		}
-
-		log.Debug("WebSocket read", zap.String("type", strconv.Itoa(int(messageType))), zap.Any("message", message))
+		for _, event := range events {
+			if len(event.Blocks) == 0 {
+				continue
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				writeError(stream, err)
+				continue
+			}
+			if err := stream.WriteText(stream.Context(), data); err != nil {
+				log.Debug("WebSocket write ended", zap.Error(err))
+				break
+			}
+		}
 	}
 	return nil
 }
@@ -184,44 +181,5 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 // writeError 向前端发送错误事件
 func writeError(stream *web.WebSocketStream, err error) {
 	data, _ := json.Marshal(agent.NewEvent(0, 0, chat.NewErrorBlock(err.Error())))
-	_ = stream.WriteText(context.Background(), data)
-}
-
-// blockTypeName 从 Block 推导类型名称，用于日志。
-func blockTypeName(b chat.Block) string {
-	switch b.(type) {
-	case *chat.TextBlock:
-		return "text"
-	case *chat.ThinkingBlock:
-		return "thinking"
-	case *chat.ToolUseBlock:
-		return "tool_use"
-	case *chat.ToolResultBlock:
-		return "tool_result"
-	case *chat.DoneBlock:
-		return "done"
-	case *chat.ErrorBlock:
-		return "error"
-	case *chat.MessageStartBlock:
-		return "message_start"
-	case *chat.MessageDeltaBlock:
-		return "message_delta"
-	case *chat.StartBlock:
-		return "start"
-	case *chat.DeltaBlock:
-		return "delta"
-	case *chat.UserBlock:
-		return "user"
-
-	case *chat.ImageBlock:
-		return "image"
-	default:
-		return "unknown"
-	}
-}
-
-// writeCreated 向前端发送会话就绪确认消息
-func writeCreated(stream *web.WebSocketStream, sessionId uint) {
-	data, _ := json.Marshal(entity.NewCreatedMessage(sessionId))
 	_ = stream.WriteText(context.Background(), data)
 }

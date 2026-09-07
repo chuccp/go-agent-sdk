@@ -16,7 +16,7 @@ import {
   setSkipNextStop,
   setLatestUsage,
 } from './WebSocketAdapter'
-import { getSessionEvents, type ChatEvent } from '../api/chat'
+import { getSessionEvents, sendMessage, stopGeneration, type ChatEvent } from '../api/chat'
 
 // ── 历史事件转换（与 WebSocket 实时流共用 block type 分发逻辑） ──
 
@@ -264,7 +264,6 @@ interface Props {
 }
 
 export function ChatRuntimeProvider({ children, sessionId }: Props) {
-  const wsRef = useRef<WebSocket | null>(null)
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
 
@@ -272,15 +271,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const [initialMessages, setInitialMessages] = useState<{ role: 'user' | 'assistant'; content: string }[] | null>(null)
   const startRef = useRef<number | null>(null)
 
-  // 会话就绪状态：收到服务端 created 回执后才允许发送聊天消息
-  const createdRef = useRef(false)
-  const pendingChatRef = useRef<string[]>([]) // 回执到达前暂存的聊天消息报文
-
   useEffect(() => {
     const controller = new AbortController()
     startRef.current = null
-    createdRef.current = false
-    pendingChatRef.current = []
     setPendingQuestion(null)
 
     let ws: WebSocket | null = null
@@ -291,27 +284,17 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       if (!mounted || controller.signal.aborted) return
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}`)
-      wsRef.current = ws
 
       ws.onopen = () => {
         setupStreamBridge(ws!)
         setStopCallback(() => {
-          if (ws!.readyState === WebSocket.OPEN) {
-            ws!.send(JSON.stringify({ type: 'stop' }))
-          }
+          stopGeneration(sessionId).catch(() => {})
         })
         setAskUserHandler(json => {
           try {
             setPendingQuestion(JSON.parse(json) as AskUserQuestion[])
           } catch { /* ignore parse errors */ }
         })
-        // 后端从 URL 参数创建 session，无需 create/created 握手，直接标记就绪
-        createdRef.current = true
-        // 补发 WS 未就绪期间暂存的消息
-        for (const payload of pendingChatRef.current) {
-          ws!.send(payload)
-        }
-        pendingChatRef.current = []
         triggerStream()
       }
 
@@ -405,25 +388,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const thinkingRef = useRef(thinkingLevel)
   thinkingRef.current = thinkingLevel
 
-  // ── sendDirect: 只负责把消息发给后端，不操作 UI ──
+  // ── sendDirect: 通过 REST API 发送消息到后端 ──
   const sendDirect = useCallback((text: string) => {
     console.log('[sendDirect] sending:', text.substring(0, 30))
-    const ws = wsRef.current
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.log('[sendDirect] WebSocket not open')
-      return
-    }
-
-    // 发送聊天消息：未收到 created 回执时暂存，由回执触发补发
-    const chatMsg: Record<string, string> = { type: 'chat', message: text.trim() }
-    const thinking = thinkingRef.current
-    if (thinking && thinking !== 'off') chatMsg.thinking = thinking
-    const payload = JSON.stringify(chatMsg)
-    if (createdRef.current) {
-      ws.send(payload)
-    } else {
-      pendingChatRef.current.push(payload)
-    }
+    sendMessage(sessionIdRef.current, text.trim(), thinkingRef.current).catch(err => {
+      console.error('[sendDirect] failed:', err)
+    })
   }, [])
 
   // ── submitAnswer: 提交 ask_user 回答：直发后端（绕过客户端队列，
