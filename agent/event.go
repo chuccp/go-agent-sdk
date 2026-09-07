@@ -83,6 +83,12 @@ func (l *Transfer) sendEvent(event *Event) {
 	l.flush()
 }
 
+func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
+	event := NewEvent(no, l.getAndAddSeq(), block)
+	l.sendEvent(event)
+	return event.Start
+}
+
 func (l *Transfer) getSeq() uint64 {
 	return l.seq.Load()
 }

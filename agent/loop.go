@@ -18,6 +18,9 @@ type LoopContext interface {
 	GetChat() *chat.Chat
 	SubAgentStore() *Store
 	AgentStore() *Store
+
+	SendBlock(no uint64, block chat.Block) uint64
+
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
 }
@@ -74,7 +77,7 @@ func (b *LoopBuilder) Build() *Loop {
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
-	start := l.store.SendBlock(block)
+	start := l.loopContext.SendBlock(l.store.no, block)
 	return start
 }
 

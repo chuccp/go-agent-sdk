@@ -21,7 +21,7 @@ func (s *Sessions) Remove(sessionId string) {
 }
 
 func (s *Sessions) ForEach(f func(session *Session) bool) {
-	s.sessions.Range(func(key, value interface{}) bool {
+	s.sessions.Range(func(key, value any) bool {
 		session := value.(*Session)
 		return f(session)
 	})

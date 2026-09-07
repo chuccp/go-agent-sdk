@@ -41,6 +41,9 @@ func (c *SessionContext) AgentStore() *Store {
 	return c.transfer.AgentStore()
 }
 
+func (c *SessionContext) SendBlock(no uint64, block chat.Block) uint64 {
+	return c.transfer.SendBlock(no, block)
+}
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
 	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	c.AgentStore().AppendHistory(userMsg)
