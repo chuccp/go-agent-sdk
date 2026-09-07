@@ -80,6 +80,13 @@ func (r *Agent) History(id uint, since uint64) ([]*agent.Event, error) {
 	return session.LoadMessagesAfter(since)
 }
 
+func (r *Agent) DeleteSession(id uint) {
+	session, ok := r.agentManager.GetSession(cast.ToString(id))
+	if ok {
+		session.Destroy()
+	}
+}
+
 func (r *Agent) HandleChat(id uint, message *entity.WsChatMessage) error {
 	session, ok := r.agentManager.GetSession(cast.ToString(id))
 	if !ok {

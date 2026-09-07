@@ -84,6 +84,7 @@ func (c *Chat) createSession(request *web.Request) (any, error) {
 // deleteSession deletes a session and all its messages.
 func (c *Chat) deleteSession(request *web.Request) (any, error) {
 	id := request.ParamUint("id")
+	c.agent.DeleteSession(id)
 	if err := c.chatSessionService.DeleteSession(request.Ctx(), id); err != nil {
 		return nil, err
 	}
