@@ -292,8 +292,8 @@ ws://localhost:19009/ws/chat/:id?start=0
 ### 客户端 → 服务端
 
 ```json
-// 发送消息（thinking 可选：off / low / medium / high）
-{"type": "chat", "message": "你好", "thinking": "low"}
+// 发送消息
+{"type": "chat", "message": "你好"}
 
 // 停止当前生成
 {"type": "stop"}
@@ -349,16 +349,21 @@ pnpm dev
 
 ### REST API
 
-示例应用还提供了 REST API 用于发送消息和停止生成：
+示例应用还提供了 REST API 用于发送消息、停止生成和设置思考程度：
 
 ```bash
 # 发送消息
 POST /api/chat/sessions/:id/messages
 Content-Type: application/json
-{"message": "你好", "thinking": "low"}
+{"message": "你好"}
 
 # 停止生成
 POST /api/chat/sessions/:id/stop
+
+# 设置思考程度（off / low / medium / high）
+PUT /api/chat/sessions/:id/thinking
+Content-Type: application/json
+{"level": "low"}
 ```
 
 ## 配置选项
