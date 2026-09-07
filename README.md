@@ -366,15 +366,13 @@ POST /api/chat/sessions/:id/stop
 ```go
 config := agent.NewConfig()
 
-// ChatOption 配置 LLM 请求参数
+// ChatOption 配置 LLM 请求参数（含系统提示词）
 config.ChatOption(
     chat.WithModel("claude-opus-4-7"),
     chat.WithMaxTokens(8192),
     chat.WithThinking(chat.ThinkingHigh),
+    chat.WithSystemPrompt("你是一个智能助手。"),
 )
-
-// SystemPrompt 设置全局系统提示词
-config.SystemPrompt("你是一个智能助手。")
 
 // 超时配置（秒）
 config.SessionTimeout(600)  // 会话空闲超时，到期自动销毁
