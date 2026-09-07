@@ -6,6 +6,7 @@ import (
 	"emperror.dev/errors"
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/api/chat/anthropic"
+	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/example/entity"
 	"github.com/chuccp/go-agent-sdk/example/flow"
 	"github.com/chuccp/go-agent-sdk/example/service"
@@ -48,7 +49,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
 	// agent.PromptProvider 机制自动拼进每轮 System），此处只留通用人设
-	config.SystemPrompt("你是一个智能助手。")
+	config.ChatOption(chat.WithSystemPrompt("你是一个智能助手。"))
 
 	for _, provider := range providers {
 		key := provider.Name + "_" + provider.Type + "_" + provider.Model

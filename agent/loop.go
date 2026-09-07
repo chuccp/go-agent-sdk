@@ -72,8 +72,8 @@ func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
 }
 
 func (b *LoopBuilder) Build() *Loop {
-	b.loop.systemPrompt = b.loop.composeSystem()
-	b.loop.config.SetSystemPrompt(b.loop.systemPrompt)
+	systemPrompt := b.loop.composeSystem()
+	b.loop.systemPrompt = systemPrompt
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
@@ -140,7 +140,6 @@ func (l *Loop) composeSystem() string {
 	return system
 }
 func (l *Loop) buildRequest() *chat.Messages {
-	effective := l.config
 	toolExecutors := l.toolExecutors
 	values, fa := l.inbox.ReadAll()
 	if fa {
@@ -164,6 +163,9 @@ func (l *Loop) buildRequest() *chat.Messages {
 	if len(history) == 0 && !fa {
 		return nil
 	}
+	effective := chat.DefaultConfig()
+	effective.SystemPrompt(l.systemPrompt)
+	effective.Thinking(l.config.GetThinking())
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, 0, len(history)),
 		Config:   effective,

@@ -59,9 +59,13 @@ func (m *Config) Set(key ConfigKey, value any) {
 func (m *Config) GetSystemPrompt() string {
 	return m.object.GetString(string(SystemPromptConfigKey))
 }
-func (m *Config) SetSystemPrompt(systemPrompt string) {
+func (m *Config) SystemPrompt(systemPrompt string) {
 	m.object.PutAny(string(SystemPromptConfigKey), systemPrompt)
 }
+func (m *Config) Thinking(level ThinkingLevel) {
+	m.object.PutAny(string(ThinkingConfigKey), level)
+}
+
 func (m *Config) GetID() string {
 	return m.object.GetString(string(IDConfigKey))
 }
@@ -74,9 +78,12 @@ func (m *Config) GetMaxTokens() int {
 func (m *Config) GetThinking() ThinkingLevel {
 	return ThinkingLevel(m.object.GetString(string(ThinkingConfigKey)))
 }
-func Combine(Configs ...*Config) *Config {
+func Combine(configs ...*Config) *Config {
 	config := DefaultConfig()
-	for _, cfg := range Configs {
+	if configs == nil {
+		return config
+	}
+	for _, cfg := range configs {
 		config.Merge(cfg)
 	}
 	return config

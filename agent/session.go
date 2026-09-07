@@ -68,7 +68,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		Context:   ctx,
 		sessionId: id,
 		chat:      config.chat,
-		opts:      config.config,
+		opts:      config.chatConfig,
 		transfer:  transfer,
 	}
 	s := &Session{
@@ -80,7 +80,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		lastTime:       util.GetSecondTime(),
 	}
 	s.loop = NewLoopBuilder(sessionContext).
-		Config(config.config).
+		Config(config.chatConfig).
 		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
 		Build()

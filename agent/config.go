@@ -19,19 +19,32 @@ type Config struct {
 	lock           *sync.RWMutex
 	chat           *chat.Chat
 	toolExecutors  []ToolExecutor
-	systemPrompt   string
-	config         *chat.Config
+	chatConfig     *chat.Config
 	historyStore   MessageStore
 	compressor     Compressor
 	sessionTimeout uint
 	clientTimeout  uint
 }
 
+type Option func(*Config)
+
+func WithToolExecutor(toolExecutors ...ToolExecutor) Option {
+	return func(o *Config) {
+		o.AddTools(toolExecutors...)
+	}
+}
+
+func WithChatOption(opt ...chat.Option) Option {
+	return func(o *Config) {
+		o.ChatOption(opt...)
+	}
+}
+
 func (m *Config) ChatOption(opt ...chat.Option) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	for _, o := range opt {
-		o(m.config)
+		o(m.chatConfig)
 	}
 }
 func (m *Config) AddTools(exec ...ToolExecutor) {
@@ -52,13 +65,6 @@ func (m *Config) ClientTimeout(clientTimeout uint) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.clientTimeout = clientTimeout
-}
-
-// SystemPrompt 设置全局系统提示词，对之后新建的会话生效。
-func (m *Config) SystemPrompt(systemPrompt string) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.systemPrompt = systemPrompt
 }
 
 // HistoryStore 设置聊天记录持久化实现。
@@ -89,16 +95,12 @@ func (m *Config) RegisterChat(chatService chat.Service) {
 func (m *Config) Copy() *Config {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
-	config := m.config
-	if config != nil {
-		config = chat.Combine(config)
-	}
+	chatConfig := chat.Combine(m.chatConfig)
 	return &Config{
 		lock:           new(sync.RWMutex),
 		chat:           m.chat,
-		toolExecutors:  append([]ToolExecutor(nil), m.toolExecutors...),
-		systemPrompt:   m.systemPrompt,
-		config:         config,
+		toolExecutors:  append([]ToolExecutor{}, m.toolExecutors...),
+		chatConfig:     chatConfig,
 		historyStore:   m.historyStore,
 		compressor:     m.compressor,
 		sessionTimeout: m.sessionTimeout,
@@ -120,8 +122,7 @@ func NewConfig() *Config {
 	return &Config{
 		lock:           new(sync.RWMutex),
 		toolExecutors:  make([]ToolExecutor, 0),
-		systemPrompt:   "",
-		config:         chat.DefaultConfig(),
+		chatConfig:     chat.DefaultConfig(),
 		historyStore:   nil,
 		compressor:     nil,
 		chat:           chat.NewChat(),

@@ -10,7 +10,7 @@ import (
 func TestNewRequest_SystemAndToolsCacheControl(t *testing.T) {
 	config := chat.DefaultConfig()
 	config.Set(chat.ModelConfigKey, "claude-sonnet-4-6")
-	config.SetSystemPrompt("你是一个助手")
+	config.SystemPrompt("你是一个助手")
 
 	messages := &chat.Messages{
 		Messages: []chat.Message{chat.NewTextMessage("hi")},
