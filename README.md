@@ -23,21 +23,41 @@
 │  ├── ToolExecutors (工具注册)                                   │
 │  └── Sessions map[id] → Session                               │
 │                  └── Session                                   │
-│                       ├── SessionContext (状态中心)              │
+│                       ├── SessionContext (状态中心, 实现 LoopContext)
 │                       │    ├── Loop (会话编排器, runLock 保护)   │
 │                       │    │    ├── inbox (消息队列)            │
 │                       │    │    ├── HandleMessage (入队+启动)    │
 │                       │    │    └── do → loop → chatWithStream  │
 │                       │    │         ├── executeTools           │
 │                       │    │         └── appendMessage          │
-│                       │    └── Transfer (事件中转层)             │
+│                       │    └── Transfer (事件中转层, 负责事件发送)
 │                       │         ├── entries (活跃事件缓冲区)     │
 │                       │         ├── chatClients (订阅列表)       │
+│                       │         ├── SendBlock (事件发送入口)     │
 │                       │         └── Store (消息存储)             │
 │                       ├── checkTimeout (会话超时守护)            │
 │                       └── Client[] (轻量订阅句柄)                │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+### LoopContext 接口
+
+`LoopContext` 是会话生命周期的核心接口，由 `SessionContext` 实现，提供会话状态访问和事件发送能力：
+
+```go
+type LoopContext interface {
+    context.Context
+    SessionId() string
+    GetChat() *chat.Chat
+    SubAgentStore() *Store
+    AgentStore() *Store
+    SendBlock(no uint64, block chat.Block) uint64  // 发送事件块
+    AppendMainAssistantMessage(blocks *chat.BlockGroup)
+    AppendMainUserMessage(blocks *chat.BlockGroup)
+}
+```
+
+`SendBlock` 是事件发送的统一入口，通过 `Transfer` 实现，将事件分发给所有订阅的客户端。
 
 ## 包结构
 
@@ -104,8 +124,8 @@ func main() {
 	session := a.GetOrCreateSession("session-1")
 	client := session.CreateClient(context.Background(), 0)
 
-	// 8. 发送消息
-	client.WriteText("你好，帮我查看当前目录")
+	// 8. 发送消息（Session 负责发送，Client 仅负责接收事件流）
+	session.WriteText("你好，帮我查看当前目录")
 
 	// 9. 读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
 	for {
@@ -133,6 +153,16 @@ func main() {
 ```
 
 ## 核心概念
+
+### Session 与 LoopContext
+
+`Session` 是会话的容器，包含 `SessionContext`（实现 `LoopContext` 接口）和多个 `Client`。`LoopContext` 提供：
+
+- **会话状态访问** — `GetChat()`, `AgentStore()`, `SubAgentStore()`
+- **事件发送** — `SendBlock(no, block)` 通过 `Transfer` 分发事件
+- **历史管理** — `AppendMainAssistantMessage()`, `AppendMainUserMessage()`
+
+`Loop` 通过 `LoopContext` 与会话交互，不直接持有 `Transfer` 或 `Store`，实现了关注点分离。
 
 ### Block（内容块）
 
@@ -183,6 +213,8 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 ### 事件流与断线续传
 
 每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start` 即可从活跃事件缓冲区（`entries`）增量续读。事件按 **Start 升序** 返回。
+
+事件发送通过 `Transfer.SendBlock` 统一处理，`Loop.SendBlock` 和 `SessionContext.SendBlock` 均委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
 
 `doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，旧事件被裁掉（`reset`），待保存历史迁入持久层（`save`）。`start` 早于缓冲区头部时自动钳制；服务重启后从历史恢复 `seq`，新事件无缝接续。
 
