@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -74,7 +73,6 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 		}
 
 		events, err := c.readEvents.readEvents(c)
-		log.Debug("[client] readEvents", "count", len(events), "start", c.start, "error", err)
 		if err != nil {
 			return nil, err
 		}
