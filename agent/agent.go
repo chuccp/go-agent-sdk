@@ -104,17 +104,13 @@ type Done struct {
 
 func (d *Done) Done(f func()) {
 	d.f = f
-	if d.do != nil {
-		d.do()
-	}
+	d.do()
 }
 
 func (l *Agent) HandleDoneMessage(blocks chat.Blocks) *Done {
 	done := &Done{}
 	l.done = func() {
-		if done.f != nil {
-			done.f()
-		}
+		done.f()
 	}
 	done.do = func() {
 		l.HandleMessage(blocks)
