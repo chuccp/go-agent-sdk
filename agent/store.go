@@ -120,6 +120,9 @@ func (s *Store) History() []*chat.Message {
 func (s *Store) LoadAllHistory() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.messageStore == nil {
+		return nil
+	}
 	err := s.loadSummary()
 	if err != nil {
 		return err

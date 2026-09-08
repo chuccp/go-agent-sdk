@@ -344,7 +344,7 @@ func TestReadEvents_ToolResultBlockNotReEmitted(t *testing.T) {
 // TestMergeToolsBlockGroup_MinMax 验证 mergeToolsBlockGroup 用最小 Start / 最大 End
 // 计算合并区间，不依赖 blockGroups 的顺序（并发执行时完成顺序 ≠ seq 顺序）。
 func TestMergeToolsBlockGroup_MinMax(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 
 	// 串行（有序连续）场景：两个 blockGroup 顺序排列且区间相邻
 	ordered := []*chat.BlockGroup{
@@ -395,4 +395,3 @@ func TestGetChatClient_RestartWithLargeStart(t *testing.T) {
 		t.Fatalf("client.start = %d, want %d", cl.start, frontendStart)
 	}
 }
-

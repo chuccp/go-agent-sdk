@@ -18,12 +18,12 @@ type ToolExecutor interface {
 
 // Turn 一次工具执行的载体。
 type Turn struct {
-	ctx  LoopContext
+	ctx  Context
 	args *value.Object
 }
 
 // Context 返回本次执行所属的会话上下文。
-func (t *Turn) Context() LoopContext { return t.ctx }
+func (t *Turn) Context() Context { return t.ctx }
 
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *value.Object { return t.args }
@@ -34,7 +34,7 @@ func NewTurn(args *value.Object) *Turn {
 }
 
 // NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
-func NewTurnWithContext(ctx LoopContext, args *value.Object) *Turn {
+func NewTurnWithContext(ctx Context, args *value.Object) *Turn {
 	return &Turn{ctx: ctx, args: args}
 }
 

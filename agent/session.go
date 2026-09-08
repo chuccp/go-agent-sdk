@@ -44,7 +44,7 @@ func NewSessions() *Sessions {
 // 消息处理与主循环编排委托给 processor（messageProcessor）。
 type Session struct {
 	sessionContext *SessionContext
-	loop           *Loop
+	agent          *Agent
 	ctx            context.Context
 	cancel         context.CancelFunc
 	transfer       *Transfer
@@ -52,12 +52,30 @@ type Session struct {
 	clientTimeout  uint
 	sessions       *Sessions
 	lastTime       int64
+	chatConfig     *chat.Config
 }
 
 func (s *Session) WriteBlocks(blocks ...chat.Block) {
 	s.lastTime = util.GetSecondTime()
-	s.loop.HandleMessage(blocks)
+	s.agent.HandleMessage(blocks)
 }
+
+func (s *Session) GetAgent() *Agent {
+	return s.agent
+}
+
+func (s *Session) GetSubAgent(systemPrompt string, toolExecutors ...ToolExecutor) *Agent {
+	config := chat.DefaultConfig()
+	config.Merge(s.chatConfig)
+	config.SystemPrompt(systemPrompt)
+	agent := NewBuilder(s.sessionContext).
+		Config(config).
+		Store(s.transfer.AgentStore()).
+		ToolExecutor(toolExecutors...).
+		Build()
+	return agent
+}
+
 func (s *Session) WriteText(message string) {
 	s.WriteBlocks(chat.NewFullTextBlock(message))
 }
@@ -73,6 +91,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		transfer:  transfer,
 	}
 	s := &Session{
+		chatConfig:     config.chatConfig,
 		sessionContext: sessionContext,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -82,7 +101,7 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		clientTimeout:  config.clientTimeout,
 		lastTime:       util.GetSecondTime(),
 	}
-	s.loop = NewLoopBuilder(sessionContext).
+	s.agent = NewBuilder(sessionContext).
 		Config(config.chatConfig).
 		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
@@ -128,7 +147,7 @@ func (s *Session) CreateClient(ctx context.Context, start uint64) *Client {
 
 // Stop 停止当前轮次（只对单轮生效），后续用户消息不受影响。
 func (s *Session) Stop() {
-	s.loop.Stop()
+	s.agent.Stop()
 }
 
 // Destroy 销毁Session

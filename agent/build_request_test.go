@@ -11,7 +11,7 @@ import (
 // 当 tool_use 所在消息被过滤为空（跳过），但 tool_result 消息被保留时，
 // 会导致 Anthropic API 400（tool_result 没有配对的 tool_use）。
 func TestBuildRequest_ToolUseSkippedOrphansToolResult(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 
 	// 模拟历史：assistant 消息含 tool_use，user 消息含 tool_result
 	tu := chat.NewToolUseBlock("call_00_test", "execute_command")
@@ -81,7 +81,7 @@ func TestBuildRequest_ToolUseSkippedOrphansToolResult(t *testing.T) {
 
 // 测试当 tool_result 的内容全被过滤时，占位文本能保证消息不被跳过。
 func TestBuildRequest_ToolResultWithAllFilteredContent(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 
 	// assistant 消息：含 tool_use
 	tu := chat.NewToolUseBlock("call_01_test", "render_card")
@@ -137,7 +137,7 @@ func TestBuildRequest_ToolResultWithAllFilteredContent(t *testing.T) {
 
 // 测试多轮 tool_use/tool_result 配对完整性。
 func TestBuildRequest_MultipleToolUsePairs(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 
 	// 第一轮：tool_use + tool_result
 	tu1 := chat.NewToolUseBlock("call_aaa", "search")

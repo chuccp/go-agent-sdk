@@ -22,7 +22,7 @@ import (
 type Agent struct {
 	core.IRunner
 	ctx                *core.Context
-	agentManager       *agent.Agent
+	agentManager       *agent.Server
 	lock               sync.RWMutex
 	chatSessionService *service.ChatSessionService
 	storeFlow          *flow.StoreFlow
@@ -115,6 +115,6 @@ func (r *Agent) HandleThinking(id uint, level string) error {
 	return nil
 }
 
-func (r *Agent) GetAgent() *agent.Agent {
+func (r *Agent) GetAgent() *agent.Server {
 	return r.agentManager
 }

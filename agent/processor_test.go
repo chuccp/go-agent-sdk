@@ -124,8 +124,8 @@ func (t *echoTool) Execute(turn *agent.Turn, w *chat.ToolResultBlockStream) {
 
 // ── Helpers ──
 
-// newTestSession 创建 Agent 并返回 session + client，简化测试代码。
-func newTestSession(t *testing.T, manager *agent.Agent, sessionId string) (*agent.Session, *agent.Client) {
+// newTestSession 创建 Server 并返回 session + client，简化测试代码。
+func newTestSession(t *testing.T, manager *agent.Server, sessionId string) (*agent.Session, *agent.Client) {
 	t.Helper()
 	session := manager.GetOrCreateSession(sessionId)
 	client := session.CreateClient(context.Background(), 0)
@@ -517,7 +517,7 @@ func TestSession_Destroy(t *testing.T) {
 	}
 }
 
-// TestSession_RemoveSession 验证 Agent.RemoveSession 正确销毁会话。
+// TestSession_RemoveSession 验证 Server.RemoveSession 正确销毁会话。
 func TestSession_RemoveSession(t *testing.T) {
 	config := agent.NewConfig()
 	config.RegisterChat(&singleResponseProvider{

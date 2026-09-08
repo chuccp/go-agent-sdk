@@ -2,86 +2,434 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
+	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/log"
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
-// Agent agent管理器
+type Context interface {
+	context.Context
+	SessionId() string
+	GetChat() *chat.Chat
+	SubAgentStore() *Store
+	AgentStore() *Store
+
+	SendBlock(no uint64, block chat.Block) uint64
+	SendSignalBlock(no uint64, block chat.Block) uint64
+	GetTransferStart() uint64
+
+	AppendMainAssistantMessage(blocks *chat.BlockGroup)
+	AppendMainUserMessage(blocks *chat.BlockGroup)
+}
+
 type Agent struct {
-	sessions *Sessions
-	lock     sync.RWMutex
-	config   *Config
+	inbox         *util.SliceQueue[*chat.UserBlock]
+	agentContext  Context
+	service       chat.Service
+	running       bool
+	pContext      context.Context
+	pCancel       context.CancelFunc
+	runLock       sync.Mutex
+	store         *Store
+	lContext      context.Context
+	lCancel       context.CancelFunc
+	ctxLock       sync.Mutex
+	mid           atomic.Uint64
+	toolExecutors []ToolExecutor
+	config        *chat.Config
+	systemPrompt  string
 }
 
-func (m *Agent) GetOrCreateSession(sessionId string, options ...Option) *Session {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	return m.getOrCreateSession(sessionId, options...)
+type Builder struct {
+	agent *Agent
 }
 
-// getOrCreateSession 获取或创建会话（内部方法，调用前需持有 m.lock）。
-func (m *Agent) getOrCreateSession(sessionId string, options ...Option) *Session {
-	if c, ok := m.sessions.Get(sessionId); ok {
-		return c
+func NewBuilder(agentContext Context) *Builder {
+	pContext, plCancel := context.WithCancel(agentContext)
+	return &Builder{agent: &Agent{
+		agentContext:  agentContext,
+		toolExecutors: make([]ToolExecutor, 0),
+		inbox:         new(util.SliceQueue[*chat.UserBlock]),
+		pContext:      pContext,
+		pCancel:       plCancel,
+		config:        chat.DefaultConfig(),
+	}}
+}
+func (b *Builder) Store(store *Store) *Builder {
+	b.agent.store = store
+	return b
+}
+func (b *Builder) Config(config *chat.Config) *Builder {
+	b.agent.config = config
+	return b
+}
+func (b *Builder) ToolExecutor(toolExecutor ...ToolExecutor) *Builder {
+	b.agent.toolExecutors = append(b.agent.toolExecutors, toolExecutor...)
+	return b
+}
+
+func (b *Builder) Build() *Agent {
+	systemPrompt := b.agent.composeSystem()
+	b.agent.systemPrompt = systemPrompt
+	b.agent.mid.Store(uint64(util.GetMilliTime()))
+	return b.agent
+}
+func (l *Agent) SendBlock(block chat.Block) uint64 {
+	start := l.agentContext.SendBlock(l.store.no, block)
+	//log.Debug("[loop] SendBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
+	return start
+}
+
+func (l *Agent) SendSignalBlock(block chat.Block) uint64 {
+	start := l.agentContext.SendSignalBlock(l.store.no, block)
+	//log.Debug("[loop] SendSignalBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
+	return start
+}
+
+func (l *Agent) getMid() uint64 {
+	return l.mid.Add(1)
+}
+
+func (l *Agent) HandleMessage(blocks chat.Blocks) {
+	l.runLock.Lock()
+	defer l.runLock.Unlock()
+	if !l.running {
+		l.running = true
+		log.Info("[loop] round started", "session", l.agentContext.SessionId())
+		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Sent)
+		l.SendSignalBlock(qm)
+		l.inbox.Write(qm)
+		util.GoWithRecover(func() {
+			l.runLock.Lock()
+			defer func() {
+				doneBlock := chat.NewDoneBlock()
+				doneStart := l.SendBlock(doneBlock)
+				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
+				l.store.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
+				l.store.RecordDone(doneStart)
+				l.running = false
+				l.inbox.Reset()
+				log.Info("[loop] round done", "session", l.agentContext.SessionId())
+				l.runLock.Unlock()
+			}()
+			err := l.store.LoadAllHistory()
+			if err != nil {
+				log.Error("[loop] LoadAllHistory failed", "session", l.agentContext.SessionId(), "error", err)
+				l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+				return
+			}
+			log.Debug("[loop] LoadAllHistory done", "session", l.agentContext.SessionId(), "historyLen", l.store.HistoryLen(), "transferStart", l.agentContext.GetTransferStart())
+			l.do()
+		}, func(r any) {
+			log.Error("[loop] panic recovered", "session", l.agentContext.SessionId(), "panic", r)
+			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
+			l.SendSignalBlock(evt)
+		})
+	} else {
+		log.Debug("[loop] message queued", "session", l.agentContext.SessionId())
+		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Queued)
+		l.SendSignalBlock(qm)
+		l.inbox.Write(qm)
 	}
-	config := m.config.Copy()
-	for _, option := range options {
-		option(config)
+}
+func (l *Agent) composeSystem() string {
+	effective := l.config
+	toolExecutors := l.toolExecutors
+	system := effective.GetSystemPrompt()
+	var prompts []string
+	for _, exec := range toolExecutors {
+		if p := exec.UsagePrompt(); p != "" {
+			prompts = append(prompts, p)
+		}
 	}
-	session := newSession(sessionId, config, m.sessions)
-
-	m.sessions.Add(session)
-	log.Info("[session] created", "id", sessionId)
-	return session
-}
-
-func (m *Agent) GetSession(sessionId string) (*Session, bool) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	s, ok := m.sessions.Get(sessionId)
-	return s, ok
-}
-
-// SessionContext 获取或创建指定会话的 SessionContext。
-// 用于需要直接访问会话上下文的场景（如工具测试、自定义工具实现）。
-func (m *Agent) SessionContext(sessionId string) *SessionContext {
-	m.lock.Lock()
-	session := m.getOrCreateSession(sessionId)
-	m.lock.Unlock()
-	return session.sessionContext
-}
-
-// RemoveSession 关闭并移除指定会话。若会话不存在则无操作。
-func (m *Agent) RemoveSession(sessionsId string) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	s, ok := m.sessions.Get(sessionsId)
-	if ok {
-		s.Destroy()
-		log.Info("[session] removed", "id", sessionsId)
+	if len(prompts) > 0 {
+		if system != "" {
+			system += "\n\n"
+		}
+		system += strings.Join(prompts, "\n\n")
 	}
+	return system
 }
+func (l *Agent) buildRequest() *chat.Messages {
+	toolExecutors := l.toolExecutors
+	values, fa := l.inbox.ReadAll()
+	if fa {
+		firstStart := uint64(0)
+		var blocks chat.Blocks
+		for _, qm := range values {
+			userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
+			start := l.SendBlock(userBlock)
+			if firstStart == 0 {
+				firstStart = start
+			}
+			blocks = append(blocks, userBlock)
+		}
+		offset := uint64(len(values))
+		if offset > 0 && firstStart > 0 {
+			l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
+		}
+	}
+	// 注入历史上下文
+	history := l.store.History()
+	if len(history) == 0 && !fa {
+		return nil
+	}
+	effective := chat.DefaultConfig()
+	effective.SystemPrompt(l.systemPrompt)
+	effective.Thinking(l.config.GetThinking())
+	messages := &chat.Messages{
+		Messages: make([]chat.Message, 0, len(history)),
+		Config:   effective,
+	}
+	for _, m := range slices.Backward(history) {
 
-// run 启动后台清理循环：周期性遍历会话，销毁空闲超时的会话。
-// 该方法会阻塞，通常放在独立 goroutine 中运行；ctx 取消时退出。
-func (m *Agent) run(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
+		msg := *m
+		msg.Content = l.blocksForContext(m.Content)
+		if len(msg.Content) == 0 {
+			continue
+		}
+		messages.Messages = append(messages.Messages, msg)
+	}
+	// 翻转（倒序收集的）
+	slices.Reverse(messages.Messages)
+	if len(toolExecutors) > 0 {
+		tools := make([]chat.ToolFunction, 0, len(toolExecutors))
+		for _, exec := range toolExecutors {
+			tools = append(tools, *exec.Definition())
+		}
+		messages.Tools = tools
+	}
+
+	return messages
+}
+func (l *Agent) loop() bool {
+	l.runLock.Unlock()
+	defer l.runLock.Lock()
+	l.ctxLock.Lock()
+	if l.lCancel != nil {
+		l.lCancel()
+	}
+	l.lContext, l.lCancel = context.WithCancel(l.pContext)
+	l.ctxLock.Unlock()
+
+	blockGroup, stopReason, err := l.chatWithStream()
+
+	if err != nil {
+		log.Error("[loop] chatWithStream failed", "session", l.agentContext.SessionId(), "error", err)
+		l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+		return true
+	}
+	if l.roundStopped() {
+		return true
+	}
+	l.appendAssistantMessage(blockGroup)
+	if stopReason == chat.StopReasonToolUse {
+
+		results, toolStop := l.executeTools(blockGroup)
+		l.appendUserMessage(results)
+
+		if l.roundStopped() {
+			return true
+		}
+		if toolStop == chat.StopReasonUserWait {
+			return true
+		}
+		return false
+	}
+	return true
+
+}
+func (l *Agent) do() {
 	for {
 		select {
-		case <-ctx.Done():
-			m.sessions.ForEach(func(session *Session) bool {
-				session.Destroy()
-				return true
-			})
+		case <-l.pContext.Done():
 			return
-		case <-ticker.C:
-			m.sessions.ForEach(func(session *Session) bool {
-				session.checkTimeout()
-				return true
-			})
+		default:
 		}
+		if l.loop() && l.inbox.IsEmpty() {
+			return
+		}
+	}
+}
+func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
+
+	var blockGroups []*chat.BlockGroup
+	var results chat.Blocks
+	stopReason := chat.StopReason("")
+	for _, block := range inputBlockGroup.Content {
+		tu, ok := block.(*chat.ToolUseBlock)
+		if !ok {
+			continue
+		}
+		if l.roundStopped() {
+			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, "（该工具的执行已被用户停止）")
+			results = append(results, chat.NewToolResultBlock(
+				tu.ID,
+				chat.Blocks{toolsErrorBlock},
+			))
+			blockGroup := l.SendSingleBlock(toolsErrorBlock)
+			blockGroups = append(blockGroups, blockGroup)
+			continue
+		}
+
+		exec := l.findExecutor(tu.Name)
+		if exec == nil {
+			log.Warn("[loop] unknown tool", "session", l.agentContext.SessionId(), "tool", tu.Name)
+			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("未知工具: %s", tu.Name))
+			results = append(results, chat.NewToolResultBlock(
+				tu.ID,
+				chat.Blocks{toolsErrorBlock},
+			))
+			blockGroup := l.SendSingleBlock(toolsErrorBlock)
+			blockGroups = append(blockGroups, blockGroup)
+			continue
+		}
+		log.Info("[loop] tool executing", "session", l.agentContext.SessionId(), "tool", tu.Name)
+		blockGroup, toolStop := l.runTool(tu, exec)
+		blockGroups = append(blockGroups, blockGroup)
+		results = append(results, chat.NewToolResultBlock(tu.ID, blockGroup.Content))
+		if toolStop == chat.StopReasonUserWait {
+			stopReason = chat.StopReasonUserWait
+		}
+	}
+	return l.mergeToolsBlockGroup(blockGroups, results), stopReason
+}
+func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
+	minStart := blockGroups[0].Start
+	maxEnd := blockGroups[0].Start + blockGroups[0].Offset
+	for _, bg := range blockGroups[1:] {
+		if bg.Start < minStart {
+			minStart = bg.Start
+		}
+		if end := bg.Start + bg.Offset; end > maxEnd {
+			maxEnd = end
+		}
+	}
+	return &chat.BlockGroup{Start: minStart, Offset: maxEnd - minStart, Content: results}
+}
+
+func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
+	start := l.SendBlock(block)
+	return &chat.BlockGroup{
+		Start:  start,
+		Offset: 1,
+		Content: chat.Blocks{
+			block,
+		},
+	}
+}
+
+func (l *Agent) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (*chat.BlockGroup, chat.StopReason) {
+
+	turn := &Turn{ctx: l.agentContext, args: tu.Input}
+
+	writer := chat.NewBlockStream(l)
+	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
+	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
+	writer.StopReason(chat.StopReasonToolResult)
+	exec.Execute(turn, chat.NewToolResultBlockStream(writer, tu.ID))
+	return writer.ReadBlockGroup(), writer.GetStopReason()
+}
+
+// findExecutor 按名称查找已注册的工具执行器。
+func (l *Agent) findExecutor(name string) ToolExecutor {
+	toolExecutors := l.toolExecutors
+	for _, exec := range toolExecutors {
+		if exec.Name() == name {
+			return exec
+		}
+	}
+	return nil
+}
+
+// appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
+func (l *Agent) appendAssistantMessage(blocks *chat.BlockGroup) {
+	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
+	l.store.AppendHistory(assistantMsg)
+}
+func (l *Agent) appendUserMessage(blocks *chat.BlockGroup) {
+	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
+	l.store.AppendHistory(assistantMsg)
+}
+
+func (l *Agent) roundStopped() bool {
+	select {
+	case <-l.lContext.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// blocksForContext 过滤出可进入 LLM 上下文的块。
+//
+// ToolResultBlock 本身 ForContext()==true，但它的 Content 里可能嵌着
+// ForContext()==false 的子块（如 CustomTextBlock 承载的资源卡片 JSON）。
+// 只判顶层会把这些子块原样带进请求体，既浪费 token，也会因为
+// Anthropic 的 tool_result.content 只接受 text/image 而报 400。
+// 所以这里对 ToolResultBlock 下钻一层，按子块的 ForContext() 再过滤一次。
+func (l *Agent) blocksForContext(blocks chat.Blocks) chat.Blocks {
+	result := make(chat.Blocks, 0, len(blocks))
+	for _, b := range blocks {
+		// UserBlock 是事件流包装器，LLM 需要的是里面的 Content（TextBlock 等）
+		if ub, ok := b.(*chat.UserBlock); ok {
+			result = append(result, l.blocksForContext(ub.Content)...)
+			continue
+		}
+		if tr, ok := b.(*chat.ToolResultBlock); ok {
+			result = append(result, l.toolResultForContext(tr))
+			continue
+		}
+		if b.ForContext() {
+			result = append(result, b)
+		}
+	}
+	return result
+}
+
+// toolResultForContext 返回 tr 的浅拷贝，Content 只保留 ForContext()==true 的子块。
+//
+// 必须拷贝而非原地修改：history 里存的是同一批指针，原地改会同时毁掉
+// 落库内容和断线重连时的回放数据（前端靠回放里的 CustomTextBlock 重建卡片）。
+func (l *Agent) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultBlock {
+	kept := make(chat.Blocks, 0, len(tr.Content))
+	for _, c := range tr.Content {
+		if c.ForContext() {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == len(tr.Content) {
+		return tr // 没有需要剔除的子块，避免无谓拷贝
+	}
+	// 全被剔除时补一句占位：Anthropic 要求每个 tool_use 都有配对且非空的
+	// tool_result，留空会导致整条消息被 buildRequest 跳过、进而 400。
+	if len(kept) == 0 {
+		kept = append(kept, chat.NewFullTextBlock("(结果已输出到前端)"))
+	}
+	cp := *tr
+	cp.Content = kept
+	return &cp
+}
+func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
+	stream := chat.NewBlockStream(l)
+	err := l.agentContext.GetChat().ChatWithStream(l.lContext, l.buildRequest(), stream)
+	if err != nil {
+		return nil, "", err
+	}
+	return stream.ReadBlockGroup(), stream.GetStopReason(), nil
+}
+
+func (l *Agent) Stop() {
+	l.ctxLock.Lock()
+	defer l.ctxLock.Unlock()
+	if l.lCancel != nil {
+		log.Info("[loop] stop requested", "session", l.agentContext.SessionId())
+		l.lCancel()
 	}
 }

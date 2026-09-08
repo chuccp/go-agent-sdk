@@ -212,7 +212,7 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value
 }
 
 // emitProgress 推送 flow_progress 事件（前端步骤进度/作品卡片）。
-func (t *ExecNodeTool) emitProgress(sctx agent.LoopContext, flowId, stepId, phase, output string) {
+func (t *ExecNodeTool) emitProgress(sctx agent.Context, flowId, stepId, phase, output string) {
 	if sctx == nil {
 		return
 	}

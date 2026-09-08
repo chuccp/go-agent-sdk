@@ -12,7 +12,7 @@ import (
 // 工具往 tool_result 里塞的 CustomTextBlock（资源卡片 JSON）不能进 LLM 上下文，
 // 但必须留在历史里——断线重连时前端靠回放里的这个块重建卡片。
 func TestBlocksForContext_FiltersNestedCustomText(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	card := `{"resource":"content","items":[{"title":"《姑苏擎天一柱》"}]}`
 
 	writer := chat.NewBlockStream(nil)
@@ -53,7 +53,7 @@ func TestBlocksForContext_FiltersNestedCustomText(t *testing.T) {
 // tool_result.content 全是不回灌块时要补占位。留空会让 buildRequest 跳过整条消息，
 // 导致 tool_use 没有配对的 tool_result，Anthropic 直接 400。
 func TestBlocksForContext_EmptyToolResultGetsPlaceholder(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	only := chat.NewToolResultBlock("call_07", chat.Blocks{
 		chat.NewCustomTextBlock(`{"plan_id":7}`, chat.TextType("plan_card")),
 	})
@@ -73,7 +73,7 @@ func TestBlocksForContext_EmptyToolResultGetsPlaceholder(t *testing.T) {
 
 // 不含需剔除子块的 tool_result 应原样返回，避免无谓拷贝。
 func TestBlocksForContext_KeepsCleanToolResultAsIs(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	clean := chat.NewToolResultBlock("call_08", chat.Blocks{
 		chat.NewFullTextBlock("plain result"),
 	})
@@ -90,7 +90,7 @@ func TestBlocksForContext_KeepsCleanToolResultAsIs(t *testing.T) {
 // UserBlock 是事件流包装器，blocksForContext 应展开其 Content，
 // 而非将 UserBlock 原样传给 LLM（LLM 不认识 User 类型）。
 func TestBlocksForContext_UnwrapsUserBlock(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	ub := chat.NewUserBlock(1, chat.Blocks{
 		chat.NewFullTextBlock("用户消息"),
 	}, chat.Consume)
@@ -114,7 +114,7 @@ func TestBlocksForContext_UnwrapsUserBlock(t *testing.T) {
 // UserBlock 内嵌套 ToolResultBlock（含 CustomTextBlock）时，
 // 应递归展开并过滤，确保 CustomTextBlock 不进 LLM 上下文。
 func TestBlocksForContext_UnwrapsUserBlockWithToolResult(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	customText := chat.NewCustomTextBlock(`{"resource":"data"}`, "resource_card")
 	plainText := chat.NewFullTextBlock("工具输出")
 	tr := chat.NewToolResultBlock("call_09", chat.Blocks{customText, plainText})
@@ -139,7 +139,7 @@ func TestBlocksForContext_UnwrapsUserBlockWithToolResult(t *testing.T) {
 
 // UserBlock 内含 ToolUseBlock 时，应展开并保留（ForContext==true）。
 func TestBlocksForContext_UnwrapsUserBlockWithToolUse(t *testing.T) {
-	l := &Loop{}
+	l := &Agent{}
 	tu := chat.NewToolUseBlock("tu_1", "echo")
 	tu.Input = value.NewObjectFromMap(map[string]any{"command": "ls"})
 	ub := chat.NewUserBlock(3, chat.Blocks{tu}, chat.Consume)
