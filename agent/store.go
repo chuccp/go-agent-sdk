@@ -154,17 +154,12 @@ func (s *Store) LoadAllHistory() error {
 		s.mergeHistory(after)
 		sdklog.Debug("[store] LoadAllHistory merged", "session", s.sessionID, "loaded", len(after), "historyLen", s.history.Len())
 		if len(after) < s.maxBatchSize {
-			s.loaded = true
+			s.lastStoreStart()
 			break
 		} else {
 			last := s.history.Last()
 			start = last.Start + last.Offset
 		}
-	}
-	if !s.history.IsEmpty() {
-		last := s.history.Last()
-		sdklog.Debug("[store] LoadAllHistory storeStart", "session", s.sessionID, "start", last.Start+last.Offset)
-		s.sendEvent.storeStart(last.Start + last.Offset)
 	}
 	return nil
 }
@@ -258,9 +253,17 @@ func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
 	}
 	s.mergeHistory(after)
 	if len(after) == 0 || len(after) < limit {
-		s.loaded = true
+		s.lastStoreStart()
 	}
+
 	return after, nil
+}
+func (s *Store) lastStoreStart() {
+	if !s.history.IsEmpty() {
+		history := s.history.Last()
+		s.sendEvent.storeStart(history.Start + history.Offset)
+	}
+	s.loaded = true
 }
 
 // mergeHistory 把回源结果中的活跃消息（Start > summary.Start）合并进缓存，跳过已缓存
