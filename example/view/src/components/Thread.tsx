@@ -35,7 +35,8 @@ export function Thread() {
         <span style={{ fontSize: 11, color: '#80868b', marginLeft: 4 }}>
           go-agent-sdk · {location.hostname}:19009
         </span>
-        <span style={{ marginLeft: 'auto' }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ReconnectButton />
           <WsStatusDot />
         </span>
       </div>
@@ -126,6 +127,39 @@ function WsStatusDot() {
         }}
       />
     </>
+  )
+}
+
+// ── 手动重连按钮（模拟断网重连）──
+
+function ReconnectButton() {
+  const { reconnect, wsStatus } = useMessageQueue()
+
+  return (
+    <button
+      onClick={reconnect}
+      disabled={wsStatus === 'reconnecting'}
+      title="模拟断网重连：关闭当前 WebSocket 并自动重连"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '3px 12px',
+        borderRadius: 14,
+        border: '1px solid #dadce0',
+        background: '#fff',
+        color: '#5f6368',
+        fontSize: 12,
+        cursor: wsStatus === 'reconnecting' ? 'not-allowed' : 'pointer',
+        opacity: wsStatus === 'reconnecting' ? 0.6 : 1,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+        <path d="M21 3v6h-6" />
+      </svg>
+      重连
+    </button>
   )
 }
 

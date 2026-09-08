@@ -120,26 +120,13 @@ func (l *Transfer) getAndAddStart() uint64 {
 }
 func (l *Transfer) storeStart(start uint64) {
 	sdklog.Debug("[event] storeSeq", "seq", start, "session", l.sessionId)
-	l.start.Store(start)
-}
-
-// greaterSignalEvents 返回 Start >= since 的信号事件（升序）
-func (l *Transfer) greaterSignalEvents(since uint64) []*Event {
-	events := l.signalEvents.Slice()
-	if len(events) == 0 {
-		return nil
+	cur := l.start.Load()
+	if start <= cur {
+		return
 	}
-
-	// 二分查找第一个 Start >= since 的事件
-	idx := sort.Search(len(events), func(i int) bool {
-		return events[i].Start >= since
-	})
-
-	if idx >= len(events) {
-		return nil
+	if l.start.CompareAndSwap(cur, start) {
+		return
 	}
-
-	return events[idx:]
 }
 
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
@@ -206,7 +193,7 @@ func (l *Transfer) greaterEntries(start uint64) []*Event {
 func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	cache := new(util.SliceArray[*Event])
 
-	if start >= l.start.Load() {
+	if start > l.start.Load() {
 		return l.greaterEntries(start), nil
 	}
 
@@ -240,9 +227,7 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 		if len(events) > 0 {
 			last := events[len(events)-1]
 			start := last.Start + last.Offset
-			if start > l.getStart() {
-				l.storeStart(start)
-			}
+			l.storeStart(start)
 		}
 	}
 	return events, nil

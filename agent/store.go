@@ -259,11 +259,13 @@ func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
 	return after, nil
 }
 func (s *Store) lastStoreStart() {
-	if !s.history.IsEmpty() {
-		history := s.history.Last()
-		s.sendEvent.storeStart(history.Start + history.Offset)
+	if !s.loaded {
+		if !s.history.IsEmpty() {
+			history := s.history.Last()
+			s.sendEvent.storeStart(history.Start + history.Offset)
+		}
+		s.loaded = true
 	}
-	s.loaded = true
 }
 
 // mergeHistory 把回源结果中的活跃消息（Start > summary.Start）合并进缓存，跳过已缓存

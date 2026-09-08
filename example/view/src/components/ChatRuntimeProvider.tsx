@@ -245,6 +245,8 @@ interface MessageQueueState {
   submitAnswer: (text: string) => void
   /** WebSocket 连接状态 */
   wsStatus: WsStatus
+  /** 手动触发断网重连（关闭当前 WS，走 onclose 自动重连） */
+  reconnect: () => void
 }
 
 const MessageQueueContext = createContext<MessageQueueState>({
@@ -256,6 +258,7 @@ const MessageQueueContext = createContext<MessageQueueState>({
   pendingQuestion: null,
   submitAnswer: () => {},
   wsStatus: 'disconnected',
+  reconnect: () => {},
 })
 
 export function useMessageQueue() {
@@ -276,6 +279,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   // 历史消息 + 事件流起始位置（start = 最后一条历史消息的 start + offset）
   const [initialMessages, setInitialMessages] = useState<{ role: 'user' | 'assistant'; content: string }[] | null>(null)
   const startRef = useRef<number | null>(null)
+  // 手动重连：effect 内部把「断开旧连接 + 立即新建」的实现挂到这里，供「重连」按钮调用
+  const reconnectRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     const controller = new AbortController()
@@ -359,6 +364,20 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       ws.onerror = () => {}
     }
 
+    // 手动重连：断开旧连接（置空其 onclose，避免再触发自动重连），立即新建
+    reconnectRef.current = () => {
+      if (!mounted || controller.signal.aborted) return
+      setWsStatus('reconnecting')
+      clearTimeout(reconnectTimer)
+      const old = ws
+      if (old && (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING)) {
+        old.onclose = null
+        old.onerror = null
+        old.close()
+      }
+      connect(latestStart)
+    }
+
     // 分页加载历史事件，完成后用 start 建立 WS 连接
     ;(async () => {
       let start = 0
@@ -433,6 +452,11 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     sendDirect(text)
   }, [sendDirect])
 
+  // ── reconnect: 模拟断网重连（断开旧连接，立即新建）──
+  const reconnect = useCallback(() => {
+    reconnectRef.current()
+  }, [])
+
   // ── consumeMessage: 后端确认消费后，将用户消息加入对话框并启动流 ──
   const consumeMessageRef = useRef<(text: string) => void>(() => {})
   // 已处理过的 consume 消息 id：防止同一条用户消息被重复消费导致回显两遍
@@ -450,7 +474,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     pendingQuestion,
     submitAnswer,
     wsStatus,
-  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer, wsStatus])
+    reconnect,
+  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer, wsStatus, reconnect])
 
   if (initialMessages === null) {
     return (
