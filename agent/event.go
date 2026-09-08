@@ -119,7 +119,7 @@ func (l *Transfer) getAndAddStart() uint64 {
 	return l.start.Add(1)
 }
 func (l *Transfer) storeStart(start uint64) {
-	sdklog.Debug("[event] storeSeq", "seq", start, "session", l.sessionId)
+	sdklog.Debug("[event] storeStart", "start", start, "session", l.sessionId)
 	cur := l.start.Load()
 	if start <= cur {
 		return

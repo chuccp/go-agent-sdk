@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sort"
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -92,6 +93,7 @@ type Store struct {
 	maxBatchSize      int
 	sendEvent         SendEvent
 	no                uint64
+	startSet          map[uint64]bool
 }
 
 func (s *Store) IsEmpty() bool {
@@ -104,21 +106,6 @@ func (s *Store) HistoryLen() int {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.history.Len()
-}
-
-func (s *Store) append(c ...*chat.Message) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	for _, m := range c {
-		s.history.Append(m)
-	}
-}
-func (s *Store) AppendTemp(c ...*chat.Message) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	for _, m := range c {
-		s.tempHistory.Append(m)
-	}
 }
 
 func (s *Store) History() []*chat.Message {
@@ -212,7 +199,7 @@ func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
 				break
 			}
 			for _, m := range after {
-				s.history.Append(m)
+				s.append(m)
 			}
 			if len(after) < limit {
 				break
@@ -264,8 +251,25 @@ func (s *Store) lastStoreStart() {
 			history := s.history.Last()
 			s.sendEvent.storeStart(history.Start + history.Offset)
 		}
+		s.startSet = make(map[uint64]bool)
 		s.loaded = true
+		historySlice := s.history.Slice()
+		sort.Slice(historySlice, func(i, j int) bool { return historySlice[i].Start < historySlice[j].Start })
 	}
+}
+func (s *Store) append(msg *chat.Message) {
+
+	if !s.loaded {
+		start := msg.Start
+		_, ok := s.startSet[start]
+		if !ok {
+			s.startSet[start] = true
+		} else {
+			return
+		}
+	}
+	s.history.Append(msg)
+
 }
 
 // mergeHistory 把回源结果中的活跃消息（Start > summary.Start）合并进缓存，跳过已缓存
@@ -282,7 +286,7 @@ func (s *Store) mergeHistory(after []*chat.Message) {
 	}
 	for _, m := range after {
 		if m.Start > s.summary.Start && m.Start+m.Offset > boundary {
-			s.history.Append(m)
+			s.append(m)
 		}
 	}
 }
@@ -297,22 +301,20 @@ func (s *Store) save(minStart uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if s.messageStore != nil {
-		allTemp := s.tempHistory.Slice()
-		if len(allTemp) > 0 {
-			var megs []*chat.Message
-			for _, m := range allTemp {
-				if m.Start <= minStart {
-					megs = append(megs, m)
-					s.history.Append(m)
-				}
-			}
-			for _, m := range megs {
+		// 拷贝一份快照，避免遍历期间 Remove 修改底层数组导致跳过/重复元素
+		snapshot := append([]*chat.Message(nil), s.tempHistory.Slice()...)
+		var megs []*chat.Message
+		for _, m := range snapshot {
+			if m.Start <= minStart {
+				megs = append(megs, m)
+				s.append(m)
 				s.tempHistory.Remove(m)
 			}
-			if len(megs) > 0 {
-				if err := s.messageStore.Append(s.sessionID, megs); err != nil {
-					return err
-				}
+		}
+		if len(megs) > 0 {
+			sdklog.Debug("[store] Append messages to messageStore", "session", s.sessionID, "count", len(megs), "minStart", minStart)
+			if err := s.messageStore.Append(s.sessionID, megs); err != nil {
+				return err
 			}
 		}
 	}
@@ -342,6 +344,7 @@ func NewStore(no uint64, sessionId string, sendEvent SendEvent, compressor Compr
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),
 		loaded:            messageStore == nil,
+		startSet:          make(map[uint64]bool),
 		doneManifest: &splitManifest{
 			starts: new(util.SliceArray[uint64]),
 		},
