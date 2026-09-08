@@ -44,6 +44,7 @@ type Agent struct {
 	toolExecutors []ToolExecutor
 	config        *chat.Config
 	systemPrompt  string
+	done          func()
 }
 
 type Builder struct {
@@ -96,6 +97,31 @@ func (l *Agent) getMid() uint64 {
 	return l.mid.Add(1)
 }
 
+type Done struct {
+	f  func()
+	do func()
+}
+
+func (d *Done) Done(f func()) {
+	d.f = f
+	if d.do != nil {
+		d.do()
+	}
+}
+
+func (l *Agent) HandleDoneMessage(blocks chat.Blocks) *Done {
+	done := &Done{}
+	l.done = func() {
+		if done.f != nil {
+			done.f()
+		}
+	}
+	done.do = func() {
+		l.HandleMessage(blocks)
+	}
+	return done
+}
+
 func (l *Agent) HandleMessage(blocks chat.Blocks) {
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
@@ -117,6 +143,9 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 				l.inbox.Reset()
 				log.Info("[loop] round done", "session", l.agentContext.SessionId())
 				l.runLock.Unlock()
+				if l.done != nil {
+					l.done()
+				}
 			}()
 			err := l.store.LoadAllHistory()
 			if err != nil {
