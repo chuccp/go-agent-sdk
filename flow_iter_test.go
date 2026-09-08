@@ -139,8 +139,9 @@ func TestFlowIteration(t *testing.T) {
 	config.AddTools(activate, execNode, stepDone, finish)
 
 	manager := config.CreateAgent(context.Background())
-	client := manager.GetOrCreateSession("flow-iter").CreateClient(context.Background(), 0)
-	client.WriteText("把「小狐狸看月亮」扩写成故事")
+	session := manager.GetOrCreateSession("flow-iter")
+	client := session.CreateClient(context.Background(), 0)
+	session.WriteText("把「小狐狸看月亮」扩写成故事")
 	events := collectUntilDone(t, client)
 
 	// ① 节点调用次数：split 1 次、expand 3 次（逐项）、merge 1 次

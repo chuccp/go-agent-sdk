@@ -57,6 +57,7 @@ func newTestTransfer() *Transfer {
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 			messageStore: &noopMessageStore{},
 			maxBatchSize: 10,
+			startSet:     make(map[uint64]bool),
 		},
 	}
 }
@@ -72,6 +73,7 @@ func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
 			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
 			messageStore: ms,
 			maxBatchSize: 10,
+			startSet:     make(map[uint64]bool),
 		},
 	}, ms
 }

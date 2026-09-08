@@ -205,8 +205,9 @@ func TestFlowEndToEnd(t *testing.T) {
 	config.AddTools(activate, execNode, stepDone, status, finish)
 
 	manager := config.CreateAgent(context.Background())
-	client := manager.GetOrCreateSession("flow-e2e").CreateClient(context.Background(), 0)
-	client.WriteText("给我 5 岁孩子写个太空故事")
+	session := manager.GetOrCreateSession("flow-e2e")
+	client := session.CreateClient(context.Background(), 0)
+	session.WriteText("给我 5 岁孩子写个太空故事")
 	events := collectUntilDone(t, client)
 
 	// ① flow_progress block 已推送（start/done 等）

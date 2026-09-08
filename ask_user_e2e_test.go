@@ -73,11 +73,12 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	config.RegisterChat(provider)
 
 	manager := config.CreateAgent(context.Background())
-	client := manager.GetOrCreateSession("ask-e2e").CreateClient(context.Background(), 0)
+	session := manager.GetOrCreateSession("ask-e2e")
+	client := session.CreateClient(context.Background(), 0)
 	defer client.Close()
 
 	// ── 第一轮：触发 ask_user_question ──
-	client.WriteText("帮我选个颜色")
+	session.WriteText("帮我选个颜色")
 	events := collectUntilDone(t, client)
 
 	// ask_user block 已推送，text 为问题列表 JSON
@@ -96,7 +97,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	// 工具输出已流式推送（TextBlock），不再单独发 ToolExecutionBlock
 
 	// ── 第二轮：用户回答作为普通消息 ──
-	client.WriteText("Red")
+	session.WriteText("Red")
 	events2 := collectUntilDone(t, client)
 	// TextBlock 可能作为顶层事件到达（StartBlock 被 dedup），
 	// 也可能嵌套在 StartBlock 中（取决于时序），两种情况都算通过。

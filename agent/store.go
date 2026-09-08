@@ -249,7 +249,9 @@ func (s *Store) lastStoreStart() {
 	if !s.loaded {
 		if !s.history.IsEmpty() {
 			history := s.history.Last()
-			s.sendEvent.storeStart(history.Start + history.Offset)
+			if s.sendEvent != nil {
+				s.sendEvent.storeStart(history.Start + history.Offset)
+			}
 		}
 		s.startSet = make(map[uint64]bool)
 		s.loaded = true

@@ -101,14 +101,15 @@ func TestTwoRoundsWithTool(t *testing.T) {
 	config.RegisterChat(&fakeProvider{})
 
 	manager := config.CreateAgent(context.Background())
-	client := manager.GetOrCreateSession("session-1").CreateClient(context.Background(), 0)
+	session := manager.GetOrCreateSession("session-1")
+	client := session.CreateClient(context.Background(), 0)
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
-	client.WriteText("请使用 fake_tool 工具")
+	session.WriteText("请使用 fake_tool 工具")
 	waitForDone(t, client, "round-1(tool)")
 
 	// ── 第三轮（同会话第二次用户消息）：纯文本 end_turn ──
-	client.WriteText("再来一轮普通对话")
+	session.WriteText("再来一轮普通对话")
 	waitForDone(t, client, "round-2(plain)")
 
 	fmt.Println("两轮对话均正常收到 done")

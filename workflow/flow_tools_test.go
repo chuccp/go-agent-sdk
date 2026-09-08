@@ -25,6 +25,9 @@ func (f *fakeLoopContext) SessionId() string                             { retur
 func (f *fakeLoopContext) GetChat() *chat.Chat                           { return chat.NewChat() }
 func (f *fakeLoopContext) SubAgentStore() *agent.Store                   { return nil }
 func (f *fakeLoopContext) AgentStore() *agent.Store                      { return nil }
+func (f *fakeLoopContext) SendBlock(_ uint64, _ chat.Block) uint64       { return 0 }
+func (f *fakeLoopContext) SendSignalBlock(_ uint64, _ chat.Block) uint64 { return 0 }
+func (f *fakeLoopContext) GetTransferStart() uint64                     { return 0 }
 func (f *fakeLoopContext) AppendMainAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendMainUserMessage(_ *chat.BlockGroup)      {}
 
