@@ -5,20 +5,25 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
 type readEvents interface {
 	readEvents(cl *Client) ([]*Event, error)
+
+	readSignalEvents(cl *Client) ([]*Event, error)
+
 	deleteClient(client *Client)
 	history() []*chat.Message
 }
 
 // Client 面向调用方的客户端句柄
 type Client struct {
-	ctx   context.Context
-	queue *util.Queue[bool]
-	start uint64
+	ctx         context.Context
+	queue       *util.Queue[bool]
+	start       uint64
+	signalStart uint64
 
 	preStart uint64
 	preTime  int64
@@ -73,6 +78,7 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 		}
 
 		events, err := c.readEvents.readEvents(c)
+		log.Debug("[client] readEvents", "count", len(events), "start", c.start, "error", err)
 		if err != nil {
 			return nil, err
 		}
@@ -80,6 +86,14 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 			return events, nil
 		}
 
+		events, err = c.readEvents.readSignalEvents(c)
+		log.Debug("[client] readEvents", "count", len(events), "start", c.start, "error", err)
+		if err != nil {
+			return nil, err
+		}
+		if len(events) > 0 {
+			return events, nil
+		}
 		_, hasValue := c.queue.Dequeue()
 		if !hasValue {
 			return nil, nil

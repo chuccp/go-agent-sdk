@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -362,5 +363,32 @@ func TestMergeToolsBlockGroup_MinMax(t *testing.T) {
 	bg = l.mergeToolsBlockGroup(interleaved, chat.Blocks{})
 	if bg.Start != 10 || bg.Offset != 6 {
 		t.Fatalf("interleaved: Start=%d Offset=%d, want 10/6", bg.Start, bg.Offset)
+	}
+}
+
+// TestGetChatClient_RestartWithNonZeroStart 验证系统重启后 seq 默认为 0，
+// 但前端传入非零 start 时，不应被截断到 0，应保留前端传入的值。
+func TestGetChatClient_RestartWithNonZeroStart(t *testing.T) {
+	tr := newTestTransfer()
+	// 系统重启后 seq 默认为 0，不调用 storeSeq
+
+	frontendStart := uint64(100)
+	cl := tr.GetChatClient(context.Background(), frontendStart)
+
+	if cl.start != frontendStart {
+		t.Fatalf("client.start = %d, want %d (前端传入的值应保留)", cl.start, frontendStart)
+	}
+}
+
+// TestGetChatClient_RestartWithLargeStart 验证系统重启后前端传入较大的 start 值。
+func TestGetChatClient_RestartWithLargeStart(t *testing.T) {
+	tr := newTestTransfer()
+	// seq = 0（重启默认值）
+
+	frontendStart := uint64(9999)
+	cl := tr.GetChatClient(context.Background(), frontendStart)
+
+	if cl.start != frontendStart {
+		t.Fatalf("client.start = %d, want %d", cl.start, frontendStart)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -20,6 +21,7 @@ type LoopContext interface {
 	AgentStore() *Store
 
 	SendBlock(no uint64, block chat.Block) uint64
+	SendSignalBlock(no uint64, block chat.Block) uint64
 
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
@@ -37,7 +39,7 @@ type Loop struct {
 	lContext      context.Context
 	lCancel       context.CancelFunc
 	ctxLock       sync.Mutex
-	seq           atomic.Uint64
+	mid           atomic.Uint64
 	toolExecutors []ToolExecutor
 	config        *chat.Config
 	systemPrompt  string
@@ -78,20 +80,27 @@ func (b *LoopBuilder) Build() *Loop {
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
 	start := l.loopContext.SendBlock(l.store.no, block)
+	log.Debug("[loop] SendBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
 	return start
 }
 
-func (l *Loop) getSeq() uint64 {
-	return l.seq.Add(1)
+func (l *Loop) SendSignalBlock(block chat.Block) uint64 {
+	start := l.loopContext.SendSignalBlock(l.store.no, block)
+	log.Debug("[loop] SendSignalBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
+	return start
 }
 
+func (l *Loop) getMid() uint64 {
+	return l.mid.Add(1)
+}
 func (l *Loop) HandleMessage(blocks chat.Blocks) {
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
 	if !l.running {
 		l.running = true
-		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Sent)
-		l.SendBlock(qm)
+		log.Info("[loop] round started", "session", l.loopContext.SessionId())
+		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Sent)
+		l.SendSignalBlock(qm)
 		l.inbox.Write(qm)
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
@@ -103,21 +112,25 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 				l.store.RecordDone(doneStart)
 				l.running = false
 				l.inbox.Reset()
+				log.Info("[loop] round done", "session", l.loopContext.SessionId())
 				l.runLock.Unlock()
 			}()
 			err := l.store.LoadAllHistory()
 			if err != nil {
-				l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+				log.Error("[loop] LoadAllHistory failed", "session", l.loopContext.SessionId(), "error", err)
+				l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 				return
 			}
 			l.do()
 		}, func(r any) {
+			log.Error("[loop] panic recovered", "session", l.loopContext.SessionId(), "panic", r)
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
-			l.SendBlock(evt)
+			l.SendSignalBlock(evt)
 		})
 	} else {
-		qm := chat.NewUserBlock(l.getSeq(), blocks, chat.Queued)
-		l.SendBlock(qm)
+		log.Debug("[loop] message queued", "session", l.loopContext.SessionId())
+		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Queued)
+		l.SendSignalBlock(qm)
 		l.inbox.Write(qm)
 	}
 }
@@ -204,7 +217,8 @@ func (l *Loop) loop() bool {
 	blockGroup, stopReason, err := l.chatWithStream()
 
 	if err != nil {
-		l.SendBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+		log.Error("[loop] chatWithStream failed", "session", l.loopContext.SessionId(), "error", err)
+		l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 		return true
 	}
 	if l.roundStopped() {
@@ -268,6 +282,7 @@ func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup,
 
 		exec := l.findExecutor(tu.Name)
 		if exec == nil {
+			log.Warn("[loop] unknown tool", "session", l.loopContext.SessionId(), "tool", tu.Name)
 			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("未知工具: %s", tu.Name))
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
@@ -277,6 +292,7 @@ func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup,
 			blockGroups = append(blockGroups, blockGroup)
 			continue
 		}
+		log.Info("[loop] tool executing", "session", l.loopContext.SessionId(), "tool", tu.Name)
 		blockGroup, toolStop := l.runTool(tu, exec)
 		blockGroups = append(blockGroups, blockGroup)
 		results = append(results, chat.NewToolResultBlock(tu.ID, blockGroup.Content))
@@ -415,6 +431,7 @@ func (l *Loop) Stop() {
 	l.ctxLock.Lock()
 	defer l.ctxLock.Unlock()
 	if l.lCancel != nil {
+		log.Info("[loop] stop requested", "session", l.loopContext.SessionId())
 		l.lCancel()
 	}
 }

@@ -3,12 +3,12 @@ package agent
 import (
 	"context"
 	"iter"
-	"log"
 	"sort"
 	"sync"
 	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	sdklog "github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -29,9 +29,13 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 }
 
 type Transfer struct {
-	mu               sync.RWMutex
-	resetLock        sync.RWMutex
-	entries          *util.SliceArray[*Event]
+	mu        sync.RWMutex
+	resetLock sync.RWMutex
+	entries   *util.SliceArray[*Event]
+
+	// signalEvents 存放不需要占用 start 序号的辅助事件（如控制信号、状态通知等）。
+	signalEvents *util.SliceArray[*Event]
+
 	chatClients      *util.SliceArray[*Client]
 	defaultStore     *Store
 	messageLastStart uint64
@@ -39,7 +43,8 @@ type Transfer struct {
 	compressor       Compressor
 	historyStore     MessageStore
 	no               uint64
-	seq              atomic.Uint64
+	start            atomic.Uint64
+	signalStart      atomic.Uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
@@ -49,6 +54,7 @@ func NewTransfer(sessionId string, compressor Compressor, historyStore MessageSt
 		historyStore:     historyStore,
 		entries:          new(util.SliceArray[*Event]),
 		chatClients:      new(util.SliceArray[*Client]),
+		signalEvents:     new(util.SliceArray[*Event]),
 		messageLastStart: 0,
 		no:               0,
 	}
@@ -84,21 +90,101 @@ func (l *Transfer) sendEvent(event *Event) {
 }
 
 func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
-	event := NewEvent(no, l.getAndAddSeq(), block)
+	event := NewEvent(no, l.getAndAddStart(), block)
 	l.sendEvent(event)
 	return event.Start
 }
 
-func (l *Transfer) getSeq() uint64 {
-	return l.seq.Load()
-}
-func (l *Transfer) getAndAddSeq() uint64 {
-	return l.seq.Add(1)
-}
-func (l *Transfer) storeSeq(seq uint64) {
-	l.seq.Store(seq)
+func (l *Transfer) SendSignalBlock(no uint64, block chat.Block) uint64 {
+	event := NewEvent(no, l.signalStart.Add(1), block)
+	l.sendEvent(event)
+	return event.Start
 }
 
+func (l *Transfer) getStart() uint64 {
+	return l.start.Load()
+}
+func (l *Transfer) getAndAddStart() uint64 {
+	return l.start.Add(1)
+}
+func (l *Transfer) storeStart(start uint64) {
+	sdklog.Debug("[event] storeSeq", "seq", start, "session", l.sessionId)
+	l.start.Store(start)
+}
+func (l *Transfer) readSignalEvents(cl *Client) ([]*Event, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// 获取当前客户端需要的信号事件（Start >= cl.signalStart）
+	signalEvents := l.greaterSignalEvents(cl.signalStart)
+	if len(signalEvents) == 0 {
+		return nil, nil
+	}
+
+	// 更新客户端的 signalStart 到最新信号事件的终点
+	lastEvent := signalEvents[len(signalEvents)-1]
+	cl.signalStart = lastEvent.Start + lastEvent.Offset
+
+	// 检查是否所有客户端都已收到这些信号事件，如果是则清理
+	l.cleanSignalEvents()
+
+	return signalEvents, nil
+}
+
+// greaterSignalEvents 返回 Start >= since 的信号事件（升序）
+func (l *Transfer) greaterSignalEvents(since uint64) []*Event {
+	events := l.signalEvents.Slice()
+	if len(events) == 0 {
+		return nil
+	}
+
+	// 二分查找第一个 Start >= since 的事件
+	idx := sort.Search(len(events), func(i int) bool {
+		return events[i].Start >= since
+	})
+
+	if idx >= len(events) {
+		return nil
+	}
+
+	return events[idx:]
+}
+
+// cleanSignalEvents 清理所有客户端都已收到的信号事件
+func (l *Transfer) cleanSignalEvents() {
+	clients := l.chatClients.Slice()
+	if len(clients) == 0 {
+		return
+	}
+
+	// 找到所有客户端中最小的 signalStart
+	minSignalStart := uint64(0)
+	first := true
+	for _, client := range clients {
+		if client.isClosed {
+			continue
+		}
+		if first || client.signalStart < minSignalStart {
+			minSignalStart = client.signalStart
+			first = false
+		}
+	}
+
+	// 清理 Start + Offset <= minSignalStart 的信号事件
+	events := l.signalEvents.Slice()
+	idx := 0
+	for _, event := range events {
+		if event.Start+event.Offset > minSignalStart {
+			break
+		}
+		idx++
+	}
+
+	if idx > 0 {
+		l.signalEvents.RemoveFront(idx)
+		sdklog.Debug("[event] cleanSignalEvents", "cleaned", idx, "remaining", l.signalEvents.Len(), "session", l.sessionId)
+	}
+}
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -192,9 +278,9 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	if l.entries.IsEmpty() {
 		if len(events) > 0 {
 			last := events[len(events)-1]
-			seq := last.Start + last.Offset
-			if seq > l.getSeq() {
-				l.storeSeq(seq)
+			start := last.Start + last.Offset
+			if start > l.getStart() {
+				l.storeStart(start)
 			}
 		}
 	}
@@ -203,11 +289,10 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 func (l *Transfer) GetChatClient(ctx context.Context, start uint64) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if start > l.getSeq() {
-		start = l.getSeq()
-	}
 	chatClient := NewClient(ctx, start, l)
+	chatClient.signalStart = l.signalStart.Load()
 	l.chatClients.Append(chatClient)
+	sdklog.Debug("[ws] client subscribed", "session", l.sessionId, "start", start)
 	return chatClient
 }
 func (l *Transfer) flush() {
@@ -217,11 +302,12 @@ func (l *Transfer) flush() {
 	for _, sub := range clients {
 		err := sub.queue.Offer(true)
 		if err != nil {
-			log.Printf("Error offering chat Session: %v", err)
+			sdklog.Error("[ws] flush: offer failed", "session", l.sessionId, "error", err)
 		}
 	}
 }
 func (l *Transfer) deleteClient(client *Client) {
+	sdklog.Debug("[ws] client unsubscribed", "session", l.sessionId, "lastStart", client.start)
 	l.chatClients.Remove(client)
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
@@ -230,7 +316,7 @@ func (l *Transfer) deleteClient(client *Client) {
 		l.reset(lastStart)
 		err := l.defaultStore.save(lastStart)
 		if err != nil {
-			log.Printf("Error offering chat Session: %v", err)
+			sdklog.Error("[ws] deleteClient: save failed", "session", l.sessionId, "error", err)
 		}
 	}
 }
