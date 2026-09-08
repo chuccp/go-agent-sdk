@@ -319,6 +319,8 @@ func (l *Transfer) deleteClient(client *Client) {
 			sdklog.Error("[ws] deleteClient: save failed", "session", l.sessionId, "error", err)
 		}
 	}
+	// 客户端移除后，检查是否可以清理信号事件
+	l.cleanSignalEvents()
 }
 func (l *Transfer) history() []*chat.Message {
 	return l.defaultStore.History()
