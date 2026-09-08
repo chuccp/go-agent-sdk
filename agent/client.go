@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/util"
@@ -27,7 +28,7 @@ type Client struct {
 	cancel        context.CancelFunc
 	once          sync.Once
 	clientTimeout uint
-	isClosed      bool
+	isClosed      atomic.Bool
 }
 
 func NewClient(pCtx context.Context, start uint64, readEvents readEvents) *Client {
@@ -39,7 +40,6 @@ func NewClient(pCtx context.Context, start uint64, readEvents readEvents) *Clien
 		start:      start,
 		readEvents: readEvents,
 		preTime:    0,
-		isClosed:   false,
 	}
 }
 func (c *Client) isTimeout() bool {
@@ -92,6 +92,6 @@ func (c *Client) Close() {
 	c.once.Do(func() {
 		c.cancel()
 		c.readEvents.deleteClient(c)
-		c.isClosed = true
+		c.isClosed.Store(true)
 	})
 }

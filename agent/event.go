@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"iter"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -180,7 +179,7 @@ func messageToEvent(m *chat.Message) *Event {
 // greaterEntries 从内存 entries 中筛选 Start >= start 的事件，按 Start 升序返回。
 func (l *Transfer) greaterEntries(start uint64) []*Event {
 	cache := new(util.SliceArray[*Event])
-	for _, v := range iter.Seq2[int, *Event](l.entries.Iter) {
+	for _, v := range l.entries.Iter {
 		if v.Start >= start {
 			cache.Append(v)
 		}
@@ -193,6 +192,7 @@ func (l *Transfer) greaterEntries(start uint64) []*Event {
 func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	cache := new(util.SliceArray[*Event])
 
+	// 防呆：start 超过当前序号计数器时，entries 不可能有匹配事件，直接走内存筛选返回空切片
 	if start > l.start.Load() {
 		return l.greaterEntries(start), nil
 	}

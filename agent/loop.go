@@ -245,22 +245,16 @@ func (l *Loop) loop() bool {
 
 }
 func (l *Loop) do() {
-
-LOOP:
-	select {
-	case <-l.pContext.Done():
-		return
-	default:
+	for {
+		select {
+		case <-l.pContext.Done():
+			return
+		default:
+		}
+		if l.loop() && l.inbox.IsEmpty() {
+			return
+		}
 	}
-	if l.loop() {
-		goto END
-	}
-	goto LOOP
-END:
-	if l.inbox.IsEmpty() {
-		return
-	}
-	goto LOOP
 }
 func (l *Loop) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
 

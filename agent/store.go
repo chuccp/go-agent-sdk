@@ -58,7 +58,7 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 		minStart := d.starts.Get(0)
 		hasMin := false
 		for _, client := range clients {
-			if client.isClosed {
+			if client.isClosed.Load() {
 				continue
 			}
 			if client.start < minStart {
