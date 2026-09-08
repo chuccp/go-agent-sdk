@@ -81,13 +81,13 @@ func (b *LoopBuilder) Build() *Loop {
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {
 	start := l.loopContext.SendBlock(l.store.no, block)
-	log.Debug("[loop] SendBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
+	//log.Debug("[loop] SendBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
 	return start
 }
 
 func (l *Loop) SendSignalBlock(block chat.Block) uint64 {
 	start := l.loopContext.SendSignalBlock(l.store.no, block)
-	log.Debug("[loop] SendSignalBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
+	//log.Debug("[loop] SendSignalBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
 	return start
 }
 

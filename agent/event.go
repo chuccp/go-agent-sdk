@@ -15,6 +15,7 @@ import (
 type Event struct {
 	No     uint64      `json:"no"`
 	Start  uint64      `json:"start"`
+	Signal bool        `json:"signal"`
 	Offset uint64      `json:"offset"`
 	Blocks chat.Blocks `json:"blocks"`
 }
@@ -23,6 +24,17 @@ func NewEvent(no uint64, seq uint64, block chat.Block) *Event {
 	return &Event{
 		No:     no,
 		Start:  seq,
+		Signal: false,
+		Offset: 1,
+		Blocks: []chat.Block{block},
+	}
+}
+
+func NewSignalEvent(no uint64, seq uint64, block chat.Block) *Event {
+	return &Event{
+		No:     no,
+		Start:  seq,
+		Signal: true,
 		Offset: 1,
 		Blocks: []chat.Block{block},
 	}
@@ -44,7 +56,6 @@ type Transfer struct {
 	historyStore     MessageStore
 	no               uint64
 	start            atomic.Uint64
-	signalStart      atomic.Uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
@@ -96,7 +107,7 @@ func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
 }
 
 func (l *Transfer) SendSignalBlock(no uint64, block chat.Block) uint64 {
-	event := NewEvent(no, l.signalStart.Add(1), block)
+	event := NewSignalEvent(no, l.getAndAddStart(), block)
 	l.sendEvent(event)
 	return event.Start
 }
@@ -110,25 +121,6 @@ func (l *Transfer) getAndAddStart() uint64 {
 func (l *Transfer) storeStart(start uint64) {
 	sdklog.Debug("[event] storeSeq", "seq", start, "session", l.sessionId)
 	l.start.Store(start)
-}
-func (l *Transfer) readSignalEvents(cl *Client) ([]*Event, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	// 获取当前客户端需要的信号事件（Start >= cl.signalStart）
-	signalEvents := l.greaterSignalEvents(cl.signalStart)
-	if len(signalEvents) == 0 {
-		return nil, nil
-	}
-
-	// 更新客户端的 signalStart 到最新信号事件的终点
-	lastEvent := signalEvents[len(signalEvents)-1]
-	cl.signalStart = lastEvent.Start + lastEvent.Offset
-
-	// 检查是否所有客户端都已收到这些信号事件，如果是则清理
-	l.cleanSignalEvents()
-
-	return signalEvents, nil
 }
 
 // greaterSignalEvents 返回 Start >= since 的信号事件（升序）
@@ -150,41 +142,6 @@ func (l *Transfer) greaterSignalEvents(since uint64) []*Event {
 	return events[idx:]
 }
 
-// cleanSignalEvents 清理所有客户端都已收到的信号事件
-func (l *Transfer) cleanSignalEvents() {
-	clients := l.chatClients.Slice()
-	if len(clients) == 0 {
-		return
-	}
-
-	// 找到所有客户端中最小的 signalStart
-	minSignalStart := uint64(0)
-	first := true
-	for _, client := range clients {
-		if client.isClosed {
-			continue
-		}
-		if first || client.signalStart < minSignalStart {
-			minSignalStart = client.signalStart
-			first = false
-		}
-	}
-
-	// 清理 Start + Offset <= minSignalStart 的信号事件
-	events := l.signalEvents.Slice()
-	idx := 0
-	for _, event := range events {
-		if event.Start+event.Offset > minSignalStart {
-			break
-		}
-		idx++
-	}
-
-	if idx > 0 {
-		l.signalEvents.RemoveFront(idx)
-		sdklog.Debug("[event] cleanSignalEvents", "cleaned", idx, "remaining", l.signalEvents.Len(), "session", l.sessionId)
-	}
-}
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -249,6 +206,10 @@ func (l *Transfer) greaterEntries(start uint64) []*Event {
 func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	cache := new(util.SliceArray[*Event])
 
+	if start >= l.start.Load() {
+		return l.greaterEntries(start), nil
+	}
+
 	// 1. 从 entries 取数据（当前会话的运行时事件）
 	if !l.entries.IsEmpty() {
 		firstEvent := l.entries.First()
@@ -290,11 +251,11 @@ func (l *Transfer) GetChatClient(ctx context.Context, start uint64) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	chatClient := NewClient(ctx, start, l)
-	chatClient.signalStart = l.signalStart.Load()
 	l.chatClients.Append(chatClient)
 	sdklog.Debug("[ws] client subscribed", "session", l.sessionId, "start", start)
 	return chatClient
 }
+
 func (l *Transfer) flush() {
 	l.mu.Lock()
 	clients := l.chatClients.Slice()
@@ -319,8 +280,6 @@ func (l *Transfer) deleteClient(client *Client) {
 			sdklog.Error("[ws] deleteClient: save failed", "session", l.sessionId, "error", err)
 		}
 	}
-	// 客户端移除后，检查是否可以清理信号事件
-	l.cleanSignalEvents()
 }
 func (l *Transfer) history() []*chat.Message {
 	return l.defaultStore.History()
