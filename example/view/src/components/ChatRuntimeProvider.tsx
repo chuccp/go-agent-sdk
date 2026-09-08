@@ -342,6 +342,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
                 }
                 consumedIdsRef.current.add(consumeKey)
                 if (content) {
+                  console.log('[ws] calling consumeMessage, ref set:', consumeMessageRef.current.toString().substring(0, 50))
                   consumeMessageRef.current(content)
                 }
               } else {
@@ -548,6 +549,7 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDur
   isRunningRef.current = isRunning
 
   useEffect(() => {
+    console.log('[MessageConsumedHandler] useEffect setting consumeMessageRef')
     consumeMessageRef.current = (text: string) => {
       console.log('[consumeMessage] appending user message, text:', text.substring(0, 30), 'isRunning:', isRunningRef.current)
       if (isRunningRef.current) {

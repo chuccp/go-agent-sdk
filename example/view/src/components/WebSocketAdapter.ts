@@ -152,7 +152,7 @@ export function setSkipNextStop(): void {
  * 立即安装桥接分发，保证后续事件进入 pendingBuffer（由 adapter run 排空）。
  */
 export function triggerStream(): void {
-  console.log('[adapter] triggerStream called')
+  console.log('[adapter] triggerStream called, directDispatch:', !!directDispatch, 'triggerResolve:', !!triggerResolve)
   // 新一轮开始，清除上一轮的 token 用量（本轮 LLM 返回后会重新填充）
   resetUsage()
   // 丢弃触发前缓冲的终结性事件（上一轮残留的 done/error：
@@ -160,6 +160,7 @@ export function triggerStream(): void {
   pendingBuffer = pendingBuffer.filter(e => e.kind !== 'done' && e.kind !== 'error')
   // 立即安装桥接分发：后续事件进入 pendingBuffer，由 adapter run 排空并接管
   if (!directDispatch) {
+    console.log('[adapter] triggerStream: setting directDispatch to buffer mode')
     directDispatch = (evt: StreamEvent) => {
       pendingBuffer.push(evt)
     }
@@ -167,9 +168,11 @@ export function triggerStream(): void {
   // 若上一轮已消费掉 trigger（triggerResolve 为 null），为本轮重建，
   // 否则本轮的 adapter run 拿不到 trigger，会越过等待直接进入空循环而卡死。
   if (!triggerResolve) {
+    console.log('[adapter] triggerStream: creating new pendingTrigger')
     pendingTrigger = new Promise<void>(resolve => { triggerResolve = resolve })
   }
   if (triggerResolve) {
+    console.log('[adapter] triggerStream: resolving trigger')
     triggerResolve()
     triggerResolve = null
   }
@@ -392,6 +395,7 @@ export function createStreamingAdapter(): ChatModelAdapter {
 
       // 每次启动新 run 时，先清理旧的 directDispatch（防止跨 turn 串扰）
       directDispatch = null
+      console.log(`[adapter] run #${myRun} started, directDispatch set to null`)
 
       // 等待 trigger（message_consumed 到达后触发）
       if (pendingTrigger) {
@@ -399,6 +403,8 @@ export function createStreamingAdapter(): ChatModelAdapter {
         await pendingTrigger
         pendingTrigger = null
         console.log(`[adapter] run #${myRun} trigger received`)
+      } else {
+        console.log(`[adapter] run #${myRun} no pendingTrigger, continuing`)
       }
 
       let done = false

@@ -77,6 +77,7 @@ func (b *LoopBuilder) ToolExecutor(toolExecutor ...ToolExecutor) *LoopBuilder {
 func (b *LoopBuilder) Build() *Loop {
 	systemPrompt := b.loop.composeSystem()
 	b.loop.systemPrompt = systemPrompt
+	b.loop.mid.Store(uint64(util.GetMilliTime()))
 	return b.loop
 }
 func (l *Loop) SendBlock(block chat.Block) uint64 {

@@ -6,3 +6,6 @@ import "time"
 func GetSecondTime() int64 {
 	return time.Now().Unix()
 }
+func GetMilliTime() int64 {
+	return time.Now().UnixMilli()
+}
