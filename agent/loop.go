@@ -22,6 +22,7 @@ type LoopContext interface {
 
 	SendBlock(no uint64, block chat.Block) uint64
 	SendSignalBlock(no uint64, block chat.Block) uint64
+	GetTransferStart() uint64
 
 	AppendMainAssistantMessage(blocks *chat.BlockGroup)
 	AppendMainUserMessage(blocks *chat.BlockGroup)
@@ -121,6 +122,7 @@ func (l *Loop) HandleMessage(blocks chat.Blocks) {
 				l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 				return
 			}
+			log.Debug("[loop] LoadAllHistory done", "session", l.loopContext.SessionId(), "historyLen", l.store.HistoryLen(), "transferStart", l.loopContext.GetTransferStart())
 			l.do()
 		}, func(r any) {
 			log.Error("[loop] panic recovered", "session", l.loopContext.SessionId(), "panic", r)

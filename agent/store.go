@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	sdklog "github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -99,6 +100,12 @@ func (s *Store) IsEmpty() bool {
 	return s.history.Len() == 0
 }
 
+func (s *Store) HistoryLen() int {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.history.Len()
+}
+
 func (s *Store) append(c ...*chat.Message) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -138,12 +145,14 @@ func (s *Store) LoadAllHistory() error {
 		last := s.history.Last()
 		start = last.Start + last.Offset
 	}
+	sdklog.Debug("[store] LoadAllHistory", "session", s.sessionID, "start", start, "loaded", s.loaded)
 	for {
 		after, err := s.messageStore.LoadAfter(s.sessionID, start, s.maxBatchSize)
 		if err != nil {
 			return err
 		}
 		s.mergeHistory(after)
+		sdklog.Debug("[store] LoadAllHistory merged", "session", s.sessionID, "loaded", len(after), "historyLen", s.history.Len())
 		if len(after) < s.maxBatchSize {
 			s.loaded = true
 			break
@@ -154,6 +163,7 @@ func (s *Store) LoadAllHistory() error {
 	}
 	if !s.history.IsEmpty() {
 		last := s.history.Last()
+		sdklog.Debug("[store] LoadAllHistory storeStart", "session", s.sessionID, "start", last.Start+last.Offset)
 		s.sendEvent.storeStart(last.Start + last.Offset)
 	}
 	return nil

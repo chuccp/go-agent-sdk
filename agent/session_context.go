@@ -49,6 +49,10 @@ func (c *SessionContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
 	return c.transfer.SendSignalBlock(no, block)
 }
 
+func (c *SessionContext) GetTransferStart() uint64 {
+	return c.transfer.getStart()
+}
+
 func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
 	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	c.AgentStore().AppendHistory(userMsg)
