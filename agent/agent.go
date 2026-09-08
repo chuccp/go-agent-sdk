@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/chuccp/go-agent-sdk/log"
 )
 
 // Agent agent管理器
@@ -31,6 +33,7 @@ func (m *Agent) getOrCreateSession(sessionId string, options ...Option) *Session
 	session := newSession(sessionId, config, m.sessions)
 
 	m.sessions.Add(session)
+	log.Info("[session] created", "id", sessionId)
 	return session
 }
 
@@ -57,6 +60,7 @@ func (m *Agent) RemoveSession(sessionsId string) {
 	s, ok := m.sessions.Get(sessionsId)
 	if ok {
 		s.Destroy()
+		log.Info("[session] removed", "id", sessionsId)
 	}
 }
 

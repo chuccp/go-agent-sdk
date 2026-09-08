@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
@@ -99,6 +100,7 @@ func (s *Session) checkTimeout() {
 		return
 	}
 	if util.GetSecondTime()-s.lastTime > int64(s.sessionTimeout) {
+		log.Warn("[session] timeout, destroying", "id", s.sessionContext.sessionId, "timeout", s.sessionTimeout)
 		s.Destroy()
 	}
 }

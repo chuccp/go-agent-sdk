@@ -35,6 +35,9 @@ export function Thread() {
         <span style={{ fontSize: 11, color: '#80868b', marginLeft: 4 }}>
           go-agent-sdk · {location.hostname}:19009
         </span>
+        <span style={{ marginLeft: 'auto' }}>
+          <WsStatusDot />
+        </span>
       </div>
 
       {/* ── Messages ── */}
@@ -81,6 +84,48 @@ export function Thread() {
         </div>
       </div>
     </ThreadPrimitive.Root>
+  )
+}
+
+// ── WebSocket 连接状态指示灯 ──
+
+const STATUS_COLOR: Record<string, string> = {
+  connected: '#34a853',     // 绿色
+  disconnected: '#ea4335',  // 红色
+  reconnecting: '#fbbc04',  // 黄色
+}
+
+function WsStatusDot() {
+  const { wsStatus } = useMessageQueue()
+  const color = STATUS_COLOR[wsStatus] || STATUS_COLOR.disconnected
+
+  return (
+    <>
+      {wsStatus === 'reconnecting' && (
+        <style>{`
+          @keyframes ws-blink {
+            0%, 100% { background: #fbbc04; }
+            50% { background: #ea4335; }
+          }
+        `}</style>
+      )}
+      <span
+        title={
+          wsStatus === 'connected' ? 'WebSocket 已连接'
+          : wsStatus === 'reconnecting' ? 'WebSocket 重连中…'
+          : 'WebSocket 未连接'
+        }
+        style={{
+          display: 'inline-block',
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: color,
+          flexShrink: 0,
+          animation: wsStatus === 'reconnecting' ? 'ws-blink 1s ease-in-out infinite' : undefined,
+        }}
+      />
+    </>
   )
 }
 

@@ -10,7 +10,6 @@ require (
 	emperror.dev/errors v0.8.1
 	github.com/chuccp/go-agent-sdk v0.0.2
 	github.com/chuccp/go-web-frame v1.0.15
-	github.com/coder/websocket v1.8.15
 	github.com/spf13/cast v1.10.0
 	go.uber.org/zap v1.28.0
 )
@@ -21,6 +20,7 @@ require (
 	github.com/bytedance/sonic v1.15.2 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
@@ -81,5 +81,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.53.0 // indirect
-	resty.dev/v3 v3.0.0-rc.3 // indirect
+	resty.dev/v3 v3.0.0-rc.4 // indirect
 )

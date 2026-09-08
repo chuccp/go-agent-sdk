@@ -26,9 +26,9 @@ type MessageStore interface {
 
 type SendEvent interface {
 	sendEvent(event *Event)
-	getSeq() uint64
-	storeSeq(seq uint64)
-	getAndAddSeq() uint64
+	getStart() uint64
+	storeStart(seq uint64)
+	getAndAddStart() uint64
 }
 
 type splitManifest struct {
@@ -154,7 +154,7 @@ func (s *Store) LoadAllHistory() error {
 	}
 	if !s.history.IsEmpty() {
 		last := s.history.Last()
-		s.sendEvent.storeSeq(last.Start + last.Offset)
+		s.sendEvent.storeStart(last.Start + last.Offset)
 	}
 	return nil
 }

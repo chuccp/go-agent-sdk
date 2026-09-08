@@ -229,6 +229,9 @@ export interface AskUserQuestion {
   multi_select?: boolean
 }
 
+/** WebSocket 连接状态 */
+export type WsStatus = 'connected' | 'disconnected' | 'reconnecting'
+
 interface MessageQueueState {
   queuedMessages: QueuedMessage[]
   queueCount: number
@@ -240,6 +243,8 @@ interface MessageQueueState {
   pendingQuestion: AskUserQuestion[] | null
   /** 提交 ask_user 回答：直发后端并清除问题卡片 */
   submitAnswer: (text: string) => void
+  /** WebSocket 连接状态 */
+  wsStatus: WsStatus
 }
 
 const MessageQueueContext = createContext<MessageQueueState>({
@@ -250,6 +255,7 @@ const MessageQueueContext = createContext<MessageQueueState>({
   sendDirect: () => {},
   pendingQuestion: null,
   submitAnswer: () => {},
+  wsStatus: 'disconnected',
 })
 
 export function useMessageQueue() {
@@ -279,14 +285,17 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout>
     let mounted = true
+    let latestStart = 0
 
     const connect = (start: number) => {
       if (!mounted || controller.signal.aborted) return
+      latestStart = start
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       const level = thinkingRef.current || 'off'
       ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}&level=${level}`)
 
       ws.onopen = () => {
+        setWsStatus('connected')
         setupStreamBridge(ws!)
         setStopCallback(() => {
           stopGeneration(sessionId).catch(() => {})
@@ -302,6 +311,10 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       ws.onmessage = (evt: MessageEvent) => {
         try {
           const msg = JSON.parse(evt.data)
+          // 跟踪最新位置，重连时从此处继续
+          if (typeof msg.start === 'number' && typeof msg.offset === 'number') {
+            latestStart = msg.start + msg.offset
+          }
           const blocks = msg.blocks
           if (!Array.isArray(blocks)) return
           for (const block of blocks) {
@@ -338,7 +351,10 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       }
 
       ws.onclose = () => {
-        if (mounted && !controller.signal.aborted) reconnectTimer = setTimeout(() => connect(start), 2000)
+        if (mounted && !controller.signal.aborted) {
+          setWsStatus('reconnecting')
+          reconnectTimer = setTimeout(() => connect(latestStart), 2000)
+        }
       }
       ws.onerror = () => {}
     }
@@ -375,6 +391,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
       clearTimeout(reconnectTimer)
       controller.abort()
       ws?.close()
+      setWsStatus('disconnected')
     }
   }, [sessionId])
 
@@ -383,6 +400,9 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
 
   // ask_user 待回答问题
   const [pendingQuestion, setPendingQuestion] = useState<AskUserQuestion[] | null>(null)
+
+  // WebSocket 连接状态
+  const [wsStatus, setWsStatus] = useState<WsStatus>('disconnected')
 
   // 思考等级
   const [thinkingLevel, setThinkingLevelState] = useState<string>('off')
@@ -429,7 +449,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     sendDirect,
     pendingQuestion,
     submitAnswer,
-  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer])
+    wsStatus,
+  }), [queuedMessages, thinkingLevel, sendDirect, pendingQuestion, submitAnswer, wsStatus])
 
   if (initialMessages === null) {
     return (

@@ -48,10 +48,10 @@ func seedMsg(start, offset uint64) *chat.Message {
 // noopSendEvent 丢弃事件、维护独立序号的 SendEvent 实现，仅供测试。
 type noopSendEvent struct{ seq uint64 }
 
-func (n *noopSendEvent) sendEvent(_ *Event)  {}
-func (n *noopSendEvent) getSeq() uint64      { return n.seq }
-func (n *noopSendEvent) storeSeq(seq uint64) { n.seq = seq }
-func (n *noopSendEvent) getAndAddSeq() uint64 {
+func (n *noopSendEvent) sendEvent(_ *Event)    {}
+func (n *noopSendEvent) getStart() uint64      { return n.seq }
+func (n *noopSendEvent) storeStart(seq uint64) { n.seq = seq }
+func (n *noopSendEvent) getAndAddStart() uint64 {
 	n.seq++
 	return n.seq
 }

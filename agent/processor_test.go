@@ -124,12 +124,12 @@ func (t *echoTool) Execute(turn *agent.Turn, w *chat.ToolResultBlockStream) {
 
 // ── Helpers ──
 
-// newTestClient 创建 Agent 并返回 client，简化测试代码。
-func newTestClient(t *testing.T, manager *agent.Agent, sessionId string) *agent.Client {
+// newTestSession 创建 Agent 并返回 session + client，简化测试代码。
+func newTestSession(t *testing.T, manager *agent.Agent, sessionId string) (*agent.Session, *agent.Client) {
 	t.Helper()
 	session := manager.GetOrCreateSession(sessionId)
 	client := session.CreateClient(context.Background(), 0)
-	return client
+	return session, client
 }
 
 // eventHasBlock 检查事件的 Blocks 中是否包含指定类型的 block。
@@ -240,8 +240,8 @@ func TestSingleRoundText(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s1")
-	client.WriteText("hi")
+	session, client := newTestSession(t, manager, "s1")
+	session.WriteText("hi")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
@@ -260,8 +260,8 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s2")
-	client.WriteText("use echo tool")
+	session, client := newTestSession(t, manager, "s2")
+	session.WriteText("use echo tool")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
@@ -281,8 +281,8 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s3")
-	client.WriteText("use unknown tool")
+	session, client := newTestSession(t, manager, "s3")
+	session.WriteText("use unknown tool")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
@@ -296,14 +296,14 @@ func TestMultipleRounds(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s4")
+	session, client := newTestSession(t, manager, "s4")
 
 	// 第一轮
-	client.WriteText("round 1")
+	session.WriteText("round 1")
 	readUntilDone(t, client, 10*time.Second)
 
 	// 第二轮
-	client.WriteText("round 2")
+	session.WriteText("round 2")
 	evt := readUntilDone(t, client, 10*time.Second)
 	if evt == nil {
 		t.Fatal("expected done event in round 2")
@@ -318,15 +318,15 @@ func TestStopGeneration(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s5")
-	client.WriteText("hello")
+	session, client := newTestSession(t, manager, "s5")
+	session.WriteText("hello")
 
 	// 等待 doLoop 启动后再 stop
 	time.Sleep(50 * time.Millisecond)
-	client.Stop()
+	session.Stop()
 
 	// stop 后可发送新消息，验证系统仍可正常工作
-	client.WriteText("after stop")
+	session.WriteText("after stop")
 	evt := readUntilDone(t, client, 10*time.Second)
 	if evt == nil {
 		t.Fatal("expected done event after restart")
@@ -361,8 +361,8 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	config.RegisterChat(provider)
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "stop-round")
-	client.WriteText("开始长耗时生成")
+	session, client := newTestSession(t, manager, "stop-round")
+	session.WriteText("开始长耗时生成")
 
 	// 等首轮生成确实开始后再停止
 	select {
@@ -370,7 +370,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("等待生成开始超时")
 	}
-	client.Stop()
+	session.Stop()
 
 	// 被停轮应以 done 结束（而非 error 事件）
 	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
@@ -378,7 +378,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	}
 
 	// 后续新消息正常触发新一轮
-	client.WriteText("下一条消息")
+	session.WriteText("下一条消息")
 	if evt := readUntilDone(t, client, 10*time.Second); evt == nil {
 		t.Fatal("expected done event after stop")
 	}
@@ -399,8 +399,8 @@ func TestTwoClientsSameSession(t *testing.T) {
 	client1 := session.CreateClient(context.Background(), 0)
 	client2 := session.CreateClient(context.Background(), 0)
 
-	// client1 发消息，两个 client 都应该能读到事件
-	client1.WriteText("hello")
+	// session 发消息，两个 client 都应该能读到事件
+	session.WriteText("hello")
 
 	// 两个 client 都应该能读到 done
 	evt1 := readUntilDone(t, client1, 10*time.Second)
@@ -425,8 +425,8 @@ func TestMaxTokensStopReason(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s7")
-	client.WriteText("hi")
+	session, client := newTestSession(t, manager, "s7")
+	session.WriteText("hi")
 
 	events := collectEvents(t, client)
 	hasBlockTypeInEvents(t, events, &chat.DoneBlock{})
@@ -454,17 +454,17 @@ func TestMessageDeltaTwoRounds(t *testing.T) {
 	config.RegisterChat(&usageProvider{})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s_usage")
+	session, client := newTestSession(t, manager, "s_usage")
 
 	// 第一轮
-	client.WriteText("round 1")
+	session.WriteText("round 1")
 	evt1 := readUntilDone(t, client, 10*time.Second)
 	if evt1 == nil {
 		t.Fatal("round 1: expected done event")
 	}
 
 	// 第二轮
-	client.WriteText("round 2")
+	session.WriteText("round 2")
 	evt2 := readUntilDone(t, client, 10*time.Second)
 	if evt2 == nil {
 		t.Fatal("round 2: expected done event")
@@ -482,7 +482,7 @@ func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
 	manager := config.CreateAgent(context.Background())
 	session := manager.GetOrCreateSession("s_time")
 	client := session.CreateClient(context.Background(), 0)
-	client.WriteText("hello")
+	session.WriteText("hello")
 
 	// 写入消息后 session 应该能正常工作（lastTime 已更新）
 	events := collectEvents(t, client)
@@ -500,7 +500,7 @@ func TestSession_Destroy(t *testing.T) {
 	manager := config.CreateAgent(context.Background())
 	session := manager.GetOrCreateSession("s_destroy")
 	client := session.CreateClient(context.Background(), 0)
-	client.WriteText("hello")
+	session.WriteText("hello")
 	collectEvents(t, client)
 
 	session.Destroy()
@@ -526,8 +526,8 @@ func TestSession_RemoveSession(t *testing.T) {
 	})
 
 	manager := config.CreateAgent(context.Background())
-	client := newTestClient(t, manager, "s_rm")
-	client.WriteText("hello")
+	session, client := newTestSession(t, manager, "s_rm")
+	session.WriteText("hello")
 	collectEvents(t, client)
 
 	manager.RemoveSession("s_rm")

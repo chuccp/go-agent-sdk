@@ -21,8 +21,8 @@ profile.cov
 # vendor/
 
 # Go workspace file
-go.work
-go.work.sum
+#go.work
+#go.work.sum
 
 # env file
 .env
