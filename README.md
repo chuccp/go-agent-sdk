@@ -19,15 +19,15 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  Agent                                                        │
-│  ├── Chat (ServiceStore 管理多 LLM 后端)                       │
-│  ├── ToolExecutors (工具注册)                                   │
+│  Server (Agent 管理器)                                         │
+│  ├── Config (构建期配置)                                        │
 │  └── Sessions map[id] → Session                               │
 │                  └── Session                                   │
-│                       ├── SessionContext (状态中心, 实现 LoopContext)
-│                       │    ├── Loop (会话编排器, runLock 保护)   │
+│                       ├── SessionContext (状态中心, 实现 Context)
+│                       │    ├── Agent (会话编排器, runLock 保护)  │
 │                       │    │    ├── inbox (消息队列)            │
 │                       │    │    ├── HandleMessage (入队+启动)    │
+│                       │    │    ├── done (轮次结束回调)          │
 │                       │    │    └── do → loop → chatWithStream  │
 │                       │    │         ├── executeTools           │
 │                       │    │         └── appendMessage          │
@@ -41,30 +41,34 @@
 └───────────────────────────────────────────────────────────────┘
 ```
 
-### LoopContext 接口
+### Context 接口
 
-`LoopContext` 是会话生命周期的核心接口，由 `SessionContext` 实现，提供会话状态访问和事件发送能力：
+`Context` 是会话生命周期的核心接口，由 `SessionContext` 实现，提供会话状态访问和事件发送能力：
 
 ```go
-type LoopContext interface {
+type Context interface {
     context.Context
     SessionId() string
     GetChat() *chat.Chat
     SubAgentStore() *Store
     AgentStore() *Store
-    SendBlock(no uint64, block chat.Block) uint64  // 发送事件块
+
+    SendBlock(no uint64, block chat.Block) uint64       // 发送事件块
+    SendSignalBlock(no uint64, block chat.Block) uint64 // 发送信号事件块
+    GetTransferStart() uint64                           // 获取当前传输起始位置
+
     AppendMainAssistantMessage(blocks *chat.BlockGroup)
     AppendMainUserMessage(blocks *chat.BlockGroup)
 }
 ```
 
-`SendBlock` 是事件发送的统一入口，通过 `Transfer` 实现，将事件分发给所有订阅的客户端。
+`SendBlock` 是事件发送的统一入口，通过 `Transfer` 实现，将事件分发给所有订阅的客户端。`SendSignalBlock` 用于发送信号事件（如用户消息状态变更），不会持久化。
 
 ## 包结构
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：Agent, Session, Client, Loop,
+├── agent/          # Agent 层：Server, Agent, Session, Client,
 │                   #   Transfer, ToolExecutor, Turn, Store, MessageStore
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
@@ -118,8 +122,8 @@ func main() {
 	config.SessionTimeout(600) // 会话空闲超时
 	config.ClientTimeout(300)  // 客户端空闲超时
 
-	// 6. 基于配置创建 Agent（内部启动后台超时清理循环）
-	a := config.CreateAgent(context.Background())
+	// 6. 基于配置创建 Server（内部启动后台超时清理循环）
+	a := config.CreateServer(context.Background())
 
 	// 7. 获取会话
 	session := a.GetOrCreateSession("session-1")
@@ -157,15 +161,31 @@ func main() {
 
 ## 核心概念
 
-### Session 与 LoopContext
+### Session 与 Context
 
-`Session` 是会话的容器，包含 `SessionContext`（实现 `LoopContext` 接口）和多个 `Client`。`LoopContext` 提供：
+`Session` 是会话的容器，包含 `SessionContext`（实现 `Context` 接口）和多个 `Client`。`Context` 提供：
 
 - **会话状态访问** — `GetChat()`, `AgentStore()`, `SubAgentStore()`
-- **事件发送** — `SendBlock(no, block)` 通过 `Transfer` 分发事件
+- **事件发送** — `SendBlock(no, block)` 通过 `Transfer` 分发事件；`SendSignalBlock(no, block)` 发送信号事件
+- **传输状态** — `GetTransferStart()` 获取当前传输起始位置
 - **历史管理** — `AppendMainAssistantMessage()`, `AppendMainUserMessage()`
 
-`Loop` 通过 `LoopContext` 与会话交互，不直接持有 `Transfer` 或 `Store`，实现了关注点分离。
+`Agent`（会话编排器）通过 `Context` 与会话交互，不直接持有 `Transfer` 或 `Store`，实现了关注点分离。
+
+### Done 回调
+
+`Agent` 支持通过 `Done` 结构体在轮次结束后执行自定义逻辑：
+
+```go
+// HandleDoneMessage 创建一个 Done 对象，用于在轮次结束后执行回调
+done := agent.HandleDoneMessage(blocks)
+done.Done(func() {
+    // 轮次结束后的自定义逻辑
+    fmt.Println("round completed")
+})
+```
+
+`Done.Done(f)` 注册回调函数 `f`，在当前轮次完成（发送 `DoneBlock` 并持久化）后自动执行。
 
 ### Block（内容块）
 
@@ -215,7 +235,7 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 
 每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start` 即可从活跃事件缓冲区（`entries`）增量续读。事件按 **Start 升序** 返回。
 
-事件发送通过 `Transfer.SendBlock` 统一处理，`Loop.SendBlock` 和 `SessionContext.SendBlock` 均委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
+事件发送通过 `Transfer.SendBlock` 统一处理，`Agent.SendBlock` 和 `SessionContext.SendBlock` 均委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
 
 `doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，旧事件被裁掉（`reset`），待保存历史迁入持久层（`save`）。`start` 早于缓冲区头部时自动钳制；服务重启后从历史恢复 `seq`，新事件无缝接续。
 
@@ -392,8 +412,8 @@ config.Compressor(myCompressor)
 // RegisterChat 注册 LLM 提供商（可注册多个，首个为默认）
 config.RegisterChat(anthropic.NewService("provider-id", baseUrl, apiKey, model))
 
-// CreateAgent 基于配置创建 Agent（内部启动后台超时清理循环）
-a := config.CreateAgent(context.Background())
+// CreateServer 基于配置创建 Server（内部启动后台超时清理循环）
+a := config.CreateServer(context.Background())
 ```
 
 ## License
