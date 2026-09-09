@@ -204,7 +204,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	activate, execNode, stepDone, status, finish := workflow.NewFlowTools(wf)
 	config.AddTools(activate, execNode, stepDone, status, finish)
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("flow-e2e")
 	client := session.CreateClient(context.Background(), 0)
 	session.WriteText("给我 5 岁孩子写个太空故事")
@@ -265,7 +265,7 @@ func TestFlowGuards(t *testing.T) {
 	wf.AddWorkflow(newStoryFlow())
 
 	activate, execNode, _, _, finish := workflow.NewFlowTools(wf)
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	sctx := manager.SessionContext("flow-guards")
 	turn := func(args map[string]any) *agent.Turn {
 		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))

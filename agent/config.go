@@ -14,7 +14,7 @@ const (
 )
 
 // Config 构建期配置。setter 与 Copy 均加锁，可安全地一边配置一边创建 Server；
-// CreateAgent 内部 Copy 一份，之后对原 Config 的修改不影响已创建的 Server。
+// CreateServer 内部 Copy 一份，之后对原 Config 的修改不影响已创建的 Server。
 type Config struct {
 	lock           *sync.RWMutex
 	chat           *chat.Chat
@@ -107,15 +107,15 @@ func (m *Config) Copy() *Config {
 		clientTimeout:  m.clientTimeout,
 	}
 }
-func (m *Config) CreateAgent(ctx context.Context) *Server {
-	agent := &Server{
+func (m *Config) CreateServer(ctx context.Context) *Server {
+	server := &Server{
 		sessions: NewSessions(),
 		config:   m.Copy(),
 	}
 	util.Go(func() {
-		agent.run(ctx)
+		server.run(ctx)
 	})
-	return agent
+	return server
 }
 
 func NewConfig() *Config {

@@ -57,7 +57,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 			config.RegisterChat(anthropic.NewService(key, provider.BaseUrl, provider.ApiKey, provider.Model))
 		}
 	}
-	r.agentManager = config.CreateAgent(r.ctx)
+	r.agentManager = config.CreateServer(r.ctx)
 
 	log.Info("Agent initialized (go-agent-sdk)", zap.Int("providers", len(providers)))
 	return nil

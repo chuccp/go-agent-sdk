@@ -100,7 +100,7 @@ func TestTwoRoundsWithTool(t *testing.T) {
 	config.AddTools(&fakeTool{})
 	config.RegisterChat(&fakeProvider{})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("session-1")
 	client := session.CreateClient(context.Background(), 0)
 

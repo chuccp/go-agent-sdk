@@ -239,7 +239,7 @@ func TestSingleRoundText(t *testing.T) {
 		text:       "Hello, world!",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s1")
 	session.WriteText("hi")
 
@@ -259,7 +259,7 @@ func TestToolUseWithRegisteredTool(t *testing.T) {
 		},
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s2")
 	session.WriteText("use echo tool")
 
@@ -280,7 +280,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 		},
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s3")
 	session.WriteText("use unknown tool")
 
@@ -295,7 +295,7 @@ func TestMultipleRounds(t *testing.T) {
 		text:       "response",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s4")
 
 	// 第一轮
@@ -317,7 +317,7 @@ func TestStopGeneration(t *testing.T) {
 		text:       "response after stop",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s5")
 	session.WriteText("hello")
 
@@ -360,7 +360,7 @@ func TestStopOnlyAffectsCurrentRound(t *testing.T) {
 	provider := &blockingProvider{entered: make(chan struct{})}
 	config.RegisterChat(provider)
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "stop-round")
 	session.WriteText("开始长耗时生成")
 
@@ -394,7 +394,7 @@ func TestTwoClientsSameSession(t *testing.T) {
 		text:       "shared response",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s6")
 	client1 := session.CreateClient(context.Background(), 0)
 	client2 := session.CreateClient(context.Background(), 0)
@@ -424,7 +424,7 @@ func TestMaxTokensStopReason(t *testing.T) {
 		text:       "partial response...",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s7")
 	session.WriteText("hi")
 
@@ -453,7 +453,7 @@ func TestMessageDeltaTwoRounds(t *testing.T) {
 	config := agent.NewConfig()
 	config.RegisterChat(&usageProvider{})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s_usage")
 
 	// 第一轮
@@ -479,7 +479,7 @@ func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
 		text:       "ok",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s_time")
 	client := session.CreateClient(context.Background(), 0)
 	session.WriteText("hello")
@@ -497,7 +497,7 @@ func TestSession_Destroy(t *testing.T) {
 		text:       "ok",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s_destroy")
 	client := session.CreateClient(context.Background(), 0)
 	session.WriteText("hello")
@@ -525,7 +525,7 @@ func TestSession_RemoveSession(t *testing.T) {
 		text:       "ok",
 	})
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session, client := newTestSession(t, manager, "s_rm")
 	session.WriteText("hello")
 	collectEvents(t, client)

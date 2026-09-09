@@ -138,7 +138,7 @@ func TestFlowIteration(t *testing.T) {
 	activate, execNode, stepDone, _, finish := workflow.NewFlowTools(wf)
 	config.AddTools(activate, execNode, stepDone, finish)
 
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("flow-iter")
 	client := session.CreateClient(context.Background(), 0)
 	session.WriteText("把「小狐狸看月亮」扩写成故事")

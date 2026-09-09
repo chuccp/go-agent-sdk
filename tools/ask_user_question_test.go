@@ -209,7 +209,7 @@ func TestExecute_NilContext(t *testing.T) {
 func TestExecute_InvalidQuestions(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	config := agent.NewConfig()
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	ctx := manager.SessionContext("ask-s1")
 
 	w := chat.NewBlockStream(nil)
@@ -224,7 +224,7 @@ func TestExecute_InvalidQuestions(t *testing.T) {
 func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	config := agent.NewConfig()
-	manager := config.CreateAgent(context.Background())
+	manager := config.CreateServer(context.Background())
 	ctx := manager.SessionContext("ask-s2")
 	client := manager.GetOrCreateSession("ask-s2").CreateClient(context.Background(), 0)
 	defer client.Close()
