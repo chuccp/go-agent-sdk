@@ -103,13 +103,13 @@ func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages,
 	for _, b := range blocks {
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
 			w.BlockToolUseStart(tu.ID, tu.Name)
-			w.Delta(mustJSON(tu.Input))
+			w.BlockDelta(mustJSON(tu.Input))
 			continue
 		}
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
 			w.BlockTextStart()
-			w.Delta(tb.Text)
+			w.BlockDelta(tb.Text)
 			continue
 		}
 	}

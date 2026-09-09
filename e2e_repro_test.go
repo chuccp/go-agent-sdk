@@ -26,12 +26,12 @@ func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *
 	f.calls++
 	if f.calls == 1 {
 		w.BlockToolUseStart("tu_1", "fake_tool")
-		w.Delta(`{"command":"echo hi"}`)
+		w.BlockDelta(`{"command":"echo hi"}`)
 		w.StopReason(chat.StopReasonToolUse)
 		return nil
 	}
 	w.BlockTextStart()
-	w.Delta("工具结果已收到")
+	w.BlockDelta("工具结果已收到")
 	w.StopReason(chat.StopReasonEndTurn)
 	return nil
 }

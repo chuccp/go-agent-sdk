@@ -28,12 +28,12 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, 
 	case 1:
 		w.BlockToolUseStart("tu_ask", "ask_user_question")
 		// 入参按真实协议以 Delta 流式送达
-		w.Delta(`{"questions":[{"question":"What color?","header":"Color","options":[` +
+		w.BlockDelta(`{"questions":[{"question":"What color?","header":"Color","options":[` +
 			`{"label":"Red","description":"Red color"},{"label":"Blue","description":"Blue color"}]}]}`)
 		w.StopReason(chat.StopReasonToolUse)
 	default:
 		w.BlockTextStart()
-		w.Delta("已收到用户回答")
+		w.BlockDelta("已收到用户回答")
 		w.StopReason(chat.StopReasonEndTurn)
 	}
 	return nil

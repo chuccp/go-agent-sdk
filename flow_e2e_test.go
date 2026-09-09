@@ -64,14 +64,14 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages,
 		if tb, ok := b.(*chat.TextBlock); ok {
 			stop = chat.StopReasonEndTurn
 			w.BlockTextStart()
-			w.Delta(tb.Text)
+			w.BlockDelta(tb.Text)
 			continue
 		}
 		if tu, ok := b.(*chat.ToolUseBlock); ok {
 			// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
 			w.BlockToolUseStart(tu.ID, tu.Name)
 			inputJSON, _ := json.Marshal(tu.Input)
-			w.Delta(string(inputJSON))
+			w.BlockDelta(string(inputJSON))
 			continue
 		}
 	}
@@ -94,7 +94,7 @@ func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Messages, w 
 // emitText 以简化流项写出一段完整文本（end_turn）。
 func emitText(w *chat.BlockStream, text string) {
 	w.BlockTextStart()
-	w.Delta(text)
+	w.BlockDelta(text)
 	w.StopReason(chat.StopReasonEndTurn)
 }
 

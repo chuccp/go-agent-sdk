@@ -16,8 +16,8 @@ func drainBlocks(t *testing.T, stream *BlockStream) []Block {
 func TestBlockStream_TextStream(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.BlockTextStart()
-	stream.Delta("Hello ")
-	stream.Delta("World")
+	stream.BlockDelta("Hello ")
+	stream.BlockDelta("World")
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -32,7 +32,7 @@ func TestBlockStream_TextStream(t *testing.T) {
 func TestBlockStream_ThinkingStream(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.BlockThinkingStart()
-	stream.Delta("let me think...")
+	stream.BlockDelta("let me think...")
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -49,7 +49,7 @@ func TestBlockStream_EmptyThinkingSkipped(t *testing.T) {
 	stream.BlockThinkingStart()
 	// 无增量：空 thinking block 应被跳过
 	stream.BlockTextStart()
-	stream.Delta("text")
+	stream.BlockDelta("text")
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -63,7 +63,7 @@ func TestBlockStream_EmptyThinkingSkipped(t *testing.T) {
 func TestBlockStream_ToolUseStream(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.BlockToolUseStart("tu_1", "my_tool")
-	stream.Delta(`{"cmd":"ls"}`)
+	stream.BlockDelta(`{"cmd":"ls"}`)
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 1 {
@@ -84,11 +84,11 @@ func TestBlockStream_ToolUseStream(t *testing.T) {
 func TestBlockStream_MultipleBlocks(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.BlockThinkingStart()
-	stream.Delta("hmm")
+	stream.BlockDelta("hmm")
 	stream.BlockTextStart()
-	stream.Delta("answer")
+	stream.BlockDelta("answer")
 	stream.BlockToolUseStart("tu_1", "tool")
-	stream.Delta(`{}`)
+	stream.BlockDelta(`{}`)
 
 	blocks := drainBlocks(t, stream)
 	if len(blocks) != 3 {
@@ -118,7 +118,7 @@ func TestBlockStream_StopReasonAndUsage(t *testing.T) {
 
 	// Usage block is added to blocks list
 	stream.BlockTextStart()
-	stream.Delta("hi")
+	stream.BlockDelta("hi")
 	blocks := stream.ReadBlocks()
 	if stream.GetStopReason() != StopReasonToolUse {
 		t.Errorf("expected tool_use, got %s", stream.GetStopReason())
@@ -238,7 +238,7 @@ func TestBlockStream_ReadBlocks_Empty(t *testing.T) {
 func TestBlockStream_FlushesActiveBlock(t *testing.T) {
 	stream := NewBlockStream(nil)
 	stream.BlockTextStart()
-	stream.Delta("pending text")
+	stream.BlockDelta("pending text")
 	// 无下一个 BlockStart，ReadBlocks 应 flush 当前组装中的 block
 
 	blocks := drainBlocks(t, stream)
@@ -262,7 +262,7 @@ func TestBlockStream_EmitsStartAndDeltaBlocks(t *testing.T) {
 	recv := &testReceiver{}
 	stream := NewBlockStream(recv)
 	stream.BlockTextStart()
-	stream.Delta("hello")
+	stream.BlockDelta("hello")
 
 	// receiver 收到 StartBlock + DeltaBlock
 	if len(recv.blocks) < 2 {
@@ -280,7 +280,7 @@ func TestBlockStream_ThinkingEmitsStartAndDelta(t *testing.T) {
 	recv := &testReceiver{}
 	stream := NewBlockStream(recv)
 	stream.BlockThinkingStart()
-	stream.Delta("hmm")
+	stream.BlockDelta("hmm")
 
 	if len(recv.blocks) < 2 {
 		t.Fatalf("expected at least 2 blocks, got %d", len(recv.blocks))
@@ -297,7 +297,7 @@ func TestBlockStream_ToolUseEmitsStartAndDelta(t *testing.T) {
 	recv := &testReceiver{}
 	stream := NewBlockStream(recv)
 	stream.BlockToolUseStart("tu_1", "tool")
-	stream.Delta(`{"a":1}`)
+	stream.BlockDelta(`{"a":1}`)
 
 	if len(recv.blocks) < 2 {
 		t.Fatalf("expected at least 2 blocks, got %d", len(recv.blocks))

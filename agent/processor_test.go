@@ -27,12 +27,12 @@ func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Messa
 		w.BlockToolUseStart(f.toolUse.ID, f.toolUse.Name)
 		if f.toolUse.Input != nil {
 			inputJSON, _ := json.Marshal(f.toolUse.Input)
-			w.Delta(string(inputJSON))
+			w.BlockDelta(string(inputJSON))
 		}
 		w.StopReason(chat.StopReasonToolUse)
 	} else {
 		w.BlockTextStart()
-		w.Delta(f.text)
+		w.BlockDelta(f.text)
 		w.StopReason(f.stopReason)
 	}
 	return nil
@@ -63,7 +63,7 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w 
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
 		w.BlockTextStart()
-		w.Delta("fallback")
+		w.BlockDelta("fallback")
 		w.StopReason(chat.StopReasonEndTurn)
 		return nil
 	}
@@ -73,23 +73,23 @@ func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w 
 	// 如果设置了 text，使用快捷方式
 	if resp.text != "" {
 		w.BlockTextStart()
-		w.Delta(resp.text)
+		w.BlockDelta(resp.text)
 	} else {
 		for _, bs := range resp.blocks {
 			switch bs.blockType {
 			case chat.ToolUseBlockType:
 				// 模拟真实 LLM：start 只带 id/name，入参经 Delta 流式下发
 				w.BlockToolUseStart(bs.toolID, bs.toolName)
-				w.Delta(`{"command":"echo hi"}`)
+				w.BlockDelta(`{"command":"echo hi"}`)
 			case chat.ThinkingBlockType:
 				w.BlockThinkingStart()
 				if bs.text != "" {
-					w.Delta(bs.text)
+					w.BlockDelta(bs.text)
 				}
 			default:
 				w.BlockTextStart()
 				if bs.text != "" {
-					w.Delta(bs.text)
+					w.BlockDelta(bs.text)
 				}
 			}
 		}
@@ -347,7 +347,7 @@ func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages,
 		return ctx.Err()
 	}
 	w.BlockTextStart()
-	w.Delta("正常回复")
+	w.BlockDelta("正常回复")
 	w.StopReason(chat.StopReasonEndTurn)
 	return nil
 }
@@ -442,7 +442,7 @@ func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *c
 	n := int(f.idx.Add(1))
 	w.MessageStart(&chat.Usage{InputTokens: 100, OutputTokens: 0})
 	w.BlockTextStart()
-	w.Delta(fmt.Sprintf("response %d", n))
+	w.BlockDelta(fmt.Sprintf("response %d", n))
 	w.MessageDelta(&chat.Usage{InputTokens: 100, OutputTokens: 50})
 	w.StopReason(chat.StopReasonEndTurn)
 	return nil

@@ -185,7 +185,7 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStre
 		for scanner.Scan() {
 			line := string(decodeOutput(scanner.Bytes())) + "\n"
 			buf.Lock()
-			writer.Delta(line)
+			writer.BlockDelta(line)
 			buf.Unlock()
 			gotOutput.Store(true)
 		}
@@ -194,6 +194,7 @@ func (t *CommandTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStre
 	go streamLines(stdout)
 	go streamLines(stderr)
 	wg.Wait()
+	writer.BlockStop()
 
 	err = c.Wait()
 	if err != nil {

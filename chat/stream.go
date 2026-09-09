@@ -134,7 +134,7 @@ func (s *BlockStream) FullText(content string) {
 	defer s.mu.Unlock()
 	s.flushAndAdd(NewFullTextBlock(content))
 }
-func (s *BlockStream) Delta(content string) {
+func (s *BlockStream) BlockDelta(content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.delta(content)
@@ -226,6 +226,13 @@ func (s *BlockStream) ReadBlocks() Blocks {
 	return s.blocks
 }
 
+func (s *BlockStream) BlockStop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flush()
+	s.sendBlock(NewStopBlock())
+}
+
 func (s *BlockStream) ReadBlockGroup() *BlockGroup {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -267,9 +274,14 @@ func (s *ToolResultBlockStream) BlockTextTypeStart(textType TextType) {
 	toolResultText.TextType = textType
 	s.blockStream.BlockStart(toolResultText)
 }
-func (s *ToolResultBlockStream) Delta(content string) {
-	s.blockStream.Delta(content)
+func (s *ToolResultBlockStream) BlockDelta(content string) {
+	s.blockStream.BlockDelta(content)
 }
+
+func (s *ToolResultBlockStream) BlockStop() {
+	s.blockStream.BlockStop()
+}
+
 func (s *ToolResultBlockStream) ErrorText(error error) {
 	block := NewToolResultTextBlock(s.ToolUseId)
 	block.Text = error.Error()
