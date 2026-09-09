@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
 	"github.com/chuccp/go-agent-sdk/chat"
 	"resty.dev/v3"
 )
@@ -39,9 +40,21 @@ func NewService(id, baseUrl, apiKey string, model string, config ...*chat.Config
 		restyClient: resty.New().SetBaseURL(baseUrl),
 	}
 }
+func (s *Service) Config() *chat.Config {
+	return s.config
+}
 
+// BaseURL 返回 API 基础地址。
+func (s *Service) BaseURL() string {
+	return s.baseUrl
+}
+
+// APIKey 返回 API 密钥。
+func (s *Service) APIKey() string {
+	return s.apiKey
+}
 func (s *Service) ChatWithStream(ctx context.Context, chatMessages *chat.Messages, response *chat.BlockStream) error {
-	config := chat.Combine(s.config, chatMessages.Config)
+	config := chat.Combine(chatMessages.Config, s.config)
 	request := NewRequest(chatMessages, config)
 	r, err := s.restyClient.R().
 		SetContext(ctx).
@@ -107,6 +120,10 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.B
 				resp.BlockThinkingStart()
 			case "tool_use":
 				resp.BlockToolUseStart(raw.ContentBlock.ID, raw.ContentBlock.Name)
+			case "server_tool_use":
+				// Anthropic 内置工具（如 web_search）的服务器端调用，
+				// 查询由服务端执行，结果以后续 text block 返回，此处跳过。
+				continue
 			default:
 				resp.BlockTextStart()
 			}

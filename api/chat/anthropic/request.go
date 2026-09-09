@@ -84,7 +84,10 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 			request.Tools = make([]chat.ToolFunction, len(chatMessages.Tools))
 			copy(request.Tools, chatMessages.Tools)
 			for i := range request.Tools {
-				request.Tools[i].CacheControl = &chat.CacheControl{Type: "ephemeral"}
+				// 内置工具（Type 非空）不需要 cache_control
+				if request.Tools[i].Type == "" {
+					request.Tools[i].CacheControl = &chat.CacheControl{Type: "ephemeral"}
+				}
 			}
 		}
 	}

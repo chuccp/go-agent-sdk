@@ -18,15 +18,18 @@ func (c *Chat) Register(chatService Service) {
 	}
 	c.serviceStore.Register(chatService)
 }
-func (c *Chat) GetService(id string) Service {
+func (c *Chat) GetService(config *Config) Service {
+	id := c.defaultServiceId
+	if config != nil {
+		cid := config.GetID()
+		if util.IsNotBlank(cid) {
+			id = cid
+		}
+	}
 	return c.serviceStore.GetService(id)
 }
 func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Messages, response *BlockStream) error {
-	id := chatMessages.Config.GetID()
-	if util.IsBlank(id) {
-		id = c.defaultServiceId
-	}
-	return c.GetService(id).ChatWithStream(ctx, chatMessages, response)
+	return c.GetService(chatMessages.Config).ChatWithStream(ctx, chatMessages, response)
 }
 
 func NewChat() *Chat {

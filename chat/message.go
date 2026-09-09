@@ -12,10 +12,12 @@ type CacheControl struct {
 }
 
 // ToolFunction 是发给模型的工具定义。模型据此生成 tool_use content block。
+// 内置工具（如 Anthropic web_search）通过 Type 字段标识，不使用 InputSchema。
 type ToolFunction struct {
+	Type          string           `json:"type,omitempty"`           // 内置工具类型（如 "web_search_20250305"），自定义工具留空
 	Name          string           `json:"name"`                     // 工具名称（唯一标识）
 	Description   string           `json:"description"`              // 工具功能描述（模型据此决定是否调用）
-	InputSchema   map[string]any   `json:"input_schema"`             // 输入参数的 JSON Schema
+	InputSchema   map[string]any   `json:"input_schema,omitempty"`   // 输入参数的 JSON Schema（自定义工具必填）
 	InputExamples []map[string]any `json:"input_examples,omitempty"` // 调用示例（可选）
 	CacheControl  *CacheControl    `json:"cache_control,omitempty"`  // 提示词缓存断点
 }
