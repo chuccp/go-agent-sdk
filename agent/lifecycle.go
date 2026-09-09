@@ -6,7 +6,7 @@ import "github.com/chuccp/go-agent-sdk/chat"
 // 实现该接口可监听会话的创建、首条消息、轮次结束和销毁事件。
 type Lifecycle interface {
 	OnSessionCreated(s *Session)
-	OnFirstMessage(ctx Context, msg *chat.Message)
+	OnMessage(ctx Context, blocks *chat.UserBlock)
 	OnRoundDone(ctx Context)
 	OnSessionDestroyed(s *Session)
 }
@@ -16,8 +16,8 @@ type Lifecycle interface {
 // OnSessionCreatedFunc 会话创建回调函数。
 type OnSessionCreatedFunc func(s *Session)
 
-// OnFirstMessageFunc 首条消息回调函数。
-type OnFirstMessageFunc func(ctx Context, msg *chat.Message)
+// OnMessageFunc 消息回调函数。
+type OnMessageFunc func(ctx Context, block *chat.UserBlock)
 
 // OnRoundDoneFunc 轮次结束回调函数。
 type OnRoundDoneFunc func(ctx Context)
@@ -29,7 +29,7 @@ type OnSessionDestroyedFunc func(s *Session)
 // 每个事件支持注册多个回调，按注册顺序依次执行；未注册的事件为空操作。
 type FuncLifecycle struct {
 	Created   []OnSessionCreatedFunc
-	FirstMsg  []OnFirstMessageFunc
+	Message   []OnMessageFunc
 	RoundEnd  []OnRoundDoneFunc
 	Destroyed []OnSessionDestroyedFunc
 }
@@ -40,9 +40,9 @@ func (f *FuncLifecycle) OnSessionCreated(s *Session) {
 	}
 }
 
-func (f *FuncLifecycle) OnFirstMessage(ctx Context, msg *chat.Message) {
-	for _, fn := range f.FirstMsg {
-		fn(ctx, msg)
+func (f *FuncLifecycle) OnMessage(ctx Context, block *chat.UserBlock) {
+	for _, fn := range f.Message {
+		fn(ctx, block)
 	}
 }
 
@@ -64,8 +64,8 @@ func (f *FuncLifecycle) addCreated(fn ...OnSessionCreatedFunc) {
 }
 
 // addFirstMessage 追加首条消息回调。
-func (f *FuncLifecycle) addFirstMessage(fn ...OnFirstMessageFunc) {
-	f.FirstMsg = append(f.FirstMsg, fn...)
+func (f *FuncLifecycle) addFirstMessage(fn ...OnMessageFunc) {
+	f.Message = append(f.Message, fn...)
 }
 
 // addRoundEnd 追加轮次结束回调。

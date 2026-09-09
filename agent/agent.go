@@ -46,7 +46,6 @@ type Agent struct {
 	systemPrompt  string
 	done          func()
 	lifecycle     *FuncLifecycle
-	firstMsg      bool // 是否为首条消息（用于触发 OnFirstMessage）
 }
 
 type Builder struct {
@@ -85,7 +84,6 @@ func (b *Builder) Build() *Agent {
 	systemPrompt := b.agent.composeSystem()
 	b.agent.systemPrompt = systemPrompt
 	b.agent.mid.Store(uint64(util.GetMilliTime()))
-	b.agent.firstMsg = true
 	return b.agent
 }
 func (l *Agent) SendBlock(block chat.Block) uint64 {
@@ -131,13 +129,11 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 	if !l.running {
 		l.running = true
 		log.Info("[loop] round started", "session", l.agentContext.SessionId())
-		// OnFirstMessage hook
-		if l.firstMsg && l.lifecycle != nil {
-			l.firstMsg = false
-			msg := &chat.Message{Role: chat.RoleUser, Content: blocks}
-			l.lifecycle.OnFirstMessage(l.agentContext, msg)
-		}
 		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Sent)
+		// OnMessage hook
+		if l.lifecycle != nil {
+			l.lifecycle.OnMessage(l.agentContext, qm)
+		}
 		l.SendSignalBlock(qm)
 		l.inbox.Write(qm)
 		util.GoWithRecover(func() {

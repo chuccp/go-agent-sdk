@@ -58,7 +58,7 @@ func (m *Config) AddLifecycle(lifecycle Lifecycle) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.lifecycle.addCreated(lifecycle.OnSessionCreated)
-	m.lifecycle.addFirstMessage(lifecycle.OnFirstMessage)
+	m.lifecycle.addFirstMessage(lifecycle.OnMessage)
 	m.lifecycle.addRoundEnd(lifecycle.OnRoundDone)
 	m.lifecycle.addDestroyed(lifecycle.OnSessionDestroyed)
 }
@@ -70,8 +70,8 @@ func (m *Config) OnSessionCreated(fn ...OnSessionCreatedFunc) {
 	m.lifecycle.addCreated(fn...)
 }
 
-// OnFirstMessage 追加首条消息回调。
-func (m *Config) OnFirstMessage(fn ...OnFirstMessageFunc) {
+// OnMessage 追加首条消息回调。
+func (m *Config) OnMessage(fn ...OnMessageFunc) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.lifecycle.addFirstMessage(fn...)
