@@ -45,6 +45,8 @@ type Agent struct {
 	config        *chat.Config
 	systemPrompt  string
 	done          func()
+	lifecycle     *FuncLifecycle
+	firstMsg      bool // 是否为首条消息（用于触发 OnFirstMessage）
 }
 
 type Builder struct {
@@ -74,11 +76,16 @@ func (b *Builder) ToolExecutor(toolExecutor ...ToolExecutor) *Builder {
 	b.agent.toolExecutors = append(b.agent.toolExecutors, toolExecutor...)
 	return b
 }
+func (b *Builder) Lifecycle(lifecycle *FuncLifecycle) *Builder {
+	b.agent.lifecycle = lifecycle
+	return b
+}
 
 func (b *Builder) Build() *Agent {
 	systemPrompt := b.agent.composeSystem()
 	b.agent.systemPrompt = systemPrompt
 	b.agent.mid.Store(uint64(util.GetMilliTime()))
+	b.agent.firstMsg = true
 	return b.agent
 }
 func (l *Agent) SendBlock(block chat.Block) uint64 {
@@ -124,6 +131,12 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 	if !l.running {
 		l.running = true
 		log.Info("[loop] round started", "session", l.agentContext.SessionId())
+		// OnFirstMessage hook
+		if l.firstMsg && l.lifecycle != nil {
+			l.firstMsg = false
+			msg := &chat.Message{Role: chat.RoleUser, Content: blocks}
+			l.lifecycle.OnFirstMessage(l.agentContext, msg)
+		}
 		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Sent)
 		l.SendSignalBlock(qm)
 		l.inbox.Write(qm)
@@ -141,6 +154,10 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 				l.runLock.Unlock()
 				if l.done != nil {
 					l.done()
+				}
+				// OnRoundDone hook
+				if l.lifecycle != nil {
+					l.lifecycle.OnRoundDone(l.agentContext)
 				}
 			}()
 			err := l.store.LoadAllHistory()

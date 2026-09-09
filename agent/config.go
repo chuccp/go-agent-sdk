@@ -22,6 +22,7 @@ type Config struct {
 	chatConfig     *chat.Config
 	historyStore   MessageStore
 	compressor     Compressor
+	lifecycle      FuncLifecycle
 	sessionTimeout uint
 	clientTimeout  uint
 }
@@ -51,6 +52,43 @@ func (m *Config) AddTools(exec ...ToolExecutor) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.toolExecutors = append(m.toolExecutors, exec...)
+}
+// AddLifecycle 注册完整的生命周期实现（接口或 FuncLifecycle）。
+func (m *Config) AddLifecycle(lifecycle Lifecycle) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lifecycle.addCreated(lifecycle.OnSessionCreated)
+	m.lifecycle.addFirstMessage(lifecycle.OnFirstMessage)
+	m.lifecycle.addRoundEnd(lifecycle.OnRoundDone)
+	m.lifecycle.addDestroyed(lifecycle.OnSessionDestroyed)
+}
+
+// OnSessionCreated 追加会话创建回调。
+func (m *Config) OnSessionCreated(fn ...OnSessionCreatedFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lifecycle.addCreated(fn...)
+}
+
+// OnFirstMessage 追加首条消息回调。
+func (m *Config) OnFirstMessage(fn ...OnFirstMessageFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lifecycle.addFirstMessage(fn...)
+}
+
+// OnRoundDone 追加轮次结束回调。
+func (m *Config) OnRoundDone(fn ...OnRoundDoneFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lifecycle.addRoundEnd(fn...)
+}
+
+// OnSessionDestroyed 追加会话销毁回调。
+func (m *Config) OnSessionDestroyed(fn ...OnSessionDestroyedFunc) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.lifecycle.addDestroyed(fn...)
 }
 
 // SessionTimeout 秒
@@ -103,6 +141,7 @@ func (m *Config) Copy() *Config {
 		chatConfig:     chatConfig,
 		historyStore:   m.historyStore,
 		compressor:     m.compressor,
+		lifecycle:      m.lifecycle,
 		sessionTimeout: m.sessionTimeout,
 		clientTimeout:  m.clientTimeout,
 	}

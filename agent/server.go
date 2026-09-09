@@ -34,6 +34,7 @@ func (m *Server) getOrCreateSession(sessionId string, options ...Option) *Sessio
 
 	m.sessions.Add(session)
 	log.Info("[session] created", "id", sessionId)
+	config.lifecycle.OnSessionCreated(session)
 	return session
 }
 

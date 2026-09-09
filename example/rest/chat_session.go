@@ -67,7 +67,7 @@ func (c *Chat) listSessions(request *web.Request) (any, error) {
 
 // createSession creates a new chat session with an optional title.
 func (c *Chat) createSession(request *web.Request) (any, error) {
-	title := "New Chat"
+	title := ""
 	if jsonObj, err := request.Json(); err == nil {
 		if t := jsonObj.GetString("title"); t != "" {
 			title = t

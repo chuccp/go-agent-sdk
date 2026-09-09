@@ -53,6 +53,7 @@ type Session struct {
 	sessions       *Sessions
 	lastTime       int64
 	chatConfig     *chat.Config
+	lifecycle      *FuncLifecycle
 }
 
 func (s *Session) WriteBlocks(blocks ...chat.Block) {
@@ -100,11 +101,13 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		sessionTimeout: config.sessionTimeout,
 		clientTimeout:  config.clientTimeout,
 		lastTime:       util.GetSecondTime(),
+		lifecycle:      &config.lifecycle,
 	}
 	s.agent = NewBuilder(sessionContext).
 		Config(config.chatConfig).
 		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
+		Lifecycle(&config.lifecycle).
 		Build()
 	return s
 }
@@ -153,5 +156,8 @@ func (s *Session) Stop() {
 // Destroy 销毁Session
 func (s *Session) Destroy() {
 	s.sessions.Remove(s.sessionContext.sessionId)
+	if s.lifecycle != nil {
+		s.lifecycle.OnSessionDestroyed(s)
+	}
 	s.cancel()
 }

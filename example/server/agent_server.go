@@ -96,6 +96,16 @@ func (r *Agent) HandleChat(id uint, message *entity.WsChatMessage) error {
 	return nil
 }
 
+//func (r *Agent) UpdateTitle(id uint, text string) error {
+//	session, ok := r.agentManager.GetSession(cast.ToString(id))
+//	if !ok {
+//		return errors.New("session not found")
+//	}
+//	session.GetSubAgent("",)
+//
+//	return nil
+//}
+
 func (r *Agent) HandleStop(id uint, message *entity.WsStopMessage) error {
 	session, ok := r.agentManager.GetSession(cast.ToString(id))
 	if !ok {
