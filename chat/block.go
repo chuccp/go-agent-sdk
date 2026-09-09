@@ -25,6 +25,7 @@ const (
 
 	CustomTextBlockType    BlockType = "custom_text"
 	ServerToolUseBlockType BlockType = "server_tool_use"
+	StopBlockType          BlockType = "stop"
 )
 
 type ErrorBlock struct {
@@ -118,6 +119,8 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &CustomTextBlock{}
 		case ServerToolUseBlockType:
 			block = &ServerToolUseBlock{}
+		case StopBlockType:
+			block = &StopBlock{}
 		default:
 			return fmt.Errorf("unknown block type %q", t.Type)
 		}
@@ -136,8 +139,8 @@ const (
 	ErrorTextType    TextType = "error"
 	CMDTextType      TextType = "cmd"
 	FlowProgressType TextType = "flow_progress"
-	AskUserTextType  TextType = "ask_user"   // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
-	InternalTextType TextType = "internal"   // 仅 LLM 上下文，不在前端显示（如 ask_user 的提示文本）
+	AskUserTextType  TextType = "ask_user" // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
+	InternalTextType TextType = "internal" // 仅 LLM 上下文，不在前端显示（如 ask_user 的提示文本）
 )
 
 // CustomTextBlock 是唯一允许业务扩展的文本块：不进 LLM 上下文（ForContext=false），
@@ -430,6 +433,19 @@ func NewDeltaBlock(content string) *DeltaBlock {
 	return &DeltaBlock{
 		BaseBlock: BaseBlock{Type: DeltaBlockType},
 		Content:   content,
+	}
+}
+
+type StopBlock struct {
+	BaseBlock
+}
+
+func (b *StopBlock) ForContext() bool {
+	return false
+}
+func NewStopBlock() *StopBlock {
+	return &StopBlock{
+		BaseBlock: BaseBlock{Type: StopBlockType},
 	}
 }
 

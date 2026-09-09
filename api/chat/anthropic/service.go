@@ -12,7 +12,6 @@ import (
 	"resty.dev/v3"
 )
 
-
 const (
 	AnthropicVersion = "2023-06-01"
 )
@@ -135,8 +134,11 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.B
 			// text/thinking/input_json 三种增量统一为 Delta，语义由当前 block 决定
 			content := raw.Delta.Text + raw.Delta.Thinking + raw.Delta.PartialJSON
 			if content != "" {
-				resp.Delta(content)
+				resp.BlockDelta(content)
 			}
+
+		case "content_block_stop":
+			resp.BlockStop()
 
 		case "message_delta":
 			if raw.Usage != nil {
