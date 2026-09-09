@@ -141,6 +141,8 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           break
         }
         case 'text': {
+          // 过滤 text_type === 'internal'（仅 LLM 上下文，不在前端显示）
+          if ((b as Record<string, unknown>).text_type === 'internal') break
           const text = b.text || ''
           if (!text) break
           if (activeCommand !== null) {
@@ -170,10 +172,12 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
         case 'tool_result': {
           const inner = b.content as ContentBlock[] | undefined
           if (inner) {
-            const firstText = inner.find(c => c.type === 'text' && c.text)
+            // 过滤 text_type === 'internal' 的文本（仅 LLM 上下文，不在前端显示）
+            const visibleText = inner.filter(c => c.type === 'text' && c.text && (c as Record<string, unknown>).text_type !== 'internal')
+            const firstText = visibleText[0]
             const toolUseId = firstText?.tool_use_id || b.tool_use_id || null
             const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
-            const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n')
+            const text = visibleText.map(c => c.text).join('\n')
             if (text) {
               if (cmd) {
                 // execute_command 每个命令独立一条消息
@@ -186,6 +190,8 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           break
         }
         case 'custom_text': {
+          // ask_user 弹窗问题：不追加到主消息文本（由前端卡片独立渲染）
+          if ((b as Record<string, unknown>).text_type === 'ask_user') break
           if (b.text) appendText('assistant', b.text)
           break
         }
@@ -446,9 +452,10 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   }, [])
 
   // ── submitAnswer: 提交 ask_user 回答：直发后端（绕过客户端队列，
-  // 避免 isRunning 永真导致的队列死锁）并清除问题卡片 ──
+  // 避免 isRunning 永真导致的队列死锁）并清除问题卡片。
+  // 回答标记为 ask_user：consumeMessage 不将其作为用户消息 append 到主聊天。
   const submitAnswer = useCallback((text: string) => {
-    console.log('[submitAnswer] answering:', text.substring(0, 30))
+    pendingAskUserAnswerRef.current.add(text)
     setPendingQuestion(null)
     sendDirect(text)
   }, [sendDirect])
@@ -462,6 +469,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
   const consumeMessageRef = useRef<(text: string) => void>(() => {})
   // 已处理过的 consume 消息 id：防止同一条用户消息被重复消费导致回显两遍
   const consumedIdsRef = useRef<Set<string>>(new Set())
+  // ask_user 回答标记：回答不应作为用户消息显示在主聊天中（只在弹窗卡片内选择）
+  const pendingAskUserAnswerRef = useRef<Set<string>>(new Set())
 
   // ── Adapter + Runtime ──
   const adapter = useMemo(() => createStreamingAdapter(), [])
@@ -493,6 +502,7 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
         initialMessages={initialMessages}
         sessionId={sessionId}
         consumeMessageRef={consumeMessageRef}
+        pendingAskUserAnswerRef={pendingAskUserAnswerRef}
       >
         {children}
       </RuntimeGate>
@@ -506,11 +516,12 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
  * （useLocalRuntime 只在创建时读取一次 initialMessages）。
  * 切换会话时父级回到加载态，本组件卸载后随新历史重新挂载。
  */
-function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, children }: {
+function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, pendingAskUserAnswerRef, children }: {
   adapter: ChatModelAdapter
   initialMessages: { role: 'user' | 'assistant'; content: string }[]
   sessionId: number
   consumeMessageRef: React.MutableRefObject<(text: string) => void>
+  pendingAskUserAnswerRef: React.MutableRefObject<Set<string>>
   children: ReactNode
 }) {
   const runtime = useLocalRuntime(adapter, {
@@ -525,8 +536,8 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionResetter sessionId={sessionId} />
-      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} />
-      <DeferredFlusher deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} />
+      <MessageConsumedHandler consumeMessageRef={consumeMessageRef} deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} pendingAskUserAnswerRef={pendingAskUserAnswerRef} />
+      <DeferredFlusher deferredBuffer={deferredBuffer} appendedDuringRunRef={appendedDuringRunRef} pendingAskUserAnswerRef={pendingAskUserAnswerRef} />
       {children}
     </AssistantRuntimeProvider>
   )
@@ -538,10 +549,11 @@ function RuntimeGate({ adapter, initialMessages, sessionId, consumeMessageRef, c
  * 插话（AI 运行中）：setSkipNextStop + append → 框架触发 abort 但不向后端发 stop，
  * 插话显示在对话流的正确位置，后端流继续。DeferredFlusher 在 run 结束后启动下一轮。
  */
-function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDuringRunRef }: {
+function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDuringRunRef, pendingAskUserAnswerRef }: {
   consumeMessageRef: React.MutableRefObject<(text: string) => void>
   deferredBuffer: React.MutableRefObject<string[]>
   appendedDuringRunRef: React.MutableRefObject<Set<string>>
+  pendingAskUserAnswerRef: React.MutableRefObject<Set<string>>
 }) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
@@ -551,7 +563,15 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDur
   useEffect(() => {
     console.log('[MessageConsumedHandler] useEffect setting consumeMessageRef')
     consumeMessageRef.current = (text: string) => {
-      console.log('[consumeMessage] appending user message, text:', text.substring(0, 30), 'isRunning:', isRunningRef.current)
+      // ask_user 回答：不 append 到主聊天（只在弹窗卡片内选择），但仍需触发流以获取 AI 响应
+      if (pendingAskUserAnswerRef.current.has(text)) {
+        pendingAskUserAnswerRef.current.delete(text)
+        if (!isRunningRef.current) {
+          threadRuntime.append({ role: 'user', content: [{ type: 'text', text }], startRun: true } as any)
+          triggerStream()
+        }
+        return
+      }
       if (isRunningRef.current) {
         // AI 运行中：append 到 thread（正确位置），标记跳过 stop，记录已 append
         setSkipNextStop()
@@ -569,14 +589,15 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDur
         triggerStream()
         return
       }
-      triggerStream()
+      // 先 append（启动新 run），再 triggerStream（resolve 新 run 的 pendingTrigger）
       threadRuntime.append({
         role: 'user',
         content: [{ type: 'text', text }],
         startRun: true,
       } as any)
+      triggerStream()
     }
-  }, [threadRuntime, consumeMessageRef, deferredBuffer, appendedDuringRunRef])
+  }, [threadRuntime, consumeMessageRef, deferredBuffer, appendedDuringRunRef, pendingAskUserAnswerRef])
 
   return null
 }
@@ -585,9 +606,10 @@ function MessageConsumedHandler({ consumeMessageRef, deferredBuffer, appendedDur
  * run 结束后逐条补显示缓冲的消息（插话 / ask_user 回答）。
  * 已在运行中 append 过的消息（appendedDuringRunRef）只启动流，不重复 append。
  */
-function DeferredFlusher({ deferredBuffer, appendedDuringRunRef }: {
+function DeferredFlusher({ deferredBuffer, appendedDuringRunRef, pendingAskUserAnswerRef }: {
   deferredBuffer: React.MutableRefObject<string[]>
   appendedDuringRunRef: React.MutableRefObject<Set<string>>
+  pendingAskUserAnswerRef: React.MutableRefObject<Set<string>>
 }) {
   const threadRuntime = useThreadRuntime()
   const isRunning = useThread(t => t.isRunning)
@@ -596,19 +618,27 @@ function DeferredFlusher({ deferredBuffer, appendedDuringRunRef }: {
     if (isRunning || deferredBuffer.current.length === 0) return
     const next = deferredBuffer.current.shift()!
     console.log('[DeferredFlusher] flushing deferred message:', next.substring(0, 30))
+    // ask_user 回答：不 append，只触发流
+    if (pendingAskUserAnswerRef.current.has(next)) {
+      pendingAskUserAnswerRef.current.delete(next)
+      threadRuntime.append({ role: 'user', content: [{ type: 'text', text: next }], startRun: true } as any)
+      triggerStream()
+      return
+    }
     if (appendedDuringRunRef.current.has(next)) {
       // 已在运行中 append 过，只启动流，不重复 append
       appendedDuringRunRef.current.delete(next)
       triggerStream()
       return
     }
-    triggerStream()
+    // 先 append（启动新 run），再 triggerStream（resolve 新 run 的 pendingTrigger）
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: next }],
       startRun: true,
     } as any)
-  }, [isRunning, deferredBuffer, threadRuntime, appendedDuringRunRef])
+    triggerStream()
+  }, [isRunning, deferredBuffer, threadRuntime, appendedDuringRunRef, pendingAskUserAnswerRef])
 
   return null
 }

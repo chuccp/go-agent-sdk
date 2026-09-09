@@ -23,7 +23,8 @@ const (
 	MessageStartBlockType BlockType = "message_start"
 	MessageDeltaBlockType BlockType = "message_delta"
 
-	CustomTextBlockType BlockType = "custom_text"
+	CustomTextBlockType    BlockType = "custom_text"
+	ServerToolUseBlockType BlockType = "server_tool_use"
 )
 
 type ErrorBlock struct {
@@ -115,6 +116,8 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &UserBlock{}
 		case CustomTextBlockType:
 			block = &CustomTextBlock{}
+		case ServerToolUseBlockType:
+			block = &ServerToolUseBlock{}
 		default:
 			return fmt.Errorf("unknown block type %q", t.Type)
 		}
@@ -133,7 +136,8 @@ const (
 	ErrorTextType    TextType = "error"
 	CMDTextType      TextType = "cmd"
 	FlowProgressType TextType = "flow_progress"
-	AskUserTextType  TextType = "ask_user" // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
+	AskUserTextType  TextType = "ask_user"   // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
+	InternalTextType TextType = "internal"   // 仅 LLM 上下文，不在前端显示（如 ask_user 的提示文本）
 )
 
 // CustomTextBlock 是唯一允许业务扩展的文本块：不进 LLM 上下文（ForContext=false），
@@ -165,6 +169,49 @@ func NewCustomTextBlockWithTool(toolUseId string, text string, textType TextType
 		Text:      text,
 		TextType:  textType,
 		ToolUseId: toolUseId,
+	}
+}
+
+// ServerToolUseBlock 表示 Anthropic 服务端内置工具调用（如 web_search）。
+// input_json_delta 由 assembler 缓冲，ParseStream 时解析为结构化 Input。
+type ServerToolUseBlock struct {
+	BaseBlock
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+func (b *ServerToolUseBlock) ForContext() bool {
+	return false
+}
+func (b *ServerToolUseBlock) GetType() BlockType {
+	return ServerToolUseBlockType
+}
+func (b *ServerToolUseBlock) ParseStream(stream *value.Stream) {
+	b.Input = stream.ToJSON()
+}
+func (b *ServerToolUseBlock) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		ID    string          `json:"id"`
+		Name  string          `json:"name"`
+		Input json.RawMessage `json:"input"`
+		Type  BlockType       `json:"type"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	b.ID = a.ID
+	b.Name = a.Name
+	b.BaseBlock.Type = a.Type
+	b.Input = a.Input
+	return nil
+}
+func NewServerToolUseBlock(id string, name string) *ServerToolUseBlock {
+	return &ServerToolUseBlock{
+		BaseBlock: BaseBlock{Type: ServerToolUseBlockType},
+		ID:        id,
+		Name:      name,
 	}
 }
 

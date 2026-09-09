@@ -146,8 +146,9 @@ func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultB
 	writer.StopReason(chat.StopReasonUserWait)
 
 	// 3. tool_result 文本作为历史上下文（下一轮 LLM 可见）：陈述已提问并等待回答
-	writer.FullText(
-		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。")
+	//    标记为 InternalTextType，前端过滤不显示
+	writer.FullTextType(
+		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。", chat.InternalTextType)
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

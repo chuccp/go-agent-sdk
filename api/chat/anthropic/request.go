@@ -1,6 +1,10 @@
 package anthropic
 
-import "github.com/chuccp/go-agent-sdk/chat"
+import (
+	"log"
+
+	"github.com/chuccp/go-agent-sdk/chat"
+)
 
 // ThinkingConfig 控制模型的扩展思考（extended thinking）行为。
 // 与 Anthropic Messages API 的 thinking 字段对齐。
@@ -90,6 +94,24 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 				}
 			}
 		}
+	}
+	// WebSearch 启用时自动注入 Anthropic 服务端内置搜索工具，
+	// 同时移除同名的自定义工具（如 tools.SearchTool），避免名称冲突。
+	webSearchEnabled := config != nil && config.GetWebSearch()
+	log.Printf("[anthropic] webSearch enabled: %v", webSearchEnabled)
+	if webSearchEnabled {
+		filtered := request.Tools[:0]
+		for _, t := range request.Tools {
+			if t.Type == "" && t.Name == "web_search" {
+				continue // 跳过同名自定义工具
+			}
+			filtered = append(filtered, t)
+		}
+		request.Tools = filtered
+		request.Tools = append(request.Tools, chat.ToolFunction{
+			Type: "web_search_20250305",
+			Name: "web_search",
+		})
 	}
 	return request
 }

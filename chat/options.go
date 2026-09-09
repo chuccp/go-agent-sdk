@@ -24,6 +24,7 @@ const (
 	SystemPromptConfigKey     ConfigKey = "system_prompt"
 	BaseURLConfigKey          ConfigKey = "baseUrl"
 	APIKEYConfigKey           ConfigKey = "apikey"
+	WebSearchConfigKey        ConfigKey = "websearch"
 )
 
 type Config struct {
@@ -81,6 +82,9 @@ func (m *Config) GetMaxTokens() int {
 func (m *Config) GetThinking() ThinkingLevel {
 	return ThinkingLevel(m.object.GetString(string(ThinkingConfigKey)))
 }
+func (m *Config) GetWebSearch() bool {
+	return m.object.GetBool(string(WebSearchConfigKey))
+}
 func Combine(configs ...*Config) *Config {
 	config := DefaultConfig()
 	if configs == nil {
@@ -127,5 +131,13 @@ func WithMaxTokens(maxTokens int) Option {
 func WithThinking(level ThinkingLevel) Option {
 	return func(o *Config) {
 		o.Set(ThinkingConfigKey, level)
+	}
+}
+
+// WithWebSearch 启用 Anthropic 服务端内置搜索工具（web_search_20250305）。
+// 开启后请求中会自动注入该工具，搜索由 Anthropic 服务端执行，无需自行部署搜索服务。
+func WithWebSearch(enabled bool) Option {
+	return func(o *Config) {
+		o.Set(WebSearchConfigKey, enabled)
 	}
 }

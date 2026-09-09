@@ -12,6 +12,7 @@ import (
 	"resty.dev/v3"
 )
 
+
 const (
 	AnthropicVersion = "2023-06-01"
 )
@@ -84,7 +85,6 @@ func (s *Service) ID() string {
 
 func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.BlockStream) error {
 	defer body.Close()
-	// 停止支持：ctx 取消时关闭 body，scanner 读取将立即报错返回
 
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
@@ -122,8 +122,8 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp *chat.B
 				resp.BlockToolUseStart(raw.ContentBlock.ID, raw.ContentBlock.Name)
 			case "server_tool_use":
 				// Anthropic 内置工具（如 web_search）的服务器端调用，
-				// 查询由服务端执行，结果以后续 text block 返回，此处跳过。
-				continue
+				// input_json_delta 由 assembler 缓冲，flush 时 ParseStream 组装为结构化 JSON。
+				resp.BlockServerToolUseStart(raw.ContentBlock.ID, raw.ContentBlock.Name)
 			default:
 				resp.BlockTextStart()
 			}

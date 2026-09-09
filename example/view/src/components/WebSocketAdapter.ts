@@ -35,10 +35,12 @@ type StreamEvent =
 // 内容段：与历史展示的 ⟪think⟫/⟪tool⟫/⟪result⟫/⟪command⟫ 标记一一对应，
 // 保证实时渲染与历史渲染（Thread.tsx parseSegments）样式完全一致
 interface Segment {
-  kind: 'thinking' | 'text' | 'tool' | 'result' | 'command'
+  kind: 'thinking' | 'text' | 'tool' | 'result' | 'command' | 'search'
   text: string
   /** command 段携带的命令（供序列化与前端分组） */
   command?: string
+  /** search 段携带的搜索查询 */
+  query?: string
 }
 
 function serializeSegments(segments: Segment[]): string {
@@ -48,6 +50,7 @@ function serializeSegments(segments: Segment[]): string {
       case 'tool': return `⟪tool⟫${s.text}⟪/tool⟫`
       case 'result': return `⟪result⟫${s.text}⟪/result⟫`
       case 'command': return `⟪command⟫${s.command ?? ''}\n${s.text}⟪/command⟫`
+      case 'search': return `⟪search⟫${s.query ?? ''}\n${s.text}⟪/search⟫`
       default: return s.text
     }
   }).join('\n\n')
@@ -230,15 +233,36 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         const innerId = (inner?.id as string) || null
         const toolUseId = (inner?.tool_use_id as string) || null
         const wasToolUse = currentStreamBlockType === 'tool_use'
+        const wasServerToolUse = currentStreamBlockType === 'server_tool_use'
 
         // 上一个 execute_command 的入参已收齐：解析命令并按 id 记录
         if (wasToolUse && currentToolName === 'execute_command' && currentToolUseId) {
           const cmd = parseCommand(toolInputJson)
           if (cmd) commandByToolUseId.set(currentToolUseId, cmd)
         }
+        // 上一个 server_tool_use 的入参已收齐：emit 搜索段
+        if (wasServerToolUse && currentToolName) {
+          let query = ''
+          try {
+            const parsed = JSON.parse(toolInputJson)
+            if (parsed?.query) query = String(parsed.query)
+          } catch { /* ignore */ }
+          const searchEvt: StreamEvent = { kind: 'chunk', text: `⟪search⟫${query}\n${currentToolName}⟪/search⟫` }
+          if (directDispatch) {
+            directDispatch(searchEvt)
+          } else {
+            pendingBuffer.push(searchEvt)
+          }
+        }
 
         if (innerType === 'tool_use') {
           // 新 tool_use 开始：记录 id/name，开始累积入参
+          activeCommand = null
+          currentToolUseId = innerId
+          currentToolName = innerName
+          toolInputJson = ''
+        } else if (innerType === 'server_tool_use') {
+          // 服务端内置工具（如 web_search）：累积 input_json_delta
           activeCommand = null
           currentToolUseId = innerId
           currentToolName = innerName
@@ -258,12 +282,12 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         // 流式增量：按当前块类型路由（tool_use 入参 / thinking / 命令输出 / 文本）
         if (block.content) {
           if (currentStreamBlockType === 'tool_use') {
-            // tool_use 入参 JSON：execute_command 累积解析命令，其他工具按文本回显
-            if (currentToolName === 'execute_command') {
-              toolInputJson += block.content as string
-            } else {
-              event = { kind: 'chunk', text: block.content as string }
-            }
+            // tool_use 入参 JSON：统一累积，不实时显示（execute_command 解析命令，
+            // ask_user 等工具的入参由 tool_execution 事件展示，避免 JSON 泄漏到消息流）
+            toolInputJson += block.content as string
+          } else if (currentStreamBlockType === 'server_tool_use') {
+            // server_tool_use 入参 JSON：累积，不实时显示
+            toolInputJson += block.content as string
           } else if (currentStreamBlockType === 'thinking') {
             event = { kind: 'thinking', text: block.content as string }
           } else if (activeCommand !== null) {
@@ -275,8 +299,8 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         }
         break
       case 'text':
-        // 完整文本块（工具输出/错误补充等）：命令输出阶段并入 command，否则 chunk
-        if (block.text) {
+        // 完整文本块（工具输出/错误补充等）：过滤 internal（仅 LLM 上下文），其余按路由显示
+        if (block.text && block.text_type !== 'internal') {
           if (activeCommand !== null) {
             event = { kind: 'command', command: activeCommand, output: block.text as string }
           } else {
@@ -299,30 +323,37 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
           }
         }
         break
+      case 'server_tool_use': {
+        // 非流式 server_tool_use 块（WS 历史回放用）：解析 input 展示搜索段
+        const input = block.input as Record<string, unknown> | undefined
+        const toolName = (block.name as string) || ''
+        const query = input?.query ? String(input.query) : ''
+        event = { kind: 'chunk', text: `⟪search⟫${query}\n${toolName}⟪/search⟫` }
+        break
+      }
       case 'tool_use': {
         // 非流式 tool_use 块（WS 历史回放用，替代实时流的 start/delta）：
-        // execute_command 只记录命令，供后续 tool_result 关联；其他工具把入参回显为文本。
+        // 入参不回显为文本（由 tool_execution 事件统一展示），仅记录 execute_command 的命令。
         const input = block.input as Record<string, unknown> | undefined
         const toolName = (block.name as string) || ''
         const toolId = (block.id as string) || ''
         if (toolName === 'execute_command') {
           const cmd = input?.command ? String(input.command) : ''
           if (cmd && toolId) commandByToolUseId.set(toolId, cmd)
-        } else {
-          const text = input?.command ? String(input.command) : JSON.stringify(input ?? {})
-          if (text) event = { kind: 'chunk', text }
         }
         break
       }
       case 'tool_result': {
         // 非流式 tool_result 块（WS 历史回放用）：execute_command 输出按命令终端样式渲染，
         // 其他工具输出按 result 段渲染，与历史 buildDisplayMessages 保持一致。
+        // 过滤 text_type === 'internal' 的文本（仅 LLM 上下文，不在前端显示）。
         const inner = block.content as Array<Record<string, unknown>> | undefined
         if (Array.isArray(inner)) {
-          const firstText = inner.find(c => c.type === 'text' && c.text)
+          const visibleText = inner.filter(c => c.type === 'text' && c.text && c.text_type !== 'internal')
+          const firstText = visibleText[0]
           const toolUseId = (firstText?.tool_use_id as string) || (block.tool_use_id as string) || null
           const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
-          const text = inner.filter(c => c.type === 'text' && c.text).map(c => c.text as string).join('\n')
+          const text = visibleText.map(c => c.text as string).join('\n')
           if (text) {
             if (cmd) {
               event = { kind: 'command', command: cmd, output: text }
@@ -334,6 +365,20 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         break
       }
       case 'done':
+        // 如果 server_tool_use 是最后一个块，补发搜索段
+        if (currentStreamBlockType === 'server_tool_use' && currentToolName) {
+          let query = ''
+          try {
+            const parsed = JSON.parse(toolInputJson)
+            if (parsed?.query) query = String(parsed.query)
+          } catch { /* ignore */ }
+          const searchEvt: StreamEvent = { kind: 'chunk', text: `⟪search⟫${query}\n${currentToolName}⟪/search⟫` }
+          if (directDispatch) {
+            directDispatch(searchEvt)
+          } else {
+            pendingBuffer.push(searchEvt)
+          }
+        }
         event = { kind: 'done' }
         resetStreamBlockState()
         console.log('[bridge] done block received')

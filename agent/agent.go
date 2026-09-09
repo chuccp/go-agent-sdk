@@ -219,8 +219,7 @@ func (l *Agent) buildRequest() *chat.Messages {
 		return nil
 	}
 	effective := chat.DefaultConfig()
-	effective.SystemPrompt(l.systemPrompt)
-	effective.Thinking(l.config.GetThinking())
+	effective.Merge(l.config)
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, 0, len(history)),
 		Config:   effective,

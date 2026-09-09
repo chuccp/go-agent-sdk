@@ -209,7 +209,51 @@ function MessageQueueBar() {
 
 function AskUserCard() {
   const { pendingQuestion, submitAnswer } = useMessageQueue()
+  // 每个问题的已选项：单选存 number，多选存 Set<number>
+  const [selections, setSelections] = React.useState<Record<number, number | Set<number>>>({})
+
+  // pendingQuestion 变化时重置选择状态
+  React.useEffect(() => {
+    setSelections({})
+  }, [pendingQuestion])
+
   if (!pendingQuestion || pendingQuestion.length === 0) return null
+
+  const allAnswered = pendingQuestion.every((_, qi) => {
+    const sel = selections[qi]
+    if (sel === undefined || sel === null) return false
+    if (typeof sel === 'number') return true
+    return sel instanceof Set && sel.size > 0
+  })
+
+  const handleSelect = (qi: number, oi: number, isMulti: boolean) => {
+    if (isMulti) {
+      setSelections(prev => {
+        const current = new Set(prev[qi] instanceof Set ? prev[qi] as Set<number> : [])
+        if (current.has(oi)) current.delete(oi)
+        else current.add(oi)
+        return { ...prev, [qi]: current }
+      })
+    } else {
+      setSelections(prev => ({ ...prev, [qi]: oi }))
+    }
+  }
+
+  const handleSubmit = () => {
+    if (!allAnswered || !pendingQuestion) return
+    const parts: string[] = []
+    pendingQuestion.forEach((q, qi) => {
+      const sel = selections[qi]
+      let labels: string[]
+      if (typeof sel === 'number') {
+        labels = [q.options[sel].label]
+      } else {
+        labels = [...(sel as Set<number>)].sort().map(i => q.options[i].label)
+      }
+      parts.push(q.header ? `${q.header}: ${labels.join(', ')}` : labels.join(', '))
+    })
+    submitAnswer(parts.join(' | '))
+  }
 
   return (
     <div style={{
@@ -217,35 +261,63 @@ function AskUserCard() {
       background: '#e8f0fe', borderTop: '1px solid #aecbfa',
     }}>
       <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {pendingQuestion.map((q, qi) => (
-          <div key={qi}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              {q.header && (
-                <span style={{
-                  padding: '2px 8px', borderRadius: 4, background: '#1a73e8',
-                  color: '#fff', fontSize: 11, fontWeight: 600,
-                }}>{q.header}</span>
-              )}
-              <span style={{ fontSize: 14, fontWeight: 500, color: '#202124' }}>{q.question}</span>
+        {pendingQuestion.map((q, qi) => {
+          const isMulti = !!q.multi_select
+          return (
+            <div key={qi}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                {q.header && (
+                  <span style={{
+                    padding: '2px 8px', borderRadius: 4, background: '#1a73e8',
+                    color: '#fff', fontSize: 11, fontWeight: 600,
+                  }}>{q.header}{isMulti ? ' (多选)' : ''}</span>
+                )}
+                <span style={{ fontSize: 14, fontWeight: 500, color: '#202124' }}>{q.question}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {q.options.map((opt, oi) => {
+                  const sel = selections[qi]
+                  const selected = isMulti
+                    ? (sel instanceof Set && sel.has(oi))
+                    : sel === oi
+                  return (
+                    <button
+                      key={oi}
+                      onClick={() => handleSelect(qi, oi, isMulti)}
+                      title={opt.description}
+                      style={{
+                        padding: '8px 14px', borderRadius: 8,
+                        border: `1px solid ${selected ? '#1a73e8' : '#dadce0'}`,
+                        background: selected ? '#e8f0fe' : '#fff',
+                        color: selected ? '#1a73e8' : '#5f6368',
+                        fontSize: 13, cursor: 'pointer',
+                        fontWeight: selected ? 600 : 400,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {selected ? '✓ ' : ''}{opt.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {q.options.map((opt, oi) => (
-                <button
-                  key={oi}
-                  onClick={() => submitAnswer(q.header ? `${q.header}: ${opt.label}` : opt.label)}
-                  title={opt.description}
-                  style={{
-                    padding: '8px 14px', borderRadius: 8,
-                    border: '1px solid #1a73e8', background: '#fff', color: '#1a73e8',
-                    fontSize: 13, cursor: 'pointer',
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+          )
+        })}
+        {/* 统一提交按钮：所有问题都回答后显示 */}
+        {pendingQuestion.length > 0 && (
+          <button
+            onClick={handleSubmit}
+            disabled={!allAnswered}
+            style={{
+              padding: '10px 24px', borderRadius: 8, border: 'none', alignSelf: 'flex-end',
+              background: allAnswered ? '#1a73e8' : '#dadce0',
+              color: '#fff', fontSize: 14, cursor: allAnswered ? 'pointer' : 'not-allowed',
+              fontWeight: 600, transition: 'all 0.15s',
+            }}
+          >
+            提交
+          </button>
+        )}
       </div>
     </div>
   )
@@ -309,14 +381,14 @@ function UserMessage() {
 // ── Assistant Message (agent-style, full width, no bubble) ──
 
 interface Segment {
-  type: 'think' | 'tool' | 'result' | 'text' | 'command'
+  type: 'think' | 'tool' | 'result' | 'text' | 'command' | 'search'
   content: string
 }
 
 /** 解析内容中的类型标记，拆分为不同类型的片段 */
 function parseSegments(raw: string): Segment[] {
   const segments: Segment[] = []
-  const regex = /⟪(think|tool|result|command)⟫([\s\S]*?)⟪\/\1⟫/g
+  const regex = /⟪(think|tool|result|command|search)⟫([\s\S]*?)⟪\/\1⟫/g
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -360,6 +432,35 @@ const segmentStyles: Record<string, React.CSSProperties> = {
     fontFamily: "'SF Mono', 'Fira Code', monospace",
     color: '#2e7d32', whiteSpace: 'pre-wrap',
   },
+  search: {
+    margin: '6px 0', padding: '6px 12px',
+    borderLeft: '3px solid #f59e0b', borderRadius: 4,
+    background: '#fffbeb', fontSize: 12.5,
+    color: '#92400e', display: 'flex', alignItems: 'center', gap: 8,
+  },
+}
+
+// ── Search Process Block（search 段：展示服务端搜索过程）──
+
+function SearchProcess({ content }: { content: string }) {
+  // 序列化约定：首行为搜索查询，其余为工具名
+  const nl = content.indexOf('\n')
+  const query = nl >= 0 ? content.slice(0, nl) : content
+  const toolName = nl >= 0 ? content.slice(nl + 1) : 'web_search'
+  return (
+    <div style={segmentStyles.search}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="8" />
+        <path d="M21 21l-4.35-4.35" />
+      </svg>
+      <span style={{ fontWeight: 500 }}>
+        {query ? `搜索中: ${query}` : `正在搜索...`}
+      </span>
+      <span style={{ fontSize: 11, color: '#b45309', marginLeft: 'auto', fontFamily: 'monospace' }}>
+        {toolName}
+      </span>
+    </div>
+  )
 }
 
 // ── Command Terminal Block（command 段：终端风格展示命令与输出）──
@@ -416,6 +517,8 @@ function AssistantMessage() {
                 <Markdown key={i} remarkPlugins={[remarkGfm]}>{seg.content}</Markdown>
               ) : seg.type === 'command' ? (
                 <CommandTerminal key={i} content={seg.content} />
+              ) : seg.type === 'search' ? (
+                <SearchProcess key={i} content={seg.content} />
               ) : (
                 <div key={i} style={segmentStyles[seg.type]}>
                   {seg.type === 'think' ? '💭 ' : seg.type === 'tool' ? '🔧 ' : '↳ '}

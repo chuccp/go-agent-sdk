@@ -114,6 +114,11 @@ func (s *BlockStream) BlockToolUseStart(id string, name string) {
 	s.flushAndStart(NewToolUseBlock(id, name))
 
 }
+func (s *BlockStream) BlockServerToolUseStart(id string, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.flushAndStart(NewServerToolUseBlock(id, name))
+}
 func (s *BlockStream) Block(block Block) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -181,8 +186,8 @@ func (s *BlockStream) sendBlock(block Block) uint64 {
 	return 0
 }
 func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
-	start := s.sendBlock(NewStartBlock(block))
 	s.flush()
+	start := s.sendBlock(NewStartBlock(block))
 	s.assemblerBlock.start(start, block)
 
 }
@@ -204,6 +209,8 @@ func (s *BlockStream) isEmptyBlock(block UseDeltaBlock) bool {
 		return b.Text == ""
 	case *ThinkingBlock:
 		return b.Thinking == ""
+	case *ServerToolUseBlock:
+		return len(b.Input) == 0
 	default:
 		return false
 	}
