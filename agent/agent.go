@@ -220,6 +220,9 @@ func (l *Agent) buildRequest() *chat.Messages {
 	}
 	effective := chat.DefaultConfig()
 	effective.Merge(l.config)
+	// 拼接后的 system 存放在 Agent 上（composeSystem 结果），不在 l.config 中，
+	// Merge 覆盖不到，必须在此显式回填，否则工具引导词会丢失。
+	effective.SystemPrompt(l.systemPrompt)
 	messages := &chat.Messages{
 		Messages: make([]chat.Message, 0, len(history)),
 		Config:   effective,
