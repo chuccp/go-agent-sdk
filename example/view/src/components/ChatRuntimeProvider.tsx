@@ -24,6 +24,7 @@ import { getSessionEvents, sendMessage, stopGeneration, setThinking, type ChatEv
 interface ContentBlock {
   type: string
   text?: string
+  text_type?: string
   thinking?: string
   tool_use_id?: string
   content?: unknown
@@ -39,7 +40,8 @@ interface ContentBlock {
 function extractUsageFromEvents(events: ChatEvent[]): void {
   for (let i = events.length - 1; i >= 0; i--) {
     for (const b of events[i].blocks) {
-      const bt = b as ContentBlock
+      // blocks 来自后端 JSON（Record<string, unknown>），此处按已知 Block 结构收窄
+      const bt = b as unknown as ContentBlock
       if ((bt.type === 'message_delta' || bt.type === 'message_start') && bt.Usage) {
         setLatestUsage({
           inputTokens: bt.Usage.input_tokens ?? 0,
@@ -88,7 +90,7 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
 
   for (const evt of events) {
     for (const block of evt.blocks) {
-      const b = block as ContentBlock
+      const b = block as unknown as ContentBlock
       switch (b.type) {
         case 'User': {
           if (b.block_user_type === 'consume') {
@@ -123,7 +125,7 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           break
         }
         case 'delta': {
-          const content = (b as Record<string, unknown>).content as string || b.text || ''
+          const content = b.content as string || b.text || ''
           if (!content) break
           if (currentStreamType === 'tool_use') {
             if (currentToolName === 'execute_command') {
@@ -143,7 +145,7 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
         }
         case 'text': {
           // 过滤 text_type === 'internal'（仅 LLM 上下文，不在前端显示）
-          if ((b as Record<string, unknown>).text_type === 'internal') break
+          if (b.text_type === 'internal') break
           const text = b.text || ''
           if (!text) break
           if (activeCommand !== null) {
@@ -174,7 +176,7 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           const inner = b.content as ContentBlock[] | undefined
           if (inner) {
             // 过滤 text_type === 'internal' 的文本（仅 LLM 上下文，不在前端显示）
-            const visibleText = inner.filter(c => c.type === 'text' && c.text && (c as Record<string, unknown>).text_type !== 'internal')
+            const visibleText = inner.filter(c => c.type === 'text' && c.text && c.text_type !== 'internal')
             const firstText = visibleText[0]
             const toolUseId = firstText?.tool_use_id || b.tool_use_id || null
             const cmd = toolUseId ? commandByToolUseId.get(toolUseId) : null
@@ -192,12 +194,12 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
         }
         case 'custom_text': {
           // ask_user 弹窗问题：不追加到主消息文本（由前端卡片独立渲染）
-          if ((b as Record<string, unknown>).text_type === 'ask_user') break
+          if (b.text_type === 'ask_user') break
           if (b.text) appendText('assistant', b.text)
           break
         }
         case 'error': {
-          const text = (b as Record<string, unknown>).text as string || ''
+          const text = b.text || ''
           if (text) appendText('assistant', `❌ ${text}`)
           break
         }
