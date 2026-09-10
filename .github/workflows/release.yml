@@ -1,6 +1,7 @@
 name: Release
 
-# 推送 v* 标签时触发：测试通过后自动创建 GitHub Release（生成 release notes）
+# 推送 v* 标签时触发：创建 GitHub Release 并自动生成 release notes。
+# 只针对根模块（go.mod）；不编译，避免 go.work / example 模块（其本地 replace 在 CI 不存在）参与构建。
 on:
   push:
     tags:
@@ -15,21 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Test
-        run: go test ./...
 
       - name: Create GitHub Release
         env:
