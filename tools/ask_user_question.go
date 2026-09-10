@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/chuccp/go-agent-sdk/agent"
@@ -124,31 +123,32 @@ func (t *AskUserQuestionTool) Definition() *chat.ToolFunction {
 // 并置 user_wait 停止原因后立即返回，不阻塞等待回答；tool_result 文本作为历史上下文，
 // 告知后续轮次的 LLM 已提问、等待用户以普通消息形式回答；错误经 WriteErrorText 以文本写入。
 func (t *AskUserQuestionTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStream) {
-	questions, err := parseQuestions(turn.Args())
-	if err != nil {
-		writer.ErrorText(err)
-		return
-	}
+	//questions, err := parseQuestions(turn.Args())
+	//if err != nil {
+	//	writer.ErrorText(err)
+	//	return
+	//}
 
 	// 1. 向前端推送问题事件（content 为问题列表 JSON）
 	//    经 writer.FullCustomTextType() 写入 BlockStream，CustomTextBlock(TextType=ask_user)
 	//    随 ToolResultBlock 进入会话历史；前端通过扫描 ToolResultBlock.Content 中的
 	//    CustomTextBlock 且 TextType=="ask_user" 识别提问事件。
-	questionsJSON, err := json.Marshal(questions)
-	if err != nil {
-		writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
-		return
-	}
-	writer.FullCustomTextType(string(questionsJSON), chat.AskUserTextType)
+	//questionsJSON, err := json.Marshal(questions)
+	//if err != nil {
+	//	writer.ErrorText(fmt.Errorf("序列化问题失败: %w", err))
+	//	return
+	//}
+	//writer.FullCustomTextType(string(questionsJSON), chat.AskUserTextType)
 
 	// 2. 声明暂停：覆盖 runTool 预置的 ToolResult，请求会话主循环结束本轮
 	//    （不再携带 tool_result 回调 LLM），等待用户的回答作为下一条普通消息触发新一轮
-	writer.StopReason(chat.StopReasonUserWait)
+	//writer.StopReason(chat.StopReasonUserWait)
 
 	// 3. tool_result 文本作为历史上下文（下一轮 LLM 可见）：陈述已提问并等待回答
 	//    标记为 InternalTextType，前端过滤不显示
 	writer.FullTextType(
 		"已向用户提出问题，等待用户的回答。用户的回答将作为下一条消息到达；收到回答前不要替用户回答。", chat.InternalTextType)
+	writer.StopReason(chat.StopReasonUserWait)
 }
 
 // parseQuestions 从 LLM 传入的 args 中解析问题列表。

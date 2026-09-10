@@ -111,6 +111,9 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		Build()
 	return s
 }
+func (s *Session) ID() string {
+	return s.sessionContext.sessionId
+}
 func (s *Session) UpdateChatOption(option ...chat.Option) {
 	for _, option := range option {
 		s.sessionContext.GetConfig().Option(option)
