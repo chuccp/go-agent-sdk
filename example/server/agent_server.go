@@ -47,8 +47,6 @@ func (r *Agent) Init(ctx *core.Context) error {
 	config.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
 	config.MessageStore(r.chatSessionService)
 
-	//config.Compressor()
-
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
 	// agent.PromptProvider 机制自动拼进每轮 System），此处只留通用人设
 	config.ChatOption(chat.WithSystemPrompt("你是一个智能助手。"), chat.WithWebSearch(true))

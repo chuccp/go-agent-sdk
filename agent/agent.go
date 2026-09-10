@@ -213,25 +213,6 @@ func (l *Agent) lastMessage() (*chat.Message, bool) {
 
 func (l *Agent) buildRequest() *chat.Messages {
 	toolExecutors := l.toolExecutors
-	//values, fa := l.inbox.ReadAll()
-	//if fa {
-	//	firstStart := uint64(0)
-	//	var blocks chat.Blocks
-	//	for _, qm := range values {
-	//		userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
-	//		start := l.SendBlock(userBlock)
-	//		if firstStart == 0 {
-	//			firstStart = start
-	//		}
-	//		blocks = append(blocks, userBlock)
-	//	}
-	//	offset := uint64(len(values))
-	//	if offset > 0 && firstStart > 0 {
-	//		l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
-	//	}
-	//}
-	// 注入历史上下文
-	//history := l.store.History()
 
 	effective := chat.DefaultConfig()
 	effective.Merge(l.config)
@@ -243,6 +224,7 @@ func (l *Agent) buildRequest() *chat.Messages {
 	for index, exec := range toolExecutors {
 		tools[index] = exec.Definition()
 	}
+	// 注入历史上下文：先消费本轮 inbox 的用户消息并落历史，再整体做上下文过滤
 	msg, fa := l.lastMessage()
 	if fa {
 		l.store.AppendHistory(msg)
