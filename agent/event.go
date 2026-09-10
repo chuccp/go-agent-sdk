@@ -232,9 +232,19 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 	}
 	return events, nil
 }
-func (l *Transfer) GetChatClient(ctx context.Context, start uint64) *Client {
+func (l *Transfer) client(ctx context.Context, start uint64) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	chatClient := NewClient(ctx, start, l)
+	l.chatClients.Append(chatClient)
+	sdklog.Debug("[ws] client subscribed", "session", l.sessionId, "start", start)
+	return chatClient
+}
+
+func (l *Transfer) lastClient(ctx context.Context) *Client {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	start := l.getAndAddStart()
 	chatClient := NewClient(ctx, start, l)
 	l.chatClients.Append(chatClient)
 	sdklog.Debug("[ws] client subscribed", "session", l.sessionId, "start", start)

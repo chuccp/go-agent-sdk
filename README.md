@@ -132,7 +132,7 @@ func main() {
 	session.WriteText("你好，帮我查看当前目录")
 
 	// 9. 创建客户端读取事件流（事件按 Start 升序返回，Event.Blocks 按 type 字段多态分发）
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	defer client.Close()
 
 	for {

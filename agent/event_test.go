@@ -376,7 +376,7 @@ func TestGetChatClient_RestartWithNonZeroStart(t *testing.T) {
 	// 系统重启后 seq 默认为 0，不调用 storeSeq
 
 	frontendStart := uint64(100)
-	cl := tr.GetChatClient(context.Background(), frontendStart)
+	cl := tr.client(context.Background(), frontendStart)
 
 	if cl.start != frontendStart {
 		t.Fatalf("client.start = %d, want %d (前端传入的值应保留)", cl.start, frontendStart)
@@ -389,7 +389,7 @@ func TestGetChatClient_RestartWithLargeStart(t *testing.T) {
 	// seq = 0（重启默认值）
 
 	frontendStart := uint64(9999)
-	cl := tr.GetChatClient(context.Background(), frontendStart)
+	cl := tr.client(context.Background(), frontendStart)
 
 	if cl.start != frontendStart {
 		t.Fatalf("client.start = %d, want %d", cl.start, frontendStart)

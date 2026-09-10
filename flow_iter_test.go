@@ -140,7 +140,7 @@ func TestFlowIteration(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("flow-iter")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	session.WriteText("把「小狐狸看月亮」扩写成故事")
 	events := collectUntilDone(t, client)
 

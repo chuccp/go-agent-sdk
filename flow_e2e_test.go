@@ -206,7 +206,7 @@ func TestFlowEndToEnd(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("flow-e2e")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	session.WriteText("给我 5 岁孩子写个太空故事")
 	events := collectUntilDone(t, client)
 

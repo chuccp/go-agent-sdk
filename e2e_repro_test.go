@@ -102,7 +102,7 @@ func TestTwoRoundsWithTool(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("session-1")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 
 	// ── 第一轮：触发 tool_use → executeTools → tool_result → 第二轮 LLM → done ──
 	session.WriteText("请使用 fake_tool 工具")

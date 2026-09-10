@@ -111,7 +111,7 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("ask-e2e")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	defer client.Close()
 
 	// ── 第一轮：触发 ask_user_question ──

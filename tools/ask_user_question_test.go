@@ -22,7 +22,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	config := agent.NewConfig()
 	manager := config.CreateServer(context.Background())
 	ctx := manager.SessionContext("ask-s2")
-	client := manager.GetOrCreateSession("ask-s2").CreateClient(context.Background(), 0)
+	client := manager.GetOrCreateSession("ask-s2").Client(context.Background(), 0)
 	defer client.Close()
 
 	args := map[string]any{

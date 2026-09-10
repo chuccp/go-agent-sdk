@@ -144,9 +144,15 @@ func (s *Session) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	return s.transfer.LoadMessagesAfter(since)
 }
 
-// CreateClient 创建一个事件消费客户端（订阅委托给 SessionContext）。
-func (s *Session) CreateClient(ctx context.Context, start uint64) *Client {
-	client := s.transfer.GetChatClient(ctx, start)
+// Client 创建一个事件消费客户端（订阅委托给 SessionContext）。
+func (s *Session) Client(ctx context.Context, start uint64) *Client {
+	client := s.transfer.client(ctx, start)
+	client.clientTimeout = s.clientTimeout
+	return client
+}
+
+func (s *Session) LastClient(ctx context.Context) *Client {
+	client := s.transfer.lastClient(ctx)
 	client.clientTimeout = s.clientTimeout
 	return client
 }

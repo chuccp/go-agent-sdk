@@ -84,7 +84,7 @@ func TestCommand_WithSessionContext(t *testing.T) {
 	config := agent.NewConfig()
 	manager := config.CreateServer(context.Background())
 	ctx := manager.SessionContext("cmd-s1")
-	client := manager.GetOrCreateSession("cmd-s1").CreateClient(context.Background(), 0)
+	client := manager.GetOrCreateSession("cmd-s1").Client(context.Background(), 0)
 	defer client.Close()
 
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为

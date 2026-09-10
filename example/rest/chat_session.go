@@ -172,7 +172,7 @@ func (c *Chat) HandleWebSocket(webSocket *web.WebSocket) error {
 		options = append(options, chat.WithThinking(chat.ThinkingLevel(level)))
 	}
 	session := c.agent.GetAgent().GetOrCreateSession(strconv.Itoa(int(sessionId)), agent.WithChatOption(options...))
-	client := session.CreateClient(webSocket.Request().Ctx(), start)
+	client := session.Client(webSocket.Request().Ctx(), start)
 	defer client.Close()
 	for {
 		events, err := client.ReadEvents()

@@ -128,7 +128,7 @@ func (t *echoTool) Execute(turn *agent.Turn, w *chat.ToolResultBlockStream) {
 func newTestSession(t *testing.T, manager *agent.Server, sessionId string) (*agent.Session, *agent.Client) {
 	t.Helper()
 	session := manager.GetOrCreateSession(sessionId)
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	return session, client
 }
 
@@ -396,8 +396,8 @@ func TestTwoClientsSameSession(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s6")
-	client1 := session.CreateClient(context.Background(), 0)
-	client2 := session.CreateClient(context.Background(), 0)
+	client1 := session.Client(context.Background(), 0)
+	client2 := session.Client(context.Background(), 0)
 
 	// session 发消息，两个 client 都应该能读到事件
 	session.WriteText("hello")
@@ -481,7 +481,7 @@ func TestWriteBlocks_UpdatesLastTime(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s_time")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	session.WriteText("hello")
 
 	// 写入消息后 session 应该能正常工作（lastTime 已更新）
@@ -499,7 +499,7 @@ func TestSession_Destroy(t *testing.T) {
 
 	manager := config.CreateServer(context.Background())
 	session := manager.GetOrCreateSession("s_destroy")
-	client := session.CreateClient(context.Background(), 0)
+	client := session.Client(context.Background(), 0)
 	session.WriteText("hello")
 	collectEvents(t, client)
 
