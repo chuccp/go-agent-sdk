@@ -72,23 +72,23 @@ func (f *iterFakeProvider) script() []chat.Blocks {
 
 func (f *iterFakeProvider) ID() string { return "iter-fake" }
 func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
-	if len(req.Tools) == 0 {
+	if len(req.Tools()) == 0 {
 		// 零上下文节点调用：按 System 模板识别节点
 		userText := ""
-		for _, b := range req.Messages[0].Content {
+		for _, b := range req.Messages()[0].Content {
 			if tb, ok := b.(*chat.TextBlock); ok {
 				userText += tb.Text
 			}
 		}
 		switch {
-		case strings.Contains(req.Config.GetSystemPrompt(), "结构分析师"):
+		case strings.Contains(req.Config().GetSystemPrompt(), "结构分析师"):
 			f.splitCalls++
 			emitText(w, splitJSON)
-		case strings.Contains(req.Config.GetSystemPrompt(), "扩写作者"):
+		case strings.Contains(req.Config().GetSystemPrompt(), "扩写作者"):
 			f.expandCalls++
 			f.expandUsers = append(f.expandUsers, userText)
 			emitText(w, fmt.Sprintf("扩写段落%d的内容", f.expandCalls))
-		case strings.Contains(req.Config.GetSystemPrompt(), "故事编辑"):
+		case strings.Contains(req.Config().GetSystemPrompt(), "故事编辑"):
 			f.mergeCalls++
 			f.mergeUser = userText
 			emitText(w, "缝合后的全文")

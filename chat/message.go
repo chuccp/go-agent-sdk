@@ -1,5 +1,7 @@
 package chat
 
+import "github.com/chuccp/go-agent-sdk/util"
+
 // 下列类型按 Anthropic Messages API (https://docs.anthropic.com/en/api/messages) 标准定义，
 // 用于构造发给模型的请求。字段/JSON 键与官方 schema 一一对应，便于序列化后直接 POST。
 
@@ -56,7 +58,29 @@ func Text(text string) Message {
 }
 
 type Messages struct {
-	Messages []Message
-	Tools    []ToolFunction
-	Config   *Config
+	messages *util.SliceArray[*Message]
+	tools    []*ToolFunction
+	config   *Config
+}
+
+func (c *Messages) AddMessage(msg ...*Message) {
+	for _, msg := range msg {
+		c.messages.Append(msg)
+	}
+}
+func (c *Messages) Messages() []*Message {
+	return c.messages.Slice()
+}
+func (c *Messages) Config() *Config {
+	return c.config
+}
+func (c *Messages) Tools() []*ToolFunction {
+	return c.tools
+}
+func NewMessages(config *Config, Tools []*ToolFunction) *Messages {
+	return &Messages{
+		messages: new(util.SliceArray[*Message]),
+		tools:    Tools,
+		config:   config,
+	}
 }

@@ -187,10 +187,9 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value
 	// 触发模型长时间思考拖慢 flow；需要时可用模板/选项自行引导推理
 	config.Set(chat.ThinkingConfigKey, string(chat.ThinkingOff))
 
-	messages := &chat.Messages{
-		Messages: []chat.Message{chat.NewTextMessage(user)},
-		Config:   config,
-	}
+	userMessage := chat.NewTextMessage(user)
+	messages := chat.NewMessages(config, nil)
+	messages.AddMessage(&userMessage)
 	// 零上下文硬边界：直接走默认 provider 的一次性对话，不借助会话历史，
 	// 且 receiver 传 nil（NewBlockStream(nil)）——节点产出不回灌会话事件流。
 	ch := sctx.GetChat()

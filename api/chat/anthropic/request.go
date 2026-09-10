@@ -27,15 +27,15 @@ type Request struct {
 	MaxTokens int             `json:"max_tokens"` // 最大生成 token 数
 	Messages  []*chat.Message `json:"messages"`   // 对话历史（user/assistant 交替）
 	// 可选字段
-	System        []SystemBlock       `json:"system,omitempty"`         // 系统提示（带缓存断点的内容块）
-	Tools         []chat.ToolFunction `json:"tools,omitempty"`          // 可用工具列表
-	Thinking      *ThinkingConfig     `json:"thinking,omitempty"`       // 扩展思考配置
-	Stream        bool                `json:"stream,omitempty"`         // 是否流式返回
-	Temperature   *float64            `json:"temperature,omitempty"`    // 采样温度 (0,1]
-	TopP          *float64            `json:"top_p,omitempty"`          // nucleus 采样
-	TopK          *int                `json:"top_k,omitempty"`          // top-k 采样
-	StopSequences []string            `json:"stop_sequences,omitempty"` // 停止序列
-	Metadata      map[string]any      `json:"metadata,omitempty"`       // 自定义元数据（不透传给模型）
+	System        []SystemBlock        `json:"system,omitempty"`         // 系统提示（带缓存断点的内容块）
+	Tools         []*chat.ToolFunction `json:"tools,omitempty"`          // 可用工具列表
+	Thinking      *ThinkingConfig      `json:"thinking,omitempty"`       // 扩展思考配置
+	Stream        bool                 `json:"stream,omitempty"`         // 是否流式返回
+	Temperature   *float64             `json:"temperature,omitempty"`    // 采样温度 (0,1]
+	TopP          *float64             `json:"top_p,omitempty"`          // nucleus 采样
+	TopK          *int                 `json:"top_k,omitempty"`          // top-k 采样
+	StopSequences []string             `json:"stop_sequences,omitempty"` // 停止序列
+	Metadata      map[string]any       `json:"metadata,omitempty"`       // 自定义元数据（不透传给模型）
 }
 
 // thinkingBudget 各级别思考对应的 token 预算。
@@ -80,13 +80,14 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 		request.MaxTokens = defaultMaxTokens
 	}
 	if chatMessages != nil {
-		request.Messages = make([]*chat.Message, 0, len(chatMessages.Messages))
-		for i := range chatMessages.Messages {
-			request.Messages = append(request.Messages, &chatMessages.Messages[i])
+		messages := chatMessages.Messages()
+		request.Messages = make([]*chat.Message, 0, len(messages))
+		for i := range chatMessages.Messages() {
+			request.Messages = append(request.Messages, messages[i])
 		}
-		if len(chatMessages.Tools) > 0 {
-			request.Tools = make([]chat.ToolFunction, len(chatMessages.Tools))
-			copy(request.Tools, chatMessages.Tools)
+		if len(chatMessages.Tools()) > 0 {
+			request.Tools = make([]*chat.ToolFunction, len(chatMessages.Tools()))
+			copy(request.Tools, chatMessages.Tools())
 			for i := range request.Tools {
 				// 内置工具（Type 非空）不需要 cache_control
 				if request.Tools[i].Type == "" {
@@ -108,7 +109,7 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 			filtered = append(filtered, t)
 		}
 		request.Tools = filtered
-		request.Tools = append(request.Tools, chat.ToolFunction{
+		request.Tools = append(request.Tools, &chat.ToolFunction{
 			Type: "web_search_20250305",
 			Name: "web_search",
 		})

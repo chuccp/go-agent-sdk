@@ -12,12 +12,11 @@ func TestNewRequest_SystemAndToolsCacheControl(t *testing.T) {
 	config.Set(chat.ModelConfigKey, "claude-sonnet-4-6")
 	config.SystemPrompt("你是一个助手")
 
-	messages := &chat.Messages{
-		Messages: []chat.Message{chat.NewTextMessage("hi")},
-		Tools: []chat.ToolFunction{
-			{Name: "cmd", Description: "run", InputSchema: map[string]any{"type": "object"}},
-		},
-	}
+	hello := chat.NewTextMessage("hi")
+	messages := chat.NewMessages(config, []*chat.ToolFunction{
+		{Name: "cmd", Description: "run", InputSchema: map[string]any{"type": "object"}},
+	})
+	messages.AddMessage(&hello)
 
 	req := NewRequest(messages, config)
 	data, err := json.Marshal(req)
@@ -55,7 +54,7 @@ func TestNewRequest_SystemAndToolsCacheControl(t *testing.T) {
 
 func TestNewRequest_EmptySystemAndNoTools(t *testing.T) {
 	config := chat.DefaultConfig()
-	req := NewRequest(&chat.Messages{}, config)
+	req := NewRequest(chat.NewMessages(config, nil), config)
 	data, _ := json.Marshal(req)
 	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {

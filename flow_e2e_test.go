@@ -49,7 +49,7 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 
 func (f *flowFakeProvider) ID() string { return "flow-fake" }
 func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
-	if len(req.Tools) == 0 {
+	if len(req.Tools()) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
 		f.nodeCalls++
 		f.nodeReqs = append(f.nodeReqs, req)
@@ -57,7 +57,7 @@ func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages,
 		return nil
 	}
 	f.mainCalls++
-	f.mainSystems = append(f.mainSystems, req.Config.GetSystemPrompt())
+	f.mainSystems = append(f.mainSystems, req.Config().GetSystemPrompt())
 	blocks := f.script()[f.mainCalls-1]
 	stop := chat.StopReasonToolUse
 	for _, b := range blocks {
@@ -229,17 +229,17 @@ func TestFlowEndToEnd(t *testing.T) {
 		t.Fatalf("节点调用次数 = %d, want 1", mainLLM.nodeCalls)
 	}
 	nodeReq := mainLLM.nodeReqs[0]
-	if len(nodeReq.Messages) != 1 {
-		t.Errorf("节点调用 messages = %d, want 1（零上下文）", len(nodeReq.Messages))
+	if len(nodeReq.Messages()) != 1 {
+		t.Errorf("节点调用 messages = %d, want 1（零上下文）", len(nodeReq.Messages()))
 	}
-	if len(nodeReq.Tools) != 0 {
+	if len(nodeReq.Tools()) != 0 {
 		t.Errorf("节点调用不应携带工具")
 	}
-	if nodeReq.Config.GetSystemPrompt() != "你是一位故事创作者" {
-		t.Errorf("节点 system 模板渲染错误: %q", nodeReq.Config.GetSystemPrompt())
+	if nodeReq.Config().GetSystemPrompt() != "你是一位故事创作者" {
+		t.Errorf("节点 system 模板渲染错误: %q", nodeReq.Config().GetSystemPrompt())
 	}
 	userText := ""
-	for _, b := range nodeReq.Messages[0].Content {
+	for _, b := range nodeReq.Messages()[0].Content {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			userText += tb.Text
 		}
@@ -303,7 +303,7 @@ func TestFlowGuards(t *testing.T) {
 	if !strings.Contains(out, "执行完成") || !strings.Contains(out, "【进度】") {
 		t.Errorf("exec 结果应含摘要与进度脚标: %s", out)
 	}
-	if storyLLM.last == nil || !strings.Contains(toString(storyLLM.last.Messages[0].Content), "主题：太空") {
+	if storyLLM.last == nil || !strings.Contains(toString(storyLLM.last.Messages()[0].Content), "主题：太空") {
 		t.Error("节点调用模板未正确渲染上游 input")
 	}
 

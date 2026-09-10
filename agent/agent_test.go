@@ -23,9 +23,7 @@ func TestBlocksForContext_FiltersNestedCustomText(t *testing.T) {
 	original := chat.NewToolResultBlock("call_06", writer.ReadBlockGroup().Content)
 
 	filtered := l.blocksForContext(chat.Blocks{original})
-	payload, err := json.Marshal(chat.Messages{
-		Messages: []chat.Message{{Role: chat.RoleUser, Content: filtered}},
-	})
+	payload, err := json.Marshal([]*chat.Message{{Role: chat.RoleUser, Content: filtered}})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}

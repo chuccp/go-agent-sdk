@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -194,10 +193,9 @@ func (l *Agent) composeSystem() string {
 	}
 	return system
 }
-func (l *Agent) buildRequest() *chat.Messages {
-	toolExecutors := l.toolExecutors
+func (l *Agent) lastMessage() (*chat.Message, bool) {
 	values, fa := l.inbox.ReadAll()
-	if fa {
+	if fa && len(values) > 0 {
 		firstStart := uint64(0)
 		var blocks chat.Blocks
 		for _, qm := range values {
@@ -208,44 +206,60 @@ func (l *Agent) buildRequest() *chat.Messages {
 			}
 			blocks = append(blocks, userBlock)
 		}
-		offset := uint64(len(values))
-		if offset > 0 && firstStart > 0 {
-			l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
-		}
+		return &chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks}, true
 	}
+	return nil, false
+}
+
+func (l *Agent) buildRequest() *chat.Messages {
+	toolExecutors := l.toolExecutors
+	//values, fa := l.inbox.ReadAll()
+	//if fa {
+	//	firstStart := uint64(0)
+	//	var blocks chat.Blocks
+	//	for _, qm := range values {
+	//		userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
+	//		start := l.SendBlock(userBlock)
+	//		if firstStart == 0 {
+	//			firstStart = start
+	//		}
+	//		blocks = append(blocks, userBlock)
+	//	}
+	//	offset := uint64(len(values))
+	//	if offset > 0 && firstStart > 0 {
+	//		l.store.AppendHistory(&chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks})
+	//	}
+	//}
 	// 注入历史上下文
-	history := l.store.History()
-	if len(history) == 0 && !fa {
-		return nil
-	}
+	//history := l.store.History()
+
 	effective := chat.DefaultConfig()
 	effective.Merge(l.config)
 	// 拼接后的 system 存放在 Agent 上（composeSystem 结果），不在 l.config 中，
 	// Merge 覆盖不到，必须在此显式回填，否则工具引导词会丢失。
 	effective.SystemPrompt(l.systemPrompt)
-	messages := &chat.Messages{
-		Messages: make([]chat.Message, 0, len(history)),
-		Config:   effective,
-	}
-	for _, m := range slices.Backward(history) {
 
+	tools := make([]*chat.ToolFunction, len(toolExecutors))
+	for index, exec := range toolExecutors {
+		tools[index] = exec.Definition()
+	}
+	msg, fa := l.lastMessage()
+	if fa {
+		l.store.AppendHistory(msg)
+	}
+	history := l.store.History()
+	messages := chat.NewMessages(effective, tools)
+	for _, m := range history {
 		msg := *m
+		// 只保留进上下文的块：UserBlock 解包取 Content、ToolResult 下钻过滤、
+		// CustomText 等 ForContext()==false 的块剔除；过滤后为空的整条消息跳过
+		// （Anthropic 不接受空 content）。
 		msg.Content = l.blocksForContext(m.Content)
 		if len(msg.Content) == 0 {
 			continue
 		}
-		messages.Messages = append(messages.Messages, msg)
+		messages.AddMessage(&msg)
 	}
-	// 翻转（倒序收集的）
-	slices.Reverse(messages.Messages)
-	if len(toolExecutors) > 0 {
-		tools := make([]chat.ToolFunction, 0, len(toolExecutors))
-		for _, exec := range toolExecutors {
-			tools = append(tools, *exec.Definition())
-		}
-		messages.Tools = tools
-	}
-
 	return messages
 }
 func (l *Agent) loop() bool {

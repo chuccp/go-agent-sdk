@@ -54,7 +54,7 @@ func (s *Service) APIKey() string {
 	return s.apiKey
 }
 func (s *Service) ChatWithStream(ctx context.Context, chatMessages *chat.Messages, response *chat.BlockStream) error {
-	config := chat.Combine(chatMessages.Config, s.config)
+	config := chat.Combine(chatMessages.Config(), s.config)
 	request := NewRequest(chatMessages, config)
 	r, err := s.restyClient.R().
 		SetContext(ctx).

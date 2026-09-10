@@ -167,7 +167,8 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	if req == nil {
 		t.Fatal("未记录到第二轮请求")
 	}
-	last := req.Messages[len(req.Messages)-1]
+	messages := req.Messages()
+	last := messages[len(messages)-1]
 	if last.Role != chat.RoleUser {
 		t.Fatalf("期望最后一条为 user 消息，实际 %s", last.Role)
 	}

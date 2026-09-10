@@ -29,7 +29,7 @@ func (c *Chat) GetService(config *Config) Service {
 	return c.serviceStore.GetService(id)
 }
 func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Messages, response *BlockStream) error {
-	return c.GetService(chatMessages.Config).ChatWithStream(ctx, chatMessages, response)
+	return c.GetService(chatMessages.Config()).ChatWithStream(ctx, chatMessages, response)
 }
 
 func NewChat() *Chat {
