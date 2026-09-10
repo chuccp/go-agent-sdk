@@ -29,6 +29,9 @@ profile.cov
 *.env
 *.yml
 *.ini
+# GitHub Actions workflow 例外（*.yml 规则不覆盖）
+!.github/workflows/*.yml
+!.github/workflows/*.yaml
 # Editor/IDE
 # .idea/
 # .vscode/
