@@ -45,7 +45,7 @@ func (r *Agent) Init(ctx *core.Context) error {
 	// flow 工具组（v3 剧本式）：activate_flow / exec_node / flow_step_done / flow_status / finish_flow
 	activateFlow, execNode, stepDone, flowStatus, finishFlow := workflow.NewFlowTools(wf)
 	config.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
-	config.HistoryStore(r.chatSessionService)
+	config.MessageStore(r.chatSessionService)
 
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
 	// agent.PromptProvider 机制自动拼进每轮 System），此处只留通用人设

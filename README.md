@@ -118,7 +118,7 @@ func main() {
 	config.AddTools(tools.NewCommandTool())
 
 	// 4. 设置持久化（可选，实现 MessageStore 接口）
-	// config.HistoryStore(myMessageStore)
+	// config.MessageStore(myMessageStore)
 
 	// 5. 设置超时（可选，秒）
 	config.SessionTimeout(600) // 会话空闲超时
@@ -436,8 +436,8 @@ config.ChatOption(
 config.SessionTimeout(600)  // 会话空闲超时，到期自动销毁
 config.ClientTimeout(300)   // 客户端空闲超时
 
-// HistoryStore 设置持久化（实现 MessageStore 接口）
-config.HistoryStore(myMessageStore)
+// MessageStore 设置持久化（实现 MessageStore 接口）
+config.MessageStore(myMessageStore)
 
 // Compressor 设置上下文压缩策略（可选）
 config.Compressor(myCompressor)

@@ -53,6 +53,7 @@ func (m *Config) AddTools(exec ...ToolExecutor) {
 	defer m.lock.Unlock()
 	m.toolExecutors = append(m.toolExecutors, exec...)
 }
+
 // AddLifecycle 注册完整的生命周期实现（接口或 FuncLifecycle）。
 func (m *Config) AddLifecycle(lifecycle Lifecycle) {
 	m.lock.Lock()
@@ -105,9 +106,9 @@ func (m *Config) ClientTimeout(clientTimeout uint) {
 	m.clientTimeout = clientTimeout
 }
 
-// HistoryStore 设置聊天记录持久化实现。
+// MessageStore 设置聊天记录持久化实现。
 // 设置后，新建会话会自动加载历史，每轮对话结束后自动保存。
-func (m *Config) HistoryStore(store MessageStore) {
+func (m *Config) MessageStore(store MessageStore) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.historyStore = store
