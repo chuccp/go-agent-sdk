@@ -3,6 +3,8 @@ package agent_test
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -39,33 +41,68 @@ func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, 
 	return nil
 }
 
-// findAskUserBlock 在事件列表中查找 ask_user 的 CustomTextBlock（可能嵌套在 ToolResultBlock.Content 内）。
-func findAskUserBlock(events []*agent.Event) *chat.CustomTextBlock {
-	for _, e := range events {
-		if ab := findInBlocks(e.Blocks); ab != nil {
-			return ab
-		}
-	}
-	return nil
+// askQuestion 对齐 ask_user_question 入参中单个问题的结构（前端也从入参自行解析）。
+type askQuestion struct {
+	Question string `json:"question"`
+	Header   string `json:"header"`
 }
 
-func findInBlocks(blocks chat.Blocks) *chat.CustomTextBlock {
-	for _, b := range blocks {
-		if cb, ok := b.(*chat.CustomTextBlock); ok && cb.TextType == chat.AskUserTextType {
-			return cb
-		}
-		if trb, ok := b.(*chat.ToolResultBlock); ok {
-			if ab := findInBlocks(trb.Content); ab != nil {
-				return ab
+// askUserToolUseArgs 从事件流中重建 ask_user_question 的入参 JSON。
+// 入参不随 StartBlock 抵达——StartBlock 只带 ID/Name，JSON 由其后的 DeltaBlock
+// 分片送达（前端同样按分片累加后解析），这里按 Start 升序还原。
+func askUserToolUseArgs(events []*agent.Event) string {
+	ordered := make([]*agent.Event, len(events))
+	copy(ordered, events)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Start < ordered[j].Start })
+
+	var sb strings.Builder
+	active := false
+	for _, e := range ordered {
+		for _, b := range e.Blocks {
+			switch v := b.(type) {
+			case *chat.StartBlock:
+				tub, ok := v.Block.(*chat.ToolUseBlock)
+				active = ok && tub.Name == "ask_user_question"
+			case *chat.ToolUseBlock:
+				active = v.Name == "ask_user_question"
+			case *chat.DeltaBlock:
+				if active {
+					sb.WriteString(v.Content)
+				}
 			}
 		}
 	}
-	return nil
+	return sb.String()
+}
+
+// hasAskUserCustomText 报告事件流中是否出现 ask_user 的 CustomTextBlock。
+func hasAskUserCustomText(events []*agent.Event) bool {
+	var walk func(blocks chat.Blocks) bool
+	walk = func(blocks chat.Blocks) bool {
+		for _, b := range blocks {
+			if cb, ok := b.(*chat.CustomTextBlock); ok && cb.TextType == chat.AskUserTextType {
+				return true
+			}
+			if trb, ok := b.(*chat.ToolResultBlock); ok && walk(trb.Content) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, e := range events {
+		if walk(e.Blocks) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestAskUserQuestion_E2E_NonBlocking 全链路验证非阻塞问答：
-// 用户提问 → LLM 调 ask_user_question → ask_user block 推前端 → 工具不阻塞，
+// 用户提问 → LLM 调 ask_user_question → 问题随 tool_use 入参抵达前端 → 工具不阻塞，
 // 本轮正常走到 done → 用户回答作为普通消息触发新一轮 → done。
+//
+// 工具不再单独推送 ask_user CustomTextBlock：问题 JSON 已在 tool_use 入参中随消息流
+// 到达前端，重复推送会产生第二份副本。
 func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	config := agent.NewConfig()
 	config.AddTools(tools.NewAskUserQuestionTool())
@@ -81,17 +118,24 @@ func TestAskUserQuestion_E2E_NonBlocking(t *testing.T) {
 	session.WriteText("帮我选个颜色")
 	events := collectUntilDone(t, client)
 
-	// ask_user block 已推送，text 为问题列表 JSON
-	askBlock := findAskUserBlock(events)
-	if askBlock == nil {
-		t.Fatal("未收到 ask_user CustomTextBlock")
+	// 问题内容随 tool_use 入参抵达前端
+	args := askUserToolUseArgs(events)
+	if args == "" {
+		t.Fatal("未收到 ask_user_question 的 tool_use 入参分片")
 	}
-	var questions []tools.Question
-	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
-		t.Fatalf("ask_user block text 不是问题列表 JSON: %v", err)
+	var payload struct {
+		Questions []askQuestion `json:"questions"`
 	}
-	if len(questions) != 1 || questions[0].Question != "What color?" {
-		t.Fatalf("问题内容不符: %+v", questions)
+	if err := json.Unmarshal([]byte(args), &payload); err != nil {
+		t.Fatalf("tool_use 入参不是问题列表 JSON: %v (入参=%q)", err, args)
+	}
+	if len(payload.Questions) != 1 || payload.Questions[0].Question != "What color?" {
+		t.Fatalf("问题内容不符: %+v", payload.Questions)
+	}
+
+	// 工具不再重复推送 ask_user block
+	if hasAskUserCustomText(events) {
+		t.Error("ask_user CustomTextBlock 不应再由工具推送（问题已随 tool_use 入参到达）")
 	}
 
 	// 工具输出已流式推送（TextBlock），不再单独发 ToolExecutionBlock

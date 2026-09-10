@@ -15,6 +15,7 @@ import {
   setAskUserHandler,
   setSkipNextStop,
   setLatestUsage,
+  type AskUserQuestion,
 } from './WebSocketAdapter'
 import { getSessionEvents, sendMessage, stopGeneration, setThinking, type ChatEvent } from '../api/chat'
 
@@ -220,20 +221,9 @@ export interface QueuedMessage {
   status: 'queued' | 'consumed'
 }
 
-// ── ask_user 问题结构（对齐后端 tools.Question）──
+// ── ask_user 问题结构：由适配器从 ask_user_question 的 tool_use 入参解析 ──
 
-export interface AskUserOption {
-  label: string
-  description: string
-  preview?: string
-}
-
-export interface AskUserQuestion {
-  question: string
-  header: string
-  options: AskUserOption[]
-  multi_select?: boolean
-}
+export type { AskUserOption, AskUserQuestion } from './WebSocketAdapter'
 
 /** WebSocket 连接状态 */
 export type WsStatus = 'connected' | 'disconnected' | 'reconnecting'
@@ -311,11 +301,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
         setStopCallback(() => {
           stopGeneration(sessionId).catch(() => {})
         })
-        setAskUserHandler(json => {
-          try {
-            setPendingQuestion(JSON.parse(json) as AskUserQuestion[])
-          } catch { /* ignore parse errors */ }
-        })
+        // 问题来自 ask_user_question 的 tool_use 入参（适配器已解析），直接用
+        setAskUserHandler(questions => setPendingQuestion(questions))
         triggerStream()
       }
 

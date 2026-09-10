@@ -32,6 +32,22 @@ type StreamEvent =
   | { kind: 'done' }
   | { kind: 'error'; message: string }
 
+// ── ask_user 问题结构（对齐 ask_user_question 工具的入参）──
+// 问题不再由后端单独推送：它就是该工具 tool_use 块的入参，随消息流一起到达。
+
+export interface AskUserOption {
+  label: string
+  description: string
+  preview?: string
+}
+
+export interface AskUserQuestion {
+  question: string
+  header: string
+  options: AskUserOption[]
+  multi_select?: boolean
+}
+
 // 内容段：与历史展示的 ⟪think⟫/⟪tool⟫/⟪result⟫/⟪command⟫ 标记一一对应，
 // 保证实时渲染与历史渲染（Thread.tsx parseSegments）样式完全一致
 interface Segment {
@@ -61,7 +77,7 @@ let triggerResolve: (() => void) | null = null
 let pendingBuffer: StreamEvent[] = []
 let directDispatch: ((evt: StreamEvent) => void) | null = null
 let stopCallback: (() => void) | null = null
-let askUserHandler: ((questionsJson: string) => void) | null = null
+let askUserHandler: ((questions: AskUserQuestion[]) => void) | null = null
 // 插话模式：append 触发框架 abort 时不向后端发 stop
 let skipNextStop = false
 
@@ -134,10 +150,10 @@ export function setStopCallback(cb: () => void): void {
 }
 
 /**
- * setAskUserHandler 设置 ask_user 事件处理器（用于渲染问题卡片）。
- * ask_user 不属于流事件，不进入适配器，单独路由给 UI。
+ * setAskUserHandler 设置 ask_user 问题处理器（用于渲染问题卡片）。
+ * 问题由 ask_user_question 的 tool_use 入参解析而来，不产生聊天段，单独路由给 UI。
  */
-export function setAskUserHandler(cb: (questionsJson: string) => void): void {
+export function setAskUserHandler(cb: (questions: AskUserQuestion[]) => void): void {
   askUserHandler = cb
 }
 
@@ -207,6 +223,18 @@ function resetStreamBlockState(): void {
   activeCommand = null
 }
 
+// emitAskUserQuestions 在 ask_user_question 的 tool_use 入参收齐后解析问题并交给 UI。
+// 问题即该工具的入参，已在消息流中；这里不再产生聊天段，只把结构化问题路由给卡片。
+function emitAskUserQuestions(): void {
+  if (currentToolName !== 'ask_user_question') return
+  try {
+    const questions = JSON.parse(toolInputJson)?.questions
+    if (Array.isArray(questions) && questions.length > 0) askUserHandler?.(questions)
+  } catch (e) {
+    console.log('[bridge] ask_user 入参解析失败:', e)
+  }
+}
+
 function streamHandler(evt: MessageEvent): void {
   try {
     const msg = JSON.parse(evt.data)
@@ -240,6 +268,8 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
           const cmd = parseCommand(toolInputJson)
           if (cmd) commandByToolUseId.set(currentToolUseId, cmd)
         }
+        // 上一个 ask_user_question 的入参已收齐：解析问题交给卡片
+        if (wasToolUse) emitAskUserQuestions()
         // 上一个 server_tool_use 的入参已收齐：emit 搜索段
         if (wasServerToolUse && currentToolName) {
           let query = ''
@@ -379,6 +409,8 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
             pendingBuffer.push(searchEvt)
           }
         }
+        // ask_user_question 是最后一个块：入参已收齐，同样在收尾时解析
+        if (currentStreamBlockType === 'tool_use') emitAskUserQuestions()
         event = { kind: 'done' }
         resetStreamBlockState()
         console.log('[bridge] done block received')
@@ -387,19 +419,10 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         event = { kind: 'error', message: (block.text as string) || (block.message as string) || 'Unknown error' }
         break
       case 'custom_text':
-        // CustomTextBlock：按 text_type 路由语义。ask_user = 提问卡片（非流事件）
-        if (block.text_type === 'ask_user') {
-          console.log('[bridge] ask_user (custom_text) block received')
-          if (askUserHandler && block.text) askUserHandler(block.text as string)
-          return
-        }
-        // 其他自定义文本（resource_card / plan_card 等）由业务自行处理
+        // CustomTextBlock 不进入消息流（resource_card / plan_card 等由业务自行处理）。
+        // 旧历史里可能残留 text_type=ask_user 的块——问题曾由后端单独推送，现已改由
+        // ask_user_question 的 tool_use 入参携带，这里一并忽略，避免当作正文渲染。
         console.log('[streamHandler] custom_text block:', block.text_type)
-        return
-      case 'ask_user':
-        // 兼容旧格式：ask_user 块（已迁移到 custom_text + text_type=ask_user）
-        console.log('[bridge] legacy ask_user block received')
-        if (askUserHandler && block.text) askUserHandler(block.text as string)
         return
       case 'message_start':
       case 'message_delta': {

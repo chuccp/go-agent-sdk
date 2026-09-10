@@ -12,215 +12,11 @@ import (
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
-// ── parseQuestions ──
-
-func TestParseQuestions_Valid(t *testing.T) {
-	args := map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "What color?",
-				"header":   "Color",
-				"options": []any{
-					map[string]any{"label": "Red", "description": "Red color"},
-					map[string]any{"label": "Blue", "description": "Blue color"},
-				},
-				"multi_select": false,
-			},
-		},
-	}
-
-	qs, err := parseQuestions(value.NewObjectFromMap(args))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(qs) != 1 {
-		t.Fatalf("expected 1 question, got %d", len(qs))
-	}
-	q := qs[0]
-	if q.Question != "What color?" || q.Header != "Color" {
-		t.Errorf("question/header mismatch: %q / %q", q.Question, q.Header)
-	}
-	if len(q.Options) != 2 {
-		t.Fatalf("expected 2 options, got %d", len(q.Options))
-	}
-	if q.Options[0].Label != "Red" {
-		t.Errorf("expected Red, got %q", q.Options[0].Label)
-	}
-}
-
-func TestParseQuestions_MaxFourQuestions(t *testing.T) {
-	args := map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Q1", "header": "H1",
-				"options": []any{
-					map[string]any{"label": "A", "description": "d"},
-					map[string]any{"label": "B", "description": "d"},
-				},
-			},
-			map[string]any{
-				"question": "Q2", "header": "H2",
-				"options": []any{
-					map[string]any{"label": "A", "description": "d"},
-					map[string]any{"label": "B", "description": "d"},
-				},
-			},
-			map[string]any{
-				"question": "Q3", "header": "H3",
-				"options": []any{
-					map[string]any{"label": "A", "description": "d"},
-					map[string]any{"label": "B", "description": "d"},
-				},
-			},
-			map[string]any{
-				"question": "Q4", "header": "H4",
-				"options": []any{
-					map[string]any{"label": "A", "description": "d"},
-					map[string]any{"label": "B", "description": "d"},
-				},
-			},
-		},
-	}
-
-	qs, err := parseQuestions(value.NewObjectFromMap(args))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(qs) != 4 {
-		t.Errorf("expected 4, got %d", len(qs))
-	}
-
-	// 5 questions should fail
-	bad := map[string]any{"questions": []any{
-		map[string]any{"question": "Q1", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
-		map[string]any{"question": "Q2", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
-		map[string]any{"question": "Q3", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
-		map[string]any{"question": "Q4", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
-		map[string]any{"question": "Q5", "header": "H", "options": []any{map[string]any{"label": "A", "description": "d"}, map[string]any{"label": "B", "description": "d"}}},
-	}}
-	_, err = parseQuestions(value.NewObjectFromMap(bad))
-	if err == nil {
-		t.Error("expected error for 5 questions")
-	}
-}
-
-func TestParseQuestions_MissingQuestions(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{}))
-	if err == nil {
-		t.Error("expected error for missing questions")
-	}
-}
-
-func TestParseQuestions_EmptyArray(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{"questions": []any{}}))
-	if err == nil {
-		t.Error("expected error for empty questions")
-	}
-}
-
-func TestParseQuestions_NotArray(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{"questions": "not array"}))
-	if err == nil {
-		t.Error("expected error for non-array questions")
-	}
-}
-
-func TestParseQuestions_MissingOptions(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
-		"questions": []any{
-			map[string]any{"question": "Q1", "header": "H1"},
-		},
-	}))
-	if err == nil {
-		t.Error("expected error for missing options")
-	}
-}
-
-func TestParseQuestions_TooFewOptions(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Q1", "header": "H1",
-				"options": []any{
-					map[string]any{"label": "Only", "description": "d"},
-				},
-			},
-		},
-	}))
-	if err == nil {
-		t.Error("expected error for <2 options")
-	}
-}
-
-func TestParseQuestions_MissingLabel(t *testing.T) {
-	_, err := parseQuestions(value.NewObjectFromMap(map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Q1", "header": "H1",
-				"options": []any{
-					map[string]any{"description": "no label"},
-					map[string]any{"label": "B", "description": "d"},
-				},
-			},
-		},
-	}))
-	if err == nil {
-		t.Error("expected error for missing label")
-	}
-}
-
-func TestParseQuestions_WithPreview(t *testing.T) {
-	args := map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Which layout?",
-				"header":   "Layout",
-				"options": []any{
-					map[string]any{"label": "Grid", "description": "Grid layout", "preview": "```\n[ ][ ]\n```"},
-					map[string]any{"label": "List", "description": "List layout"},
-				},
-			},
-		},
-	}
-
-	qs, err := parseQuestions(value.NewObjectFromMap(args))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if qs[0].Options[0].Preview != "```\n[ ][ ]\n```" {
-		t.Errorf("expected preview, got %q", qs[0].Options[0].Preview)
-	}
-	if qs[0].Options[1].Preview != "" {
-		t.Errorf("expected empty preview, got %q", qs[0].Options[1].Preview)
-	}
-}
-
 // ── Execute（非阻塞）──
 
-func TestExecute_NilContext(t *testing.T) {
-	tool := NewAskUserQuestionTool()
-	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{})), chat.NewToolResultBlockStream(w, "ask"))
-	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
-		t.Errorf("expected missing questions error in output, got %q", text)
-	}
-}
-
-func TestExecute_InvalidQuestions(t *testing.T) {
-	tool := NewAskUserQuestionTool()
-	config := agent.NewConfig()
-	manager := config.CreateServer(context.Background())
-	ctx := manager.SessionContext("ask-s1")
-
-	w := chat.NewBlockStream(nil)
-	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{})), chat.NewToolResultBlockStream(w, "ask"))
-	if text := drainText(w); !strings.Contains(text, "缺少 questions") {
-		t.Errorf("expected missing questions error in output, got %q", text)
-	}
-}
-
-// TestExecute_NonBlocking 验证 Execute 推送 ask_user block 后立即返回：
-// tool_result 文本陈述已提问等待回答，且停止原因置 user_wait。
+// TestExecute_NonBlocking 验证 Execute 立即返回：tool_result 文本陈述已提问等待回答，
+// 停止原因置 user_wait，且不再向前端重复推送问题内容——问题 JSON 只存在于 LLM 的
+// tool_use 入参中，由前端自行解析渲染。
 func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	config := agent.NewConfig()
@@ -266,29 +62,14 @@ func TestExecute_NonBlocking(t *testing.T) {
 		t.Errorf("expected StopReasonUserWait, got %q", got)
 	}
 
-	// 前端收到 ask_user block，包含问题列表 JSON
-	events := readEventsUntilIdle(client, 300*time.Millisecond)
-	var askBlock *chat.CustomTextBlock
-	for _, ev := range events {
+	// 问题内容不由本工具推送：LLM 的入参已在 tool_use 块中随消息流到达前端，
+	// 前端从该入参解析并渲染问题卡片，此处不应再出现 ask_user CustomTextBlock
+	for _, ev := range readEventsUntilIdle(client, 300*time.Millisecond) {
 		for _, b := range ev.Blocks {
 			if cb, ok := b.(*chat.CustomTextBlock); ok && cb.TextType == chat.AskUserTextType {
-				askBlock = cb
-				break
+				t.Errorf("ask_user CustomTextBlock 不应再由工具推送: %s", cb.Text)
 			}
 		}
-		if askBlock != nil {
-			break
-		}
-	}
-	if askBlock == nil {
-		t.Fatalf("expected ask_user CustomTextBlock, got %d events", len(events))
-	}
-	var questions []Question
-	if err := json.Unmarshal([]byte(askBlock.Text), &questions); err != nil {
-		t.Fatalf("CustomTextBlock text is not question list JSON: %v", err)
-	}
-	if len(questions) != 1 || questions[0].Question != "What color?" {
-		t.Errorf("unexpected questions in block: %+v", questions)
 	}
 }
 
@@ -318,8 +99,9 @@ func TestAskUserQuestion_ImplementsToolExecutor(t *testing.T) {
 
 // ── CustomTextBlock(ask_user) 序列化 ──
 
-// TestAskUserBlock_RoundTrip 验证 ask_user 自定义文本块随历史持久化无损往返，
-// 且往返后仍是 CustomTextBlock（不再是降级为纯文本块）。
+// TestAskUserBlock_RoundTrip 验证 ask_user 自定义文本块无损往返，且往返后仍是
+// CustomTextBlock（不再是降级为纯文本块）。后端已不再生产该块，此用例保留用于
+// 覆盖旧历史数据中已持久化的 ask_user 块的解析路径。
 func TestAskUserBlock_RoundTrip(t *testing.T) {
 	orig := chat.Blocks{chat.NewCustomTextBlock(`[{"question":"What color?"}]`, chat.AskUserTextType)}
 	data, err := json.Marshal(orig)
