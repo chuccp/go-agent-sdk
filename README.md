@@ -7,13 +7,15 @@
 - **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 `start` 独立追踪读取进度，互不阻塞
 - **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
 - **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
+- **最新位订阅** — `Session.LastClient()` 无需传入 `start`，自动从当前最新事件位置开始订阅
 - **消息发送与接收分离** — Session 负责发送消息，Client 仅负责接收事件流
 - **流式对话** — WebSocket 流式输出，实时推送 thinking / text 增量
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
 - **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
+- **生命周期钩子** — 会话创建 / 消息到达 / 轮次结束 / 会话销毁四类回调
 - **多提供商** — ServiceStore 支持注册多个 LLM 后端，运行时选择
-- **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text
+- **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text / server_tool_use / stop
 
 ## 架构概览
 
@@ -73,7 +75,7 @@ go-agent-sdk/
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
 ├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
-├── tools/          # 内置工具：Command, Todo, AskUserQuestion（平台适配）
+├── tools/          # 内置工具：Command, Todo, AskUserQuestion, HttpRequest, Search（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
 ├── value/          # 动态值类型：Object, Array, Value（支持命名类型）
 └── example/        # 完整示例应用（Go 后端 + React 前端）
@@ -172,13 +174,35 @@ func main() {
 
 `Agent`（会话编排器）通过 `Context` 与会话交互，不直接持有 `Transfer` 或 `Store`，实现了关注点分离。
 
+`Session` 自身的门面方法：
+
+```go
+session.ID()                // 会话 ID
+session.Client(ctx, start)  // 从绝对位置 start 订阅事件流（断线续传时传入断线前的 start）
+session.LastClient(ctx)     // 从当前最新位置订阅：不补历史，只看之后的新事件
+session.Stop()              // 停止当前轮次（只对单轮生效），后续用户消息不受影响
+```
+
+### 生命周期钩子
+
+`Config` 提供四类函数式钩子，覆盖会话的完整生命周期：
+
+```go
+config.OnSessionCreated(func(s *agent.Session) { ... })                  // 会话创建
+config.OnMessage(func(ctx agent.Context, block *chat.UserBlock) { ... }) // 每条用户消息到达
+config.OnRoundDone(func(ctx agent.Context) { ... })                      // 每轮结束
+config.OnSessionDestroyed(func(s *agent.Session) { ... })                // 会话销毁
+```
+
+也可实现 `agent.Lifecycle` 接口后通过 `config.AddLifecycle(l)` 一次性注册；每类事件支持多个回调，按注册顺序执行。
+
 ### Done 回调
 
 `Agent` 支持通过 `Done` 结构体在轮次结束后执行自定义逻辑：
 
 ```go
 // HandleDoneMessage 创建一个 Done 对象，用于在轮次结束后执行回调
-done := agent.HandleDoneMessage(blocks)
+done := session.GetAgent().HandleDoneMessage(blocks)
 done.Done(func() {
     // 轮次结束后的自定义逻辑
     fmt.Println("round completed")
@@ -203,11 +227,13 @@ ThinkingBlock      { Thinking string }
 ImageBlock         { Source *ImageSource }
 ToolUseBlock       { ID, Name string; Input *value.Object }
 ToolResultBlock    { ToolUseID string; Content Blocks }
+ServerToolUseBlock { ID, Name string; Input json.RawMessage }           // Anthropic 服务端内置工具调用（如 web_search）
 CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展（不进上下文）
 MessageStartBlock  { Usage *Usage }
 MessageDeltaBlock  { Usage *Usage }
 StartBlock         { Block UseDeltaBlock }                              // 流式块起始标记
 DeltaBlock         { Content string }                                  // 流式增量
+StopBlock          { }                                                 // 流式块结束标记
 DoneBlock          { Usage *Usage }                                    // 本轮结束（携带 token 用量）
 UserBlock          { BlockUserType string; ID uint64; Content Blocks } // 用户消息状态
 ErrorBlock         { Text string }
@@ -239,7 +265,7 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 
 `doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，旧事件被裁掉（`reset`），待保存历史迁入持久层（`save`）。`start` 早于缓冲区头部时自动钳制；服务重启后从历史恢复 `seq`，新事件无缝接续。
 
-多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。
+多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。不关心历史、只看新事件的场景可用 `Session.LastClient()`，自动从当前最新位置开始订阅。
 
 整个过程不依赖任何 broker、单进程即可完成，运维成本为零；且生成与传输解耦——客户端断开不中断服务端生成，事件继续缓冲，重连后凭 `start` 补读积压事件，像什么都没发生过。
 
@@ -265,7 +291,9 @@ type ToolExecutor interface {
 |------|------|------|
 | `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + 30s 超时 |
 | `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持依赖关系 |
-| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问：推送 `ask_user` 事件并置 `user_wait` 后返回，用户回答作为下一条消息 |
+| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问：问题随 tool_use 入参下发，置 `user_wait` 结束本轮，用户回答作为下一条消息 |
+| `HttpRequestTool` | `tools/http_request.go` | HTTP 请求（GET/POST/PUT/DELETE/PATCH），适用于无命令行环境，响应超 8KB 截断 |
+| `SearchTool` | `tools/search.go` | 联网搜索 `web_search`，复用已注册 Anthropic Service 的 baseUrl / apiKey（`tools.NewSearchTool(chatInst)`） |
 
 ## MessageStore 接口
 
@@ -328,27 +356,32 @@ ws://localhost:19009/ws/chat/:id?start=0
 {"no":0,"start":0,"offset":1,"blocks":[{"type":"User","block_user_type":"sent","content":[...]}]}
 {"no":0,"start":1,"offset":1,"blocks":[{"type":"User","block_user_type":"consume","content":[...]}]}
 
-# AI 流式输出
+# AI 流式输出（内容块以 stop 收尾，start → delta… → stop）
 {"no":0,"start":2,"offset":1,"blocks":[{"type":"start","block":{"type":"thinking"}}]}
 {"no":0,"start":3,"offset":1,"blocks":[{"type":"delta","content":"让我看看..."}]}
-{"no":0,"start":4,"offset":1,"blocks":[{"type":"start","block":{"type":"text"}}]}
-{"no":0,"start":5,"offset":1,"blocks":[{"type":"delta","content":"你好！"}]}
+{"no":0,"start":4,"offset":1,"blocks":[{"type":"stop"}]}
+{"no":0,"start":5,"offset":1,"blocks":[{"type":"start","block":{"type":"text"}}]}
+{"no":0,"start":6,"offset":1,"blocks":[{"type":"delta","content":"你好！"}]}
+{"no":0,"start":7,"offset":1,"blocks":[{"type":"stop"}]}
 
 # 工具输出（携带 tool_use_id 关联对应 tool_use）
-{"no":0,"start":6,"offset":1,"blocks":[{"type":"start","block":{"type":"text","tool_use_id":"call_00"}}]}
-{"no":0,"start":7,"offset":1,"blocks":[{"type":"delta","content":"OS Name: ..."}]}
+{"no":0,"start":8,"offset":1,"blocks":[{"type":"start","block":{"type":"text","tool_use_id":"call_00"}}]}
+{"no":0,"start":9,"offset":1,"blocks":[{"type":"delta","content":"OS Name: ..."}]}
+{"no":0,"start":10,"offset":1,"blocks":[{"type":"stop"}]}
 
-# AskUser 提问
-{"no":0,"start":8,"offset":1,"blocks":[{"type":"custom_text","text_type":"ask_user","text":"[...]"}]}
+# AskUser 提问：问题随 ask_user_question 的 tool_use 入参流式到达（前端解析 args.questions 渲染卡片），本轮随即结束
+{"no":0,"start":11,"offset":1,"blocks":[{"type":"start","block":{"type":"tool_use","id":"call_00","name":"ask_user_question"}}]}
+{"no":0,"start":12,"offset":1,"blocks":[{"type":"delta","content":"{\"questions\":[...]}"}]}
+{"no":0,"start":13,"offset":1,"blocks":[{"type":"stop"}]}
 
 # 本轮结束
-{"no":0,"start":9,"offset":1,"blocks":[{"type":"done"}]}
+{"no":0,"start":14,"offset":1,"blocks":[{"type":"done"}]}
 
 # 错误
-{"no":0,"start":10,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
+{"no":0,"start":15,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
 ```
 
-> **块形态**：实时流以 `start` + `delta` 增量块推送；连接后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
+> **块形态**：实时流以 `start` + `delta` + `stop` 增量块推送（每个内容块以 `stop` 收尾）；连接后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
 
 前端采用 **send/display 分离**：消息通过 REST API 发送，收到 `User` 块（`block_user_type=consume`）后才将用户消息追加到对话框并启动流式适配器。
 
