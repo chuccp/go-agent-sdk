@@ -21,7 +21,7 @@ func main() {
 	builder := wf.NewBuilder(loadConfig)
 	builder.Service(&service.ChatSessionService{}, &server.Agent{}, &flow.StoreFlow{})
 	builder.Rest(&rest.Chat{}, &rest.Flow{})
-	builder.Model(&model.ChatMessageModel{}, &model.ChatSessionModel{})
+	builder.Model(&model.ChatMessageModel{}, &model.ChatSessionModel{}, &model.ChatSummaryModel{})
 	frame := builder.Build()
 	err = frame.Start()
 	if err != nil {

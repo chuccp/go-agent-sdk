@@ -18,6 +18,7 @@ type ChatSessionService struct {
 	context      *core.Context
 	sessionModel *model.ChatSessionModel
 	messageModel *model.ChatMessageModel
+	summaryModel *model.ChatSummaryModel
 }
 
 // Init implements core.IService. It resolves models from the core context.
@@ -25,6 +26,7 @@ func (s *ChatSessionService) Init(ctx *core.Context) error {
 	s.context = ctx
 	s.sessionModel = core.GetModel[*model.ChatSessionModel](ctx)
 	s.messageModel = core.GetModel[*model.ChatMessageModel](ctx)
+	s.summaryModel = core.GetModel[*model.ChatSummaryModel](ctx)
 	return nil
 }
 
@@ -48,6 +50,11 @@ func (s *ChatSessionService) CreateSession(ctx context.Context, title string) (*
 func (s *ChatSessionService) DeleteSession(ctx context.Context, id uint) error {
 	// Delete all messages in this session first
 	if err := s.messageModel.WithContext(ctx).
+		Delete().Where("session_id = ?", id).Delete(); err != nil {
+		return err
+	}
+	// Delete the compression summary as well
+	if err := s.summaryModel.WithContext(ctx).
 		Delete().Where("session_id = ?", id).Delete(); err != nil {
 		return err
 	}
@@ -129,13 +136,57 @@ func (s *ChatSessionService) Append(sessionID string, messages []*chat.Message) 
 }
 
 // LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩。
-// 实现 agent.MessageStore 接口。当前不支持压缩，始终返回 nil。
+// 实现 agent.MessageStore 接口。
 func (s *ChatSessionService) LoadSummary(sessionID string) (*chat.Message, error) {
-	return nil, nil
+	id, err := strconv.ParseUint(sessionID, 10, 64)
+	if err != nil {
+		return nil, nil // invalid sessionID, treat as new session
+	}
+	row, err := s.summaryModel.FindOne("session_id = ?", uint(id))
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, nil
+	}
+
+	msg := &chat.Message{
+		Role:  chat.Role(row.Role),
+		Start: row.Start,
+	}
+	if row.Content != "" {
+		var blocks chat.Blocks
+		if err := json.Unmarshal([]byte(row.Content), &blocks); err == nil {
+			msg.Content = blocks
+		} else {
+			// fallback: plain text stored in legacy format
+			msg.Content = chat.Blocks{chat.NewFullTextBlock(row.Content)}
+		}
+	}
+	return msg, nil
 }
 
-// SaveSummary 保存压缩摘要。
-// 实现 agent.MessageStore 接口。当前不支持压缩，空实现。
+// SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息。
+// 每个会话一条摘要：已存在则更新（复用主键），否则插入。
+// 实现 agent.MessageStore 接口。
 func (s *ChatSessionService) SaveSummary(sessionID string, summary *chat.Message) error {
-	return nil
+	id, err := strconv.ParseUint(sessionID, 10, 64)
+	if err != nil {
+		return nil // invalid sessionID, treat as new session
+	}
+	contentJSON, _ := json.Marshal(summary.Content)
+	row := &entity.ChatSummary{
+		SessionId: uint(id),
+		Start:     summary.Start,
+		Role:      string(summary.Role),
+		Content:   string(contentJSON),
+	}
+	existing, err := s.summaryModel.FindOne("session_id = ?", uint(id))
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		row.Id = existing.Id
+	}
+	return s.summaryModel.Save(row)
 }
