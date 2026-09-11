@@ -52,10 +52,15 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 		if d.starts.IsEmpty() {
 			return returnStart, returnStart > 0
 		}
-
 		num := d.starts.Len()
-
-		minStart := d.starts.Get(0)
+		if len(clients) == 0 {
+			if num > 1 {
+				minStart := d.starts.Last()
+				d.starts.Reset()
+				return minStart, minStart > 0
+			}
+		}
+		minStart := d.starts.First()
 		hasMin := false
 		for _, client := range clients {
 			if client.isClosed.Load() {
