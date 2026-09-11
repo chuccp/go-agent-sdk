@@ -27,7 +27,7 @@ func (queue *Queue[T]) Offer(value T) error {
 	return nil
 }
 
-func (queue *Queue[T]) DequeueTimer(timer *Timer) (value T, hasValue bool) {
+func (queue *Queue[T]) DequeueTimer(timer *Timer) (value T, err error) {
 	defer timer.Close()
 
 	timedOut := false
@@ -43,24 +43,24 @@ func (queue *Queue[T]) DequeueTimer(timer *Timer) (value T, hasValue bool) {
 	// 快速路径
 	if v, err := queue.sliceQueue.Read(); err == nil {
 		queue.lock.Unlock()
-		return v, true
+		return v, nil
 	}
 	if queue.closed {
 		queue.lock.Unlock()
 		var zero T
-		return zero, false
+		return zero, ErrQueueClosed
 	}
 
 	for !timedOut {
 		v, err := queue.sliceQueue.Read()
 		if err == nil {
 			queue.lock.Unlock()
-			return v, true
+			return v, nil
 		}
 		if queue.closed {
 			queue.lock.Unlock()
 			var zero T
-			return zero, false
+			return zero, ErrQueueClosed
 		}
 		queue.cond.Wait()
 	}
@@ -68,23 +68,23 @@ func (queue *Queue[T]) DequeueTimer(timer *Timer) (value T, hasValue bool) {
 	v, err := queue.sliceQueue.Read()
 	queue.lock.Unlock()
 	if err == nil {
-		return v, true
+		return v, nil
 	}
 	var zero T
-	return zero, false
+	return zero, nil
 }
 
-func (queue *Queue[T]) Dequeue() (value T, hasValue bool) {
+func (queue *Queue[T]) Dequeue() (value T, err error) {
 	queue.lock.Lock()
 	defer queue.lock.Unlock()
 	for {
 		v, err := queue.sliceQueue.Read()
 		if err == nil {
-			return v, true
+			return v, nil
 		}
 		if queue.closed {
 			var zero T
-			return zero, false
+			return zero, ErrQueueClosed
 		}
 		queue.cond.Wait()
 	}

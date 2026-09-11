@@ -82,9 +82,9 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 			return events, nil
 		}
 
-		_, hasValue := c.queue.Dequeue()
-		if !hasValue {
-			return nil, errors.New("client closed")
+		_, err = c.queue.Dequeue()
+		if err != nil {
+			return nil, err
 		}
 
 	}
