@@ -25,6 +25,7 @@ const (
 	BaseURLConfigKey          ConfigKey = "baseUrl"
 	APIKEYConfigKey           ConfigKey = "apikey"
 	WebSearchConfigKey        ConfigKey = "websearch"
+	UserIDConfigKey           ConfigKey = "user_id"
 )
 
 type Config struct {
@@ -59,6 +60,9 @@ func (m *Config) Set(key ConfigKey, value any) {
 
 func (m *Config) GetSystemPrompt() string {
 	return m.object.GetString(string(SystemPromptConfigKey))
+}
+func (m *Config) GetUserId() string {
+	return m.object.GetString(string(UserIDConfigKey))
 }
 func (m *Config) SystemPrompt(systemPrompt string) {
 	m.object.PutAny(string(SystemPromptConfigKey), systemPrompt)
@@ -116,6 +120,12 @@ func WithId(id string) Option {
 func WithSystemPrompt(systemPrompt string) Option {
 	return func(o *Config) {
 		o.Set(SystemPromptConfigKey, systemPrompt)
+	}
+}
+
+func WithUserId(userId string) Option {
+	return func(o *Config) {
+		o.Set(UserIDConfigKey, userId)
 	}
 }
 
