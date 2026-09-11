@@ -169,4 +169,9 @@ func (s *Session) Destroy() {
 		s.lifecycle.OnSessionDestroyed(s)
 	}
 	s.cancel()
+	err := s.transfer.SaveAll()
+	if err != nil {
+		log.Error("[session] destroy: SaveAll failed", "session", s.sessionContext.sessionId, "error", err)
+		return
+	}
 }

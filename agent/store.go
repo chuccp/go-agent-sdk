@@ -330,6 +330,28 @@ func (s *Store) save(minStart uint64) error {
 	}
 	return nil
 }
+
+func (s *Store) saveAll() error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	if s.messageStore != nil {
+		snapshot := append([]*chat.Message(nil), s.tempHistory.Slice()...)
+		var megs []*chat.Message
+		for _, m := range snapshot {
+			megs = append(megs, m)
+			s.append(m)
+			s.tempHistory.Remove(m)
+		}
+		if len(megs) > 0 {
+			sdklog.Debug("[store] Append messages to messageStore", "session", s.sessionID, "count", len(megs))
+			if err := s.messageStore.Append(s.sessionID, megs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Store) AppendHistory(c *chat.Message) {
 	s.lock.Lock()
 	defer s.lock.Unlock()

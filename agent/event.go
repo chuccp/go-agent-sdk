@@ -84,6 +84,11 @@ func (l *Transfer) SubAgentStore() *Store {
 	l.no++
 	return NewStore(l.no, l.sessionId, l, l.compressor, nil)
 }
+func (l *Transfer) SaveAll() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.defaultStore.saveAll()
+}
 
 func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	l.mu.Lock()
