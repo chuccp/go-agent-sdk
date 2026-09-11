@@ -136,7 +136,7 @@ func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 		return nil, err
 	}
 	if len(events) == 0 {
-		return nil, nil
+		return events, nil
 	}
 	// events 按 Start 升序排列，最后一个元素是最新事件。
 	lastEvent := events[len(events)-1]

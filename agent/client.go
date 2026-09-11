@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -62,16 +63,17 @@ func (c *Client) isTimeout() bool {
 }
 
 // ReadEvents 阻塞等待直到有新事件到达，然后返回所有可用事件。
-// 返回 nil 表示队列已关闭。
 func (c *Client) ReadEvents() ([]*Event, error) {
 	for {
 		select {
 		case <-c.ctx.Done():
 			c.Close()
-			return nil, c.ctx.Err()
+			return nil, errors.New("client closed")
 		default:
 		}
-
+		if c.isClosed.Load() {
+			return nil, errors.New("client closed")
+		}
 		events, err := c.readEvents.readEvents(c)
 		if err != nil {
 			return nil, err
@@ -82,16 +84,19 @@ func (c *Client) ReadEvents() ([]*Event, error) {
 
 		_, hasValue := c.queue.Dequeue()
 		if !hasValue {
-			return nil, nil
+			return nil, errors.New("client closed")
 		}
 
 	}
 }
-
+func (c *Client) IsClosed() bool {
+	return c.isClosed.Load()
+}
 func (c *Client) Close() {
 	c.once.Do(func() {
 		c.cancel()
 		c.readEvents.deleteClient(c)
 		c.isClosed.Store(true)
+		c.queue.Close()
 	})
 }
