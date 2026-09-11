@@ -111,7 +111,9 @@ func (d *Done) Done(f func()) {
 	d.do()
 }
 
-func (l *Agent) HandleDoneMessage(blocks chat.Blocks) *Done {
+// HandleRoundMessage 登记本轮完成回调并返回句柄：拿到句柄后调用 Done(f) 才真正把消息写进去，
+// 本轮结束时回调 f。
+func (l *Agent) HandleRoundMessage(blocks chat.Blocks) *Done {
 	done := &Done{}
 	l.done = func() {
 		done.f()

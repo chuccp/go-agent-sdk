@@ -61,6 +61,13 @@ func (s *Session) WriteBlocks(blocks ...chat.Block) {
 	s.agent.HandleMessage(blocks)
 }
 
+// WriteBlocksRound 写入消息并返回本轮句柄：调用 Done(f) 时才真正发出，本轮结束时回调 f。
+// 单客户端用——完成回调挂在 Agent 上是单槽位，多客户端会互相覆盖。
+func (s *Session) WriteBlocksRound(blocks ...chat.Block) *Done {
+	s.lastTime = util.GetSecondTime()
+	return s.agent.HandleRoundMessage(blocks)
+}
+
 func (s *Session) GetAgent() *Agent {
 	return s.agent
 }
@@ -79,6 +86,11 @@ func (s *Session) GetSubAgent(systemPrompt string, toolExecutors ...ToolExecutor
 
 func (s *Session) WriteText(message string) {
 	s.WriteBlocks(chat.NewFullTextBlock(message))
+}
+
+// WriteTextRound 同 WriteBlocksRound，写入一段文本。
+func (s *Session) WriteTextRound(message string) *Done {
+	return s.WriteBlocksRound(chat.NewFullTextBlock(message))
 }
 
 func newSession(id string, config *Config, sessions *Sessions) *Session {
