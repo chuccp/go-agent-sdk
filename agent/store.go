@@ -306,10 +306,13 @@ func (s *Store) RecordDone(minStart uint64) {
 	defer s.lock.Unlock()
 	s.doneManifest.addSplit(minStart)
 }
-
 func (s *Store) save(minStart uint64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	return s.save0(minStart)
+}
+func (s *Store) save0(minStart uint64) error {
+
 	if s.messageStore != nil {
 		// 拷贝一份快照，避免遍历期间 Remove 修改底层数组导致跳过/重复元素
 		snapshot := append([]*chat.Message(nil), s.tempHistory.Slice()...)
@@ -334,22 +337,13 @@ func (s *Store) save(minStart uint64) error {
 func (s *Store) saveAll() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.messageStore != nil {
-		snapshot := append([]*chat.Message(nil), s.tempHistory.Slice()...)
-		var megs []*chat.Message
-		for _, m := range snapshot {
-			megs = append(megs, m)
-			s.append(m)
-			s.tempHistory.Remove(m)
-		}
-		if len(megs) > 0 {
-			sdklog.Debug("[store] Append messages to messageStore", "session", s.sessionID, "count", len(megs))
-			if err := s.messageStore.Append(s.sessionID, megs); err != nil {
-				return err
-			}
-		}
+	if !s.doneManifest.starts.IsEmpty() {
+		minStart := s.doneManifest.starts.Last()
+		s.doneManifest.starts.Reset()
+		return s.save0(minStart)
 	}
 	return nil
+
 }
 
 func (s *Store) AppendHistory(c *chat.Message) {
