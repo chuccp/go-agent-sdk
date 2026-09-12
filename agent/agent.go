@@ -86,15 +86,11 @@ func (b *Builder) Build() *Agent {
 	return b.agent
 }
 func (l *Agent) SendBlock(block chat.Block) uint64 {
-	start := l.agentContext.SendBlock(l.store.no, block)
-	//log.Debug("[loop] SendBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
-	return start
+	return l.agentContext.SendBlock(l.store.no, block)
 }
 
 func (l *Agent) SendSignalBlock(block chat.Block) uint64 {
-	start := l.agentContext.SendSignalBlock(l.store.no, block)
-	//log.Debug("[loop] SendSignalBlock", "session", l.loopContext.SessionId(), "start", start, "blockType", block.GetType())
-	return start
+	return l.agentContext.SendSignalBlock(l.store.no, block)
 }
 
 func (l *Agent) getMid() uint64 {
@@ -144,7 +140,7 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 				doneStart := l.SendBlock(doneBlock)
 				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
 				l.store.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
-				l.store.RecordDone(doneStart)
+				l.store.RecordLastStart(doneStart)
 				l.running = false
 				l.inbox.Reset()
 				log.Info("[loop] round done", "session", l.agentContext.SessionId())
@@ -195,10 +191,11 @@ func (l *Agent) composeSystem() string {
 	}
 	return system
 }
-func (l *Agent) lastMessage() (*chat.Message, bool) {
+func (l *Agent) lastUserBlocks() (*chat.BlockGroup, bool) {
 	values, fa := l.inbox.ReadAll()
 	if fa && len(values) > 0 {
 		firstStart := uint64(0)
+		lastStart := uint64(0)
 		var blocks chat.Blocks
 		for _, qm := range values {
 			userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
@@ -206,9 +203,10 @@ func (l *Agent) lastMessage() (*chat.Message, bool) {
 			if firstStart == 0 {
 				firstStart = start
 			}
+			lastStart = start
 			blocks = append(blocks, userBlock)
 		}
-		return &chat.Message{Start: firstStart, Offset: uint64(len(values)), Role: chat.RoleUser, Content: blocks}, true
+		return &chat.BlockGroup{Start: firstStart, Offset: uint64(len(values)), LastStart: lastStart, Content: blocks}, true
 	}
 	return nil, false
 }
@@ -227,9 +225,9 @@ func (l *Agent) buildRequest() *chat.Messages {
 		tools[index] = exec.Definition()
 	}
 	// 注入历史上下文：先消费本轮 inbox 的用户消息并落历史，再整体做上下文过滤
-	msg, fa := l.lastMessage()
+	msg, fa := l.lastUserBlocks()
 	if fa {
-		l.store.AppendHistory(msg)
+		l.appendUserMessage(msg)
 	}
 	history := l.store.History()
 	messages := chat.NewMessages(effective, tools)
@@ -341,6 +339,7 @@ func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup
 func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
 	minStart := blockGroups[0].Start
 	maxEnd := blockGroups[0].Start + blockGroups[0].Offset
+	lastStart := blockGroups[0].LastStart
 	for _, bg := range blockGroups[1:] {
 		if bg.Start < minStart {
 			minStart = bg.Start
@@ -348,15 +347,19 @@ func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results cha
 		if end := bg.Start + bg.Offset; end > maxEnd {
 			maxEnd = end
 		}
+		if bg.LastStart > lastStart {
+			lastStart = bg.LastStart
+		}
 	}
-	return &chat.BlockGroup{Start: minStart, Offset: maxEnd - minStart, Content: results}
+	return &chat.BlockGroup{Start: minStart, Offset: maxEnd - minStart, LastStart: lastStart, Content: results}
 }
 
 func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
 	start := l.SendBlock(block)
 	return &chat.BlockGroup{
-		Start:  start,
-		Offset: 1,
+		Start:     start,
+		Offset:    1,
+		LastStart: start,
 		Content: chat.Blocks{
 			block,
 		},
@@ -390,10 +393,13 @@ func (l *Agent) findExecutor(name string) ToolExecutor {
 func (l *Agent) appendAssistantMessage(blocks *chat.BlockGroup) {
 	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
 	l.store.AppendHistory(assistantMsg)
+	// 不在此记录水位：本轮工具还没执行，这里记下的边界会让单独的 tool_use 落盘成悬空配对
 }
 func (l *Agent) appendUserMessage(blocks *chat.BlockGroup) {
 	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	l.store.AppendHistory(assistantMsg)
+	// 水位取本条消息真实的最后一个事件序号：用户输入、已配对的 tool_result 都自成一段完整历史，可安全落盘到此
+	l.store.RecordLastStart(blocks.LastStart)
 }
 
 func (l *Agent) roundStopped() bool {

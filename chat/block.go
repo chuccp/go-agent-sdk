@@ -65,9 +65,10 @@ type Block interface {
 }
 
 type BlockGroup struct {
-	Start   uint64 `json:"-"`
-	Offset  uint64 `json:"-"`
-	Content Blocks `json:"content"` // content block 数组
+	Start     uint64 `json:"-"`
+	Offset    uint64 `json:"-"`
+	LastStart uint64 `json:"-"`
+	Content   Blocks `json:"content"` // content block 数组
 }
 
 type Blocks []Block

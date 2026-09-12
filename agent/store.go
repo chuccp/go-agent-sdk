@@ -301,7 +301,7 @@ func (s *Store) mergeHistory(after []*chat.Message) {
 	}
 }
 
-func (s *Store) RecordDone(minStart uint64) {
+func (s *Store) RecordLastStart(minStart uint64) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.doneManifest.addSplit(minStart)

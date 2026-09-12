@@ -248,9 +248,10 @@ func (s *BlockStream) ReadBlockGroup() *BlockGroup {
 	// maxEndStart 追踪所有 sendBlock 的最大位置，确保 Offset 覆盖完整的消息范围。
 	offset := s.maxEndStart - s.firstStart + 1
 	return &BlockGroup{
-		Start:   s.firstStart,
-		Offset:  offset,
-		Content: blocks,
+		Start:     s.firstStart,
+		Offset:    offset,
+		LastStart: s.maxEndStart,
+		Content:   blocks,
 	}
 }
 func (s *BlockStream) GetStopReason() StopReason {
