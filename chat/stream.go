@@ -191,6 +191,11 @@ func (s *BlockStream) flushAndStart(block UseDeltaBlock) {
 	s.assemblerBlock.start(start, block)
 
 }
+func (s *BlockStream) MaxEndStart() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxEndStart
+}
 func (s *BlockStream) flush() {
 	block, fa := s.assemblerBlock.flush()
 	if fa && block != nil {
