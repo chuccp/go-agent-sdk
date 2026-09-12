@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"log"
 	"runtime/debug"
 )
@@ -32,4 +33,15 @@ func GoWithRecover(fn func(), recoverHandler func(r any)) {
 		}()
 		fn()
 	}()
+}
+
+// Recover 同步执行 fn，捕获其中的 panic 并以 error 返回；fn 正常返回时 error 为 nil。
+// 只保留 panic 值、不带堆栈：调用方常把这个错误回给模型，带堆栈会污染上下文。
+func Recover(fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	return fn()
 }
