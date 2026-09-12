@@ -33,6 +33,10 @@ type SendEvent interface {
 	getAndAddStart() uint64
 }
 
+// maxPendingSplits 待定落盘水位的积压上限：积压数超过它、且客户端仍落后于最老的水位时，
+// 直接关闭该客户端，避免事件队列随积压无限增长。
+const maxPendingSplits = 12
+
 type splitManifest struct {
 	starts *util.SliceArray[uint64]
 }
@@ -67,7 +71,7 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 				continue
 			}
 			if client.start < minStart {
-				if num > 3 {
+				if num > maxPendingSplits {
 					client.Close()
 				} else {
 					hasMin = true
