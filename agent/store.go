@@ -10,15 +10,28 @@ import (
 )
 
 // MessageStore 聊天消息与压缩摘要的持久化接口，由主程序实现。
+//
+// 一致性要求：Append 写入的批次必须能被后续 LoadAfter 原样读回（Start / Offset /
+// Content 不变，整体按 Start 升序）。内存里的事件缓冲只保留「最慢的客户端还没读完」
+// 那段窗口，更早的位置靠 LoadAfter 回源补读——一旦「写进去」和「读回来」对不上，
+// 断线重连就会丢内容或错位。
+//
+// 并发与重试：同一 sessionID 的调用已被 Store 的锁串行化；不同 sessionID 会并发调用
+// （共用同一个 MessageStore 实例），实现需保证并发安全。SDK 不做重试——Append 返回
+// error 时该批消息已经移出待落盘队列、不会重投（只在读事件路径上报成 ErrorBlock 或
+// 记日志），LoadAfter 返回 error 则中断本次加载并上报。请尽量在实现内部保证成功。
 type MessageStore interface {
 	// LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
 	// 返回完整历史（含已被摘要取代的旧消息），用于回放与展示。
+	// 返回条数少于 limit 必须表示「已无更多数据」：调用方以此判定读完，分页结束。
 	LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error)
 
-	// Append 增量追加本批次新产生的消息。
+	// Append 增量追加本批次新产生的消息，按 Start 升序、分批调用。
+	// 必须与本接口的读取方法同源：写进去的要能被 LoadAfter 读回。
 	Append(sessionID string, messages []*chat.Message) error
 
-	// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩。
+	// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩（等价于分界点 0）。
+	// 返回值需与 SaveSummary 写入的一致。
 	LoadSummary(sessionID string) (*chat.Message, error)
 
 	// SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息。

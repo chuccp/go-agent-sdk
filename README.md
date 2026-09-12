@@ -319,15 +319,23 @@ type ToolExecutor interface {
 type MessageStore interface {
     // LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
     // 返回完整历史（含已被摘要取代的旧消息），用于回放与展示。
+    // 返回条数少于 limit 必须表示「已无更多数据」（调用方以此判定分页结束）。
     LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error)
-    // Append 增量追加本批次新产生的消息
+    // Append 增量追加本批次新产生的消息，按 Start 升序、分批调用
     Append(sessionID string, messages []*chat.Message) error
-    // LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩
+    // LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩（等价于分界点 0）
     LoadSummary(sessionID string) (*chat.Message, error)
-    // SaveSummary 保存压缩摘要
+    // SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息
     SaveSummary(sessionID string, summary *chat.Message) error
 }
 ```
+
+实现要点：
+
+- **写进去的要能读回来。** `Append` 的批次必须能被后续 `LoadAfter` 原样读回（`Start` / `Offset` / `Content` 不变，整体按 `Start` 升序）。内存只保留「最慢的客户端还没读完」那段窗口，更早的位置靠 `LoadAfter` 回源补读——两者对不上，断线重连就会丢内容或错位。
+- **短读即结束。** `LoadAfter` 返回条数少于 `limit` 必须表示已无更多数据，SDK 据此判定分页结束。
+- **并发**：同一 `sessionID` 的调用已被 Store 串行化；不同 `sessionID` 会并发（共用同一个实例），实现需并发安全。
+- **无重试**：`Append` 返回 error 时该批消息已移出待落盘队列、不会重投，实现应尽量在内部保证成功。
 
 ## REST API
 
