@@ -12,7 +12,7 @@
 - **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
 - **最新位订阅** — `Session.LastClient()` 无需传入 `start`，自动从当前最新事件位置开始订阅
 - **消息发送与接收分离** — Session 负责发送消息，Client 仅负责接收事件流
-- **流式对话** — WebSocket 流式输出，实时推送 thinking / text 增量
+- **流式对话** — 增量块推送 thinking / text / 工具输出，传输无关（示例应用用 WebSocket 承接）
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
 - **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
@@ -78,9 +78,10 @@ go-agent-sdk/
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
 ├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
-├── tools/          # 内置工具：Command, Todo, AskUserQuestion, HttpRequest, Search（平台适配）
-├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel
+├── tools/          # 内置工具：Command, Todo(Task*), AskUserQuestion, HttpRequest, Search（平台适配）
+├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel, Go/GoWithRecover/Recover
 ├── value/          # 动态值类型：Object, Array, Value（支持命名类型）
+├── log/            # 日志门面（Debug/Info/Warn/Error）
 └── example/        # 完整示例应用（Go 后端 + React 前端）
     ├── entity/     # DB 实体 + WebSocket 消息定义
     ├── model/      # GORM 模型
@@ -180,10 +181,21 @@ func main() {
 `Session` 自身的门面方法：
 
 ```go
-session.ID()                // 会话 ID
-session.Client(ctx, start)  // 从绝对位置 start 订阅事件流（断线续传时传入断线前的 start）
-session.LastClient(ctx)     // 从当前最新位置订阅：不补历史，只看之后的新事件
-session.Stop()              // 停止当前轮次（只对单轮生效），后续用户消息不受影响
+session.ID()                            // 会话 ID
+session.WriteText("你好")                // 发送一条纯文本用户消息
+session.WriteBlocks(blocks...)          // 发送任意 blocks
+session.WriteTextRound("你好")           // 同上并返回本轮句柄 Done（可注册轮次结束回调）
+session.WriteBlocksRound(blocks...)     // 任意 blocks 版本的本轮句柄
+session.Client(ctx, start)              // 从绝对位置 start 订阅事件流（断线续传时传入断线前的 start）
+session.LastClient(ctx)                 // 从当前最新位置订阅：不补历史，只看之后的新事件
+session.LoadMessagesAfter(since)        // 取 since 之后的历史消息（内存 + 持久层统一获取）
+session.GetAgent()                      // 取会话编排器（高级用法）
+session.GetSubAgent(prompt, tools...)   // 基于同一会话上下文创建子 Agent（复用同一个 Store）
+session.UpdateChatOption(opt...)        // 运行时更新 LLM 请求参数
+session.SessionTimeout(sec)             // 覆盖会话空闲超时
+session.ClientTimeout(sec)              // 覆盖客户端空闲超时
+session.Stop()                          // 停止当前轮次（只对单轮生效），后续用户消息不受影响
+session.Destroy()                       // 销毁会话：移除、取消 ctx，并把未提交消息落盘
 ```
 
 ### 生命周期钩子
@@ -199,20 +211,21 @@ config.OnSessionDestroyed(func(s *agent.Session) { ... })                // 会�
 
 也可实现 `agent.Lifecycle` 接口后通过 `config.AddLifecycle(l)` 一次性注册；每类事件支持多个回调，按注册顺序执行。
 
-### Done 回调
+### 本轮结束回调（Done）
 
-`Agent` 支持通过 `Done` 结构体在轮次结束后执行自定义逻辑：
+`Done` 是「本轮句柄」：`Done(f)` 才真正把消息发出去，并在本轮结束（发出并持久化 `DoneBlock`）后执行回调 `f`。
 
 ```go
-// HandleDoneMessage 创建一个 Done 对象，用于在轮次结束后执行回调
-done := session.GetAgent().HandleDoneMessage(blocks)
-done.Done(func() {
+// 写入消息并注册回调，本轮结束时触发
+session.WriteTextRound("统计当前目录的文件数").Done(func() {
     // 轮次结束后的自定义逻辑
     fmt.Println("round completed")
 })
 ```
 
-`Done.Done(f)` 注册回调函数 `f`，在当前轮次完成（发送 `DoneBlock` 并持久化）后自动执行。
+`Session.WriteTextRound / WriteBlocksRound` 是 `Agent.HandleRoundMessage(blocks)` 的便捷包装，拿到句柄后也可稍后再调 `Done`。
+
+> 注意：完成回调挂在 `Agent` 上是单槽位，多客户端场景会互相覆盖，只适合单客户端使用。
 
 ### Block（内容块）
 
@@ -266,7 +279,7 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 
 事件发送通过 `Transfer.SendBlock` 统一处理，`Agent.SendBlock` 和 `SessionContext.SendBlock` 均委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
 
-`doneManifest` 追踪每轮结束点，当所有客户端均已消费到某个结束点时，旧事件被裁掉（`reset`），待保存历史迁入持久层（`save`）。`start` 早于缓冲区头部时自动钳制；服务重启后从历史恢复 `seq`，新事件无缝接续。
+`doneManifest` 记录一串「落盘水位」：用户输入消息、已配对的 `tool_result`、每轮结束的 `done` 块各记一次。水位只在消息自成完整历史时才记录——助手消息含 `tool_use` 时不记，因为那时本轮工具还没执行，记下水位会让单独的 `tool_use` 落盘成悬空配对。当所有客户端都已消费到某个水位时，旧事件被裁掉（`reset`），对应历史迁入持久层（`save`）；`start` 早于缓冲区头部时回落到底层存储补读。服务重启后从历史恢复 `seq`，新事件无缝接续。
 
 多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。不关心历史、只看新事件的场景可用 `Session.LastClient()`，自动从当前最新位置开始订阅。
 
@@ -293,7 +306,7 @@ type ToolExecutor interface {
 | 工具 | 文件 | 说明 |
 |------|------|------|
 | `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + 30s 超时 |
-| `TodoTool` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），支持依赖关系 |
+| `TodoTools` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），`tools.NewTodoTools()` 一次返回 create / update / list / get 四个工具，支持依赖关系 |
 | `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问：问题随 tool_use 入参下发，置 `user_wait` 结束本轮，用户回答作为下一条消息 |
 | `HttpRequestTool` | `tools/http_request.go` | HTTP 请求（GET/POST/PUT/DELETE/PATCH），适用于无命令行环境，响应超 8KB 截断 |
 | `SearchTool` | `tools/search.go` | 联网搜索 `web_search`，复用已注册 Anthropic Service 的 baseUrl / apiKey（`tools.NewSearchTool(chatInst)`） |
@@ -304,7 +317,8 @@ type ToolExecutor interface {
 
 ```go
 type MessageStore interface {
-    // LoadAfter 读取 Start >= since 的原始消息，按 Start 升序，最多 limit 条
+    // LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
+    // 返回完整历史（含已被摘要取代的旧消息），用于回放与展示。
     LoadAfter(sessionID string, since uint64, limit int) ([]*chat.Message, error)
     // Append 增量追加本批次新产生的消息
     Append(sessionID string, messages []*chat.Message) error
@@ -403,9 +417,9 @@ pnpm dev
 # → http://localhost:5173
 ```
 
-### REST API
+### 示例应用的接口
 
-示例应用还提供了 REST API 用于发送消息、停止生成和设置思考程度：
+除上面的历史查询外，示例应用还提供发送消息、停止生成和设置思考程度的 REST 接口：
 
 ```bash
 # 发送消息
@@ -433,7 +447,11 @@ config.ChatOption(
     chat.WithMaxTokens(8192),
     chat.WithThinking(chat.ThinkingHigh),
     chat.WithSystemPrompt("你是一个智能助手。"),
+    chat.WithWebSearch(true),   // 启用 Anthropic 服务端内置 web_search（可选）
 )
+
+// AddTools 注册工具；AddLifecycle / OnXxx 注册生命周期钩子
+config.AddTools(tools.NewCommandTool())
 
 // 超时配置（秒）
 config.SessionTimeout(600)  // 会话空闲超时，到期自动销毁
