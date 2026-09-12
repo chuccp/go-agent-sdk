@@ -119,7 +119,6 @@ func (l *Agent) HandleRoundMessage(blocks chat.Blocks) *Done {
 	}
 	return done
 }
-
 func (l *Agent) HandleMessage(blocks chat.Blocks) {
 	l.runLock.Lock()
 	defer l.runLock.Unlock()
