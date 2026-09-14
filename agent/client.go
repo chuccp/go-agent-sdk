@@ -30,6 +30,7 @@ type Client struct {
 	once          sync.Once
 	clientTimeout uint
 	isClosed      atomic.Bool
+	isLast        bool
 }
 
 func NewClient(pCtx context.Context, start uint64, readEvents readEvents) *Client {

@@ -55,7 +55,6 @@ type Transfer struct {
 	historyStore     MessageStore
 	no               uint64
 	start            atomic.Uint64
-	startOffset      uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
@@ -94,7 +93,7 @@ func (l *Transfer) SaveAll() error {
 func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.greaterStart(since)
+	return l.greaterStart(since, false)
 
 }
 
@@ -130,7 +129,6 @@ func (l *Transfer) storeStart(start uint64) {
 		return
 	}
 	if l.start.CompareAndSwap(cur, start) {
-		l.startOffset = start
 		return
 	}
 }
@@ -138,7 +136,7 @@ func (l *Transfer) storeStart(start uint64) {
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	events, err := l.greaterStart(cl.start)
+	events, err := l.greaterStart(cl.start, cl.isLast)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +194,7 @@ func (l *Transfer) greaterEntries(start uint64) []*Event {
 	return events
 }
 
-func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
+func (l *Transfer) greaterStart(start uint64, isLast bool) ([]*Event, error) {
 	cache := new(util.SliceArray[*Event])
 
 	// 防呆：start 超过当前序号计数器时，entries 不可能有匹配事件，直接走内存筛选返回空切片
@@ -210,6 +208,10 @@ func (l *Transfer) greaterStart(start uint64) ([]*Event, error) {
 		if firstEvent.Start <= start {
 			return l.greaterEntries(start), nil
 		}
+	}
+
+	if isLast && !l.defaultStore.loaded {
+		return []*Event{}, nil
 	}
 
 	// 2. 从持久化存储加载历史消息

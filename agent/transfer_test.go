@@ -92,7 +92,7 @@ func TestGreaterStart_OnlyEntries(t *testing.T) {
 	}
 
 	// start=0 应返回全部 5 个（升序）
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestGreaterStart_FilterByStart(t *testing.T) {
 	}
 
 	// start=2: greaterEntries 过滤 Start>=2 的事件（升序：2,3,4）
-	events, err := tr.greaterStart(2)
+	events, err := tr.greaterStart(2, false)
 	if err != nil {
 		t.Fatalf("greaterStart(2) error: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestGreaterStart_AllConsumed(t *testing.T) {
 	}
 
 	// start=3: 最后一个事件 Start=2, 2+1=3, 3>3 为 false，返回空
-	events, err := tr.greaterStart(3)
+	events, err := tr.greaterStart(3, false)
 	if err != nil {
 		t.Fatalf("greaterStart(3) error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestGreaterStart_AllConsumed(t *testing.T) {
 
 func TestGreaterStart_Empty(t *testing.T) {
 	tr := newTestTransfer()
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestGreaterStart_LargeOffset(t *testing.T) {
 
 	// start=1: greaterEntries 过滤 Start>=1 的事件
 	// 事件0: Start=0 < 1 → 不含; 事件1: Start=3 >= 1 ✓; 事件2: Start=5 >= 1 ✓
-	events, err := tr.greaterStart(1)
+	events, err := tr.greaterStart(1, false)
 	if err != nil {
 		t.Fatalf("greaterStart(1) error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestGreaterStart_LargeOffset(t *testing.T) {
 	}
 
 	// start=3: greaterEntries 过滤 Start>=3 的事件（升序：3,5）
-	events, err = tr.greaterStart(3)
+	events, err = tr.greaterStart(3, false)
 	if err != nil {
 		t.Fatalf("greaterStart(3) error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestGreaterStart_WithTempHistory(t *testing.T) {
 	tr.defaultStore.tempHistory.Append(&chat.Message{Start: 2, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(2)}})
 
 	// start=0: 只读 entries 2个（tempHistory 不读）
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestGreaterStart_OnlyHistory(t *testing.T) {
 		&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}},
 	)
 
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestGreaterStart_DedupEntriesVsHistory(t *testing.T) {
 	tr.defaultStore.history.Append(&chat.Message{Start: 0, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{textBlockWithStart(0)}})
 	tr.defaultStore.history.Append(&chat.Message{Start: 1, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{textBlockWithStart(1)}})
 
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestGreaterStart_AllSources(t *testing.T) {
 	// entries: Start=3
 	tr.entries.Append(&Event{Start: 3, Offset: 1, Blocks: chat.Blocks{textBlockWithStart(3)}})
 
-	events, err := tr.greaterStart(0)
+	events, err := tr.greaterStart(0, false)
 	if err != nil {
 		t.Fatalf("greaterStart(0) error: %v", err)
 	}
