@@ -139,6 +139,13 @@ func (s *Store) History() []*chat.Message {
 	return result
 }
 
+// IsLoaded 报告持久化历史是否已加载完成（loaded 由 lastStoreStart 在锁内置位）。
+func (s *Store) IsLoaded() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.loaded
+}
+
 func (s *Store) LoadAllHistory() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()

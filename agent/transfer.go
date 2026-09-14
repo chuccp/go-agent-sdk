@@ -210,7 +210,7 @@ func (l *Transfer) greaterStart(start uint64, isLast bool) ([]*Event, error) {
 		}
 	}
 
-	if isLast && !l.defaultStore.loaded {
+	if isLast && !l.defaultStore.IsLoaded() {
 		return []*Event{}, nil
 	}
 
