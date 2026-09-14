@@ -43,8 +43,28 @@ func TestLastClient_NoStart_DoesNotReplayBacklog(t *testing.T) {
 	}
 }
 
-// TestLastClient_ExplicitStartWinsIfAhead 记录 start 参数的实际语义：
-// 它只在「大于自动分配序号」时生效（max），正常续传场景恒被自动序号覆盖。
+// TestLastClient_StartNotAhead_SameAsOmitting 钉住「start 可以不传」的正面表述：
+// 只要传入值不大于当前序号，max 的结果与完全不传（0）一致——传了不影响，不传也能继续。
+// 两次调用会各自消耗一个序号，故用两个同初始状态的 Transfer 对比。
+func TestLastClient_StartNotAhead_SameAsOmitting(t *testing.T) {
+	omittedTr := newTestTransfer()
+	omittedTr.start.Store(3)
+	omitted := omittedTr.lastClient(context.Background(), 0)
+	defer omitted.Close()
+
+	explicitTr := newTestTransfer()
+	explicitTr.start.Store(3)
+	explicit := explicitTr.lastClient(context.Background(), 2)
+	defer explicit.Close()
+
+	if omitted.start != explicit.start {
+		t.Fatalf("start=2 不大于当前序号时应与不传等价，得到 不传=%d 传2=%d",
+			omitted.start, explicit.start)
+	}
+}
+
+// TestLastClient_ExplicitStartWinsIfAhead 记录 start 参数唯一生效的场景：
+// 只在「大于自动分配序号」时作为起点下限（max），保证客户端起点不早于已知进度。
 func TestLastClient_ExplicitStartWinsIfAhead(t *testing.T) {
 	tr := newTestTransfer()
 	tr.start.Store(3)
