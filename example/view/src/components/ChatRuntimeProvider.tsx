@@ -293,9 +293,8 @@ export function ChatRuntimeProvider({ children, sessionId }: Props) {
     const connect = (start: number) => {
       if (!mounted || controller.signal.aborted) return
       latestStart = start
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       const level = thinkingRef.current || 'off'
-      ws = new WebSocket(`${proto}://${location.hostname}:19009/ws/chat/${sessionId}?start=${start}&level=${level}`)
+      ws = new WebSocket(`${import.meta.env.VITE_WS_BASE}/ws/chat/${sessionId}?start=${start}&level=${level}`)
 
       ws.onopen = () => {
         setWsStatus('connected')

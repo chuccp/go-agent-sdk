@@ -5,8 +5,8 @@
 // 用法: node e2e_test.mjs <session_id>
 
 const SESSION_ID = Number(process.argv[2] || 1)
-const BASE = 'http://localhost:19009'
-const WS_URL = 'ws://localhost:19009/ws/chat'
+const BASE = 'http://localhost:19008'
+const WS_URL = 'ws://localhost:19008/ws/chat'
 
 // ── 1. 加载历史，计算 start ──
 const res = await fetch(`${BASE}/api/chat/sessions/${SESSION_ID}/messages`)

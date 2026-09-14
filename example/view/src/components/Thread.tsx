@@ -33,7 +33,7 @@ export function Thread() {
         }}>AI</div>
         <span style={{ fontWeight: 600, fontSize: 15, color: '#202124' }}>Agent Debug Chat</span>
         <span style={{ fontSize: 11, color: '#80868b', marginLeft: 4 }}>
-          go-agent-sdk · {location.hostname}:19009
+          go-agent-sdk · {import.meta.env.VITE_WS_BASE.replace(/^wss?:\/\//, '')}
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <ReconnectButton />
