@@ -30,7 +30,7 @@ func (m *mockMessageStore) SaveSummary(sessionID string, summary *chat.Message) 
 // 验证这些消息最终能否被持久化。
 func TestSave_ToolUseToolResultPersisted(t *testing.T) {
 	ms := &mockMessageStore{}
-	store := NewStore(1, "test-session", nil, nil, ms)
+	store := NewStore(1, "test-session", nil, &CompressorOptions{}, ms)
 
 	// 1. 用户消息通过 SendBlock → append() 进入 history（模拟 buildRequest）
 	userMsg := &chat.Message{
@@ -138,7 +138,7 @@ func TestSave_ToolUseToolResultPersisted(t *testing.T) {
 // 模拟 save() 被多次调用的场景，验证不会重复入库。
 func TestSave_NoDuplicatePersistence(t *testing.T) {
 	ms := &mockMessageStore{}
-	store := NewStore(1, "test-session", nil, nil, ms)
+	store := NewStore(1, "test-session", nil, &CompressorOptions{}, ms)
 
 	msg1 := &chat.Message{Start: 100, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("msg1")}}
 	msg2 := &chat.Message{Start: 200, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{chat.NewFullTextBlock("msg2")}}
@@ -168,7 +168,7 @@ func TestSave_NoDuplicatePersistence(t *testing.T) {
 // 模拟 save(minStart) 中 minStart 不够大，导致部分消息未入库的场景。
 func TestSave_PartialSaveWithLowMinStart(t *testing.T) {
 	ms := &mockMessageStore{}
-	store := NewStore(1, "test-session", nil, nil, ms)
+	store := NewStore(1, "test-session", nil, &CompressorOptions{}, ms)
 
 	msg1 := &chat.Message{Start: 100, Offset: 1, Role: chat.RoleUser, Content: chat.Blocks{chat.NewFullTextBlock("msg1")}}
 	msg2 := &chat.Message{Start: 200, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{chat.NewToolUseBlock("call_00", "tool")}}

@@ -21,7 +21,7 @@ type Config struct {
 	toolExecutors  []ToolExecutor
 	chatConfig     *chat.Config
 	historyStore   MessageStore
-	compressor     Compressor
+	compressor     *CompressorOptions
 	lifecycle      FuncLifecycle
 	sessionTimeout uint
 	clientTimeout  uint
@@ -117,10 +117,12 @@ func (m *Config) MessageStore(store MessageStore) {
 // Compressor 设置上下文压缩策略和持久化实现。
 // 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
 // store 可为 nil（无持久化，重启丢失压缩状态）。
-func (m *Config) Compressor(c Compressor) {
+func (m *Config) Compressor(c ...CompressorOption) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	m.compressor = c
+	for _, o := range c {
+		o(m.compressor)
+	}
 }
 
 func (m *Config) RegisterChat(chatService chat.Service) {
@@ -164,7 +166,7 @@ func NewConfig() *Config {
 		toolExecutors:  make([]ToolExecutor, 0),
 		chatConfig:     chat.DefaultConfig(),
 		historyStore:   nil,
-		compressor:     nil,
+		compressor:     &CompressorOptions{},
 		chat:           chat.NewChat(),
 		sessionTimeout: defaultSessionTimeout,
 		clientTimeout:  defaultClientTimeout,

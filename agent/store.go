@@ -111,7 +111,6 @@ type Store struct {
 	doneManifest      *splitManifest
 	sessionID         string
 	loaded            bool
-	summary           *chat.Message
 	maxBatchSize      int
 	sendEvent         SendEvent
 	no                uint64
@@ -133,10 +132,22 @@ func (s *Store) HistoryLen() int {
 func (s *Store) History() []*chat.Message {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
+	return s.history0()
+}
+func (s *Store) history0() []*chat.Message {
 	result := make([]*chat.Message, s.history.Len()+s.tempHistory.Len())
 	copy(result, s.history.Slice())
 	copy(result[s.history.Len():], s.tempHistory.Slice())
 	return result
+}
+
+func (s *Store) compressorHistory(context Context) []*chat.Message {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	history0 := s.history0()
+	s.compressorManager.compress(context, history0)
+
+	return nil
 }
 
 // IsLoaded 报告持久化历史是否已加载完成（loaded 由 lastStoreStart 在锁内置位）。
@@ -152,14 +163,14 @@ func (s *Store) LoadAllHistory() error {
 	if s.messageStore == nil {
 		return nil
 	}
-	err := s.loadSummary()
+	summary, err := s.compressorManager.loadSummary()
 	if err != nil {
 		return err
 	}
 	if s.loaded {
 		return nil
 	}
-	start := s.summary.Start
+	start := summary.Start
 	if !s.history.IsEmpty() {
 		last := s.history.Last()
 		start = last.Start + last.Offset
@@ -170,7 +181,7 @@ func (s *Store) LoadAllHistory() error {
 		if err != nil {
 			return err
 		}
-		s.mergeHistory(after)
+		s.mergeHistory(after, summary)
 		sdklog.Debug("[store] LoadAllHistory merged", "session", s.sessionID, "loaded", len(after), "historyLen", s.history.Len())
 		if len(after) < s.maxBatchSize {
 			s.lastStoreStart()
@@ -178,26 +189,6 @@ func (s *Store) LoadAllHistory() error {
 		} else {
 			last := s.history.Last()
 			start = last.Start + last.Offset
-		}
-	}
-	return nil
-}
-
-func (s *Store) loadSummary() error {
-	if s.messageStore == nil {
-		return nil
-	}
-	if s.summary == nil {
-		summary, err := s.messageStore.LoadSummary(s.sessionID)
-		if err != nil {
-			return err
-		}
-		if summary == nil {
-			s.summary = &chat.Message{
-				Start: 0,
-			}
-		} else {
-			s.summary = summary
 		}
 	}
 	return nil
@@ -213,15 +204,15 @@ func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	err := s.loadSummary()
+	summary, err := s.compressorManager.loadSummary()
 	if err != nil {
 		return nil, err
 	}
 	// 冷启动预热：缓存为空且 since 越过压缩节点时，把 [summary.Start, since] 的活跃
 	// 历史拉进缓存，保证 History()（LLM 上下文）完整。压缩节点之前（Start <= summary.Start）
 	// 的旧消息已被摘要取代，不进内存缓存。
-	if s.history.IsEmpty() && since > s.summary.Start {
-		start := s.summary.Start
+	if s.history.IsEmpty() && since > summary.Start {
+		start := summary.Start
 		for {
 			after, err := s.messageStore.LoadAfter(s.sessionID, start, limit)
 			if err != nil {
@@ -270,7 +261,7 @@ func (s *Store) LoadMessagesAfter(since uint64) ([]*chat.Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.mergeHistory(after)
+	s.mergeHistory(after, summary)
 	if len(after) == 0 || len(after) < limit {
 		s.lastStoreStart()
 	}
@@ -303,23 +294,22 @@ func (s *Store) append(msg *chat.Message) {
 		}
 	}
 	s.history.Append(msg)
-
 }
 
 // mergeHistory 把回源结果中的活跃消息（Start > summary.Start）合并进缓存，跳过已缓存
 // 区间。压缩节点之前（Start <= summary.Start）的旧消息不进内存。
-func (s *Store) mergeHistory(after []*chat.Message) {
+func (s *Store) mergeHistory(after []*chat.Message, summary *chat.Message) {
 	if len(after) == 0 {
 		return
 	}
-	boundary := s.summary.Start
+	boundary := summary.Start
 	if s.history.Len() > 0 {
 		if end := s.history.Last().Start + s.history.Last().Offset; end > boundary {
 			boundary = end
 		}
 	}
 	for _, m := range after {
-		if m.Start > s.summary.Start && m.Start+m.Offset > boundary {
+		if m.Start > summary.Start && m.Start+m.Offset > boundary {
 			s.append(m)
 		}
 	}
@@ -375,6 +365,11 @@ func (s *Store) AppendHistory(c *chat.Message) {
 	defer s.lock.Unlock()
 	s.tempHistory.Append(c)
 }
+
+// UpdateUsage 更新上下文的长度
+func (s *Store) UpdateUsage(usage *chat.Usage) {
+	s.compressorManager.UpdateUsage(usage)
+}
 func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -383,14 +378,14 @@ func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 func (s *Store) No() uint64 {
 	return s.no
 }
-func NewStore(no uint64, sessionId string, sendEvent SendEvent, compressor Compressor, messageStore MessageStore) *Store {
+func NewStore(no uint64, sessionId string, sendEvent SendEvent, compressor *CompressorOptions, messageStore MessageStore) *Store {
 	return &Store{
 		no:                no,
 		sendEvent:         sendEvent,
 		maxBatchSize:      10,
 		sessionID:         sessionId,
 		messageStore:      messageStore,
-		compressorManager: NewCompressorManager(compressor),
+		compressorManager: NewCompressorManager(sessionId, compressor, messageStore),
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),
 		loaded:            messageStore == nil,

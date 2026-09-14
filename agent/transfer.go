@@ -51,13 +51,13 @@ type Transfer struct {
 	defaultStore     *Store
 	messageLastStart uint64
 	sessionId        string
-	compressor       Compressor
+	compressor       *CompressorOptions
 	historyStore     MessageStore
 	no               uint64
 	start            atomic.Uint64
 }
 
-func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
+func NewTransfer(sessionId string, compressor *CompressorOptions, historyStore MessageStore) *Transfer {
 	transfer := &Transfer{
 		sessionId:        sessionId,
 		compressor:       compressor,

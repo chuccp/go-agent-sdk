@@ -228,6 +228,7 @@ func (l *Agent) buildRequest() *chat.Messages {
 	if fa {
 		l.appendUserMessage(msg)
 	}
+	//history := l.store.compressorHistory(l.agentContext)
 	history := l.store.History()
 	messages := chat.NewMessages(effective, tools)
 	for _, m := range history {
@@ -253,7 +254,7 @@ func (l *Agent) loop() bool {
 	l.lContext, l.lCancel = context.WithCancel(l.pContext)
 	l.ctxLock.Unlock()
 
-	blockGroup, stopReason, err := l.chatWithStream()
+	blockGroup, stopReason, usage, err := l.chatWithStream()
 
 	if err != nil {
 		log.Error("[loop] chatWithStream failed", "session", l.agentContext.SessionId(), "error", err)
@@ -263,7 +264,7 @@ func (l *Agent) loop() bool {
 	if l.roundStopped() {
 		return true
 	}
-	l.appendAssistantMessage(blockGroup)
+	l.appendAssistantMessage(blockGroup, usage)
 	if stopReason == chat.StopReasonToolUse {
 
 		results, toolStop := l.executeTools(blockGroup)
@@ -403,9 +404,10 @@ func (l *Agent) findExecutor(name string) ToolExecutor {
 }
 
 // appendAssistantMessage 将 LLM 返回的 content blocks 作为 assistant 消息写入历史。
-func (l *Agent) appendAssistantMessage(blocks *chat.BlockGroup) {
+func (l *Agent) appendAssistantMessage(blocks *chat.BlockGroup, usage *chat.Usage) {
 	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
 	l.store.AppendHistory(assistantMsg)
+	l.store.UpdateUsage(usage)
 	// 不在此记录水位：本轮工具还没执行，这里记下的边界会让单独的 tool_use 落盘成悬空配对
 }
 func (l *Agent) appendUserMessage(blocks *chat.BlockGroup) {
@@ -473,13 +475,13 @@ func (l *Agent) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultB
 	cp.Content = kept
 	return &cp
 }
-func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, error) {
+func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, *chat.Usage, error) {
 	stream := chat.NewBlockStream(l)
 	err := l.agentContext.GetChat().ChatWithStream(l.lContext, l.buildRequest(), stream)
 	if err != nil {
-		return nil, "", err
+		return nil, "", stream.Usage(), err
 	}
-	return stream.ReadBlockGroup(), stream.GetStopReason(), nil
+	return stream.ReadBlockGroup(), stream.GetStopReason(), stream.Usage(), nil
 }
 
 func (l *Agent) Stop() {

@@ -92,6 +92,13 @@ func (s *BlockStream) BlockStart(block UseDeltaBlock) {
 	defer s.mu.Unlock()
 	s.flushAndStart(block)
 }
+
+func (s *BlockStream) Usage() *Usage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.usage
+}
+
 func (s *BlockStream) BlockTextStart() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -52,12 +52,13 @@ func newTestTransfer() *Transfer {
 		signalEvents: new(util.SliceArray[*Event]),
 		chatClients:  new(util.SliceArray[*Client]),
 		defaultStore: &Store{
-			history:      new(util.SliceArray[*chat.Message]),
-			tempHistory:  new(util.SliceArray[*chat.Message]),
-			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
-			messageStore: &noopMessageStore{},
-			maxBatchSize: 10,
-			startSet:     make(map[uint64]bool),
+			history:           new(util.SliceArray[*chat.Message]),
+			tempHistory:       new(util.SliceArray[*chat.Message]),
+			doneManifest:      &splitManifest{starts: new(util.SliceArray[uint64])},
+			messageStore:      &noopMessageStore{},
+			compressorManager: NewCompressorManager("test", &CompressorOptions{}, nil),
+			maxBatchSize:      10,
+			startSet:          make(map[uint64]bool),
 		},
 	}
 }
@@ -68,12 +69,13 @@ func newTestTransferWithHistory() (*Transfer, *memoryMessageStore) {
 		entries:     new(util.SliceArray[*Event]),
 		chatClients: new(util.SliceArray[*Client]),
 		defaultStore: &Store{
-			history:      new(util.SliceArray[*chat.Message]),
-			tempHistory:  new(util.SliceArray[*chat.Message]),
-			doneManifest: &splitManifest{starts: new(util.SliceArray[uint64])},
-			messageStore: ms,
-			maxBatchSize: 10,
-			startSet:     make(map[uint64]bool),
+			history:           new(util.SliceArray[*chat.Message]),
+			tempHistory:       new(util.SliceArray[*chat.Message]),
+			doneManifest:      &splitManifest{starts: new(util.SliceArray[uint64])},
+			messageStore:      ms,
+			compressorManager: NewCompressorManager("test", &CompressorOptions{}, nil),
+			maxBatchSize:      10,
+			startSet:          make(map[uint64]bool),
 		},
 	}, ms
 }
