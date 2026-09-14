@@ -163,8 +163,8 @@ func (s *Session) Client(ctx context.Context, start uint64) *Client {
 	return client
 }
 
-func (s *Session) LastClient(ctx context.Context) *Client {
-	client := s.transfer.lastClient(ctx)
+func (s *Session) LastClient(ctx context.Context, start uint64) *Client {
+	client := s.transfer.lastClient(ctx, start)
 	client.clientTimeout = s.clientTimeout
 	return client
 }

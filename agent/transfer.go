@@ -55,6 +55,7 @@ type Transfer struct {
 	historyStore     MessageStore
 	no               uint64
 	start            atomic.Uint64
+	startOffset      uint64
 }
 
 func NewTransfer(sessionId string, compressor Compressor, historyStore MessageStore) *Transfer {
@@ -129,6 +130,7 @@ func (l *Transfer) storeStart(start uint64) {
 		return
 	}
 	if l.start.CompareAndSwap(cur, start) {
+		l.startOffset = start
 		return
 	}
 }
@@ -246,10 +248,10 @@ func (l *Transfer) client(ctx context.Context, start uint64) *Client {
 	return chatClient
 }
 
-func (l *Transfer) lastClient(ctx context.Context) *Client {
+func (l *Transfer) lastClient(ctx context.Context, start uint64) *Client {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	start := l.getAndAddStart()
+	start = max(l.getAndAddStart(), start)
 	chatClient := NewClient(ctx, start, l)
 	l.chatClients.Append(chatClient)
 	sdklog.Debug("[ws] client subscribed", "session", l.sessionId, "start", start)
