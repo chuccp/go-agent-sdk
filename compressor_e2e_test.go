@@ -43,15 +43,28 @@ func (s *seededHistoryStore) SaveSummary(_ string, summary *chat.Message) error 
 
 // capturingProvider 每轮返回固定文本，抄一份请求消息，并按上下文条数上报用量
 // （每条 600 token）——水位闸门读的就是这份用量。
+// summaryMarker 非空时，提示词里带这个标记的请求按摘要答复，单独记进 summaries。
 type capturingProvider struct {
 	requests [][]*chat.Message
+
+	summaryMarker string
+	summaryReply  string
+	summaries     [][]*chat.Message
 }
 
 func (p *capturingProvider) ID() string { return "compress-fake" }
 
 func (p *capturingProvider) ChatWithStream(_ context.Context, m *chat.Messages, w *chat.BlockStream) error {
-	p.requests = append(p.requests, append([]*chat.Message(nil), m.Messages()...))
-	w.MessageStart(&chat.Usage{InputTokens: len(m.Messages()) * 600, OutputTokens: 100})
+	messages := append([]*chat.Message(nil), m.Messages()...)
+	if p.summaryMarker != "" && strings.Contains(strings.Join(messageTexts(messages), "\n"), p.summaryMarker) {
+		p.summaries = append(p.summaries, messages)
+		w.BlockTextStart()
+		w.BlockDelta(p.summaryReply)
+		w.StopReason(chat.StopReasonEndTurn)
+		return nil
+	}
+	p.requests = append(p.requests, messages)
+	w.MessageStart(&chat.Usage{InputTokens: len(messages) * 600, OutputTokens: 100})
 	w.BlockTextStart()
 	w.BlockDelta("收到")
 	w.StopReason(chat.StopReasonEndTurn)
@@ -89,13 +102,13 @@ func seededHistory() []*chat.Message {
 
 // newCompressSession 起一个水位 5000、超水位后保留一半的会话：
 // 每条按 600 token 计，10 条历史 + 本轮（6100）超水位，压完剩 7 条（4300）又落回水位下。
-func newCompressSession(t *testing.T, sessionID string, store *seededHistoryStore) (*capturingProvider, *agent.Session) {
+func newCompressSession(t *testing.T, sessionID string, store *seededHistoryStore, compressor agent.Compressor) (*capturingProvider, *agent.Session) {
 	t.Helper()
 	provider := &capturingProvider{}
 	config := agent.NewConfig()
 	config.RegisterChat(provider)
 	config.MessageStore(store)
-	config.Compressor(&agent.CutCompressor{}, agent.WithMaxContextLength(5_000), agent.WithKeepRatio(0.5))
+	config.Compressor(compressor, agent.WithMaxContextLength(5_000), agent.WithKeepRatio(0.5))
 
 	manager := config.CreateServer(context.Background())
 	return provider, manager.GetOrCreateSession(sessionID)
@@ -114,7 +127,7 @@ func runRound(t *testing.T, provider *capturingProvider, session *agent.Session,
 // 发给模型的上下文只剩 [占位消息 + 旧消息7~9 + 上一轮 + 本轮]，分界点落盘。
 func TestCompressor_CutsHistoryBeforeRequest(t *testing.T) {
 	store := &seededHistoryStore{messages: seededHistory()}
-	provider, session := newCompressSession(t, "compress-session", store)
+	provider, session := newCompressSession(t, "compress-session", store, &agent.CutCompressor{})
 	client := session.Client(context.Background(), 0)
 
 	runRound(t, provider, session, client, 1)
@@ -165,7 +178,7 @@ func TestCompressor_CutsHistoryBeforeRequest(t *testing.T) {
 // 到第 3 轮就被啃掉了。
 func TestCompressor_OnlyCutsOverWatermark(t *testing.T) {
 	store := &seededHistoryStore{messages: seededHistory()}
-	provider, session := newCompressSession(t, "compress-session-gate", store)
+	provider, session := newCompressSession(t, "compress-session-gate", store, &agent.CutCompressor{})
 	client := session.Client(context.Background(), 0)
 
 	for round := 1; round <= 3; round++ {
@@ -191,6 +204,54 @@ func TestCompressor_OnlyCutsOverWatermark(t *testing.T) {
 	}
 	if !strings.Contains(third, "已超出上下文上限") {
 		t.Errorf("第 3 轮上下文里应还留着分界消息占位:\n%s", third)
+	}
+}
+
+// TestSummaryCompressor_SummarizesDroppedHistory 端到端：压缩时多调一次大模型，
+// 被切掉的那几条进的是摘要提示词，下一轮上下文里是摘要消息而不是占位文本。
+func TestSummaryCompressor_SummarizesDroppedHistory(t *testing.T) {
+	const marker = "SUMMARY-CALL"
+	store := &seededHistoryStore{messages: seededHistory()}
+	provider, session := newCompressSession(t, "compress-session-summary", store,
+		&agent.SummaryCompressor{Prompt: marker})
+	provider.summaryMarker = marker
+	provider.summaryReply = "用户在看压缩逻辑，结论是保留后一半。"
+	client := session.Client(context.Background(), 0)
+
+	runRound(t, provider, session, client, 1)
+	runRound(t, provider, session, client, 2)
+
+	if len(provider.summaries) != 1 {
+		t.Fatalf("摘要调用次数 = %d, 期望 1", len(provider.summaries))
+	}
+	material := strings.Join(messageTexts(provider.summaries[0]), "\n")
+	for i := 1; i <= 6; i++ {
+		if !strings.Contains(material, fmt.Sprintf("旧消息%d", i)) {
+			t.Errorf("旧消息%d 应进摘要材料:\n%s", i, material)
+		}
+	}
+	for i := 7; i <= 9; i++ {
+		if strings.Contains(material, fmt.Sprintf("旧消息%d", i)) {
+			t.Errorf("旧消息%d 在保留段里，不该进摘要材料:\n%s", i, material)
+		}
+	}
+
+	second := strings.Join(messageTexts(provider.requests[1]), "\n")
+	if !strings.Contains(second, "[历史摘要] 用户在看压缩逻辑") {
+		t.Errorf("下一轮上下文里应是摘要消息，实际:\n%s", second)
+	}
+	if strings.Contains(second, "已超出上下文上限") {
+		t.Errorf("摘要方案不该出现强行切割的占位文本:\n%s", second)
+	}
+	for i := 1; i <= 6; i++ {
+		if strings.Contains(second, fmt.Sprintf("旧消息%d", i)) {
+			t.Errorf("旧消息%d 已被摘要取代，不该再进上下文:\n%s", i, second)
+		}
+	}
+	for i := 7; i <= 9; i++ {
+		if !strings.Contains(second, fmt.Sprintf("旧消息%d", i)) {
+			t.Errorf("旧消息%d 应保留:\n%s", i, second)
+		}
 	}
 }
 

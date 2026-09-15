@@ -2,9 +2,11 @@ package agent
 
 import (
 	"math"
+	"strings"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	sdklog "github.com/chuccp/go-agent-sdk/log"
+	"github.com/chuccp/go-agent-sdk/util"
 )
 
 // Compressor 上下文压缩策略接口。
@@ -72,6 +74,131 @@ func cutBoundary(dropped []*chat.Message) uint64 {
 	}
 	last := dropped[len(dropped)-1]
 	return last.Start + last.Offset
+}
+
+// SummaryCompressor 用大模型把被切掉的历史压成一段摘要：不丢上下文，代价是每次
+// 压缩多一次同步 LLM 调用——压在 buildRequest 里，本轮首字会晚一个来回。
+//
+// 摘要失败（调用报错、返回空文本）时返回 nil：切割照常生效，manager 只记分界点，
+// 那一段历史就真丢了，退化成 CutCompressor 的行为——宁可丢上下文，也别让这一轮发不出去。
+type SummaryCompressor struct {
+	// Prompt 摘要提示词，留空用内置默认提示词。
+	Prompt string
+
+	// ServiceID 指定用哪个已注册的 Service 生成摘要，留空用默认 Service。
+	// 摘要是后台活儿，通常可以用更便宜的模型跑。
+	ServiceID string
+
+	// MaxTokens 摘要输出上限，<=0 用 defaultSummaryMaxTokens。
+	MaxTokens int
+}
+
+var _ Compressor = (*SummaryCompressor)(nil)
+
+const (
+	defaultSummaryMaxTokens = 1024
+	summaryPrefix           = "[历史摘要] "
+	defaultSummaryPrompt    = "请把下面这段对话历史压缩成一段简洁的摘要，保留关键事实、结论、" +
+		"待办与未解决的问题。如果历史里已经包含之前的摘要，把新旧信息合并成一段，不要丢掉" +
+		"旧摘要里的要点。直接输出摘要正文，不要加标题或其他说明。"
+)
+
+// Compress 让大模型把被切掉的那段历史压成摘要消息；没有历史可压或摘要失败时返回 nil。
+func (c *SummaryCompressor) Compress(ctx Context, messages []*chat.Message) *chat.Message {
+	if len(messages) == 0 || ctx == nil || ctx.GetChat() == nil {
+		return nil
+	}
+	text, err := c.summarize(ctx, messages)
+	if err != nil {
+		sdklog.Error("[compressor] 生成摘要失败，本轮退化成强行切割",
+			"session", ctx.SessionId(), "boundary", cutBoundary(messages), "error", err)
+		return nil
+	}
+	if util.IsBlank(text) {
+		sdklog.Warn("[compressor] 模型没吐出摘要，本轮退化成强行切割",
+			"session", ctx.SessionId(), "boundary", cutBoundary(messages))
+		return nil
+	}
+	return &chat.Message{
+		Start:   cutBoundary(messages),
+		Role:    chat.RoleUser,
+		Content: chat.Blocks{chat.NewFullTextBlock(summaryPrefix + text)},
+	}
+}
+
+// summarize 调一次大模型，把 messages 压成摘要正文。
+func (c *SummaryCompressor) summarize(ctx Context, messages []*chat.Message) (string, error) {
+	config := chat.DefaultConfig()
+	if util.IsNotBlank(c.ServiceID) {
+		config.ID(c.ServiceID)
+	}
+	if c.MaxTokens > 0 {
+		config.Set(chat.MaxOutputTokensConfigKey, c.MaxTokens)
+	} else {
+		config.Set(chat.MaxOutputTokensConfigKey, defaultSummaryMaxTokens)
+	}
+	// 摘要请求不带工具：模型只需要读历史、写摘要，别让它顺手调个工具。
+	request := chat.NewMessages(config, nil)
+	request.AddMessage(&chat.Message{
+		Role:    chat.RoleUser,
+		Content: chat.Blocks{chat.NewFullTextBlock(c.prompt() + "\n\n" + historyText(messages))},
+	})
+
+	// 接收者留空：摘要块只在这里被读完取文本，不往会话事件流里推。
+	// （Context 也不满足 chat.BlockReceiver —— 实现它的是 Agent。）
+	stream := chat.NewBlockStream(nil)
+	if err := ctx.GetChat().ChatWithStream(ctx, request, stream); err != nil {
+		return "", err
+	}
+	var sb strings.Builder
+	for _, b := range stream.ReadBlockGroup().Content {
+		if tb, ok := b.(*chat.TextBlock); ok {
+			sb.WriteString(tb.Text)
+		}
+	}
+	return strings.TrimSpace(sb.String()), nil
+}
+
+func (c *SummaryCompressor) prompt() string {
+	if util.IsNotBlank(c.Prompt) {
+		return c.Prompt
+	}
+	return defaultSummaryPrompt
+}
+
+// historyText 把被切掉的历史拼成带角色的纯文本，供摘要模型阅读：只保留文本、
+// 工具调用与工具结果，thinking 之类的过程块不进摘要材料。
+func historyText(messages []*chat.Message) string {
+	var sb strings.Builder
+	for _, m := range messages {
+		for _, line := range blockLines(m.Content) {
+			sb.WriteString(string(m.Role))
+			sb.WriteString(": ")
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// blockLines 展开一条消息里的块。UserBlock 是事件流包装器，要拆开看里面的内容。
+func blockLines(blocks chat.Blocks) []string {
+	var lines []string
+	for _, b := range blocks {
+		switch v := b.(type) {
+		case *chat.UserBlock:
+			lines = append(lines, blockLines(v.Content)...)
+		case *chat.TextBlock:
+			if util.IsNotBlank(v.Text) {
+				lines = append(lines, v.Text)
+			}
+		case *chat.ToolUseBlock:
+			lines = append(lines, "[调用工具 "+v.Name+"]")
+		case *chat.ToolResultBlock:
+			lines = append(lines, "[工具结果] "+strings.Join(blockLines(v.Content), " "))
+		}
+	}
+	return lines
 }
 
 // isSafeCut 报告从 messages[cut] 开始截断是否安全。
