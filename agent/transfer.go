@@ -136,21 +136,30 @@ func (l *Transfer) storeStart(start uint64) {
 }
 
 func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
+	events, toClose, err := l.readEventsLocked(cl)
+	// 关客户端必须放到锁外：Close 会走回 deleteClient 再拿锁，持锁关就是自己锁死自己
+	for _, c := range toClose {
+		c.Close()
+	}
+	return events, err
+}
+
+func (l *Transfer) readEventsLocked(cl *Client) ([]*Event, []*Client, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	events, err := l.greaterStart(cl.start, cl.isLast)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(events) == 0 {
-		return events, nil
+		return events, nil, nil
 	}
 	// events 按 Start 升序排列，最后一个元素是最新事件。
 	lastEvent := events[len(events)-1]
 	cl.start = lastEvent.Start + lastEvent.Offset
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
-	lastStart, fa := l.defaultStore.hasSplit(l.chatClients.Slice())
+	lastStart, fa, toClose := l.defaultStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
 		err := l.defaultStore.save(lastStart)
@@ -158,7 +167,7 @@ func (l *Transfer) readEvents(cl *Client) ([]*Event, error) {
 			lastEvent.Blocks = append(lastEvent.Blocks, chat.NewErrorBlock(err.Error()))
 		}
 	}
-	return events, nil
+	return events, toClose, nil
 }
 func (l *Transfer) reset(minStart uint64) {
 	for {
@@ -264,7 +273,9 @@ func (l *Transfer) lastClient(ctx context.Context, start uint64) *Client {
 
 func (l *Transfer) flush() {
 	l.mu.Lock()
-	clients := l.chatClients.Slice()
+	// 拷一份再放开锁：Slice() 是底层数组的别名，迭代期间别的 goroutine 会
+	// Append / Remove（Remove 是就地位移），直接迭代就是数据竞争
+	clients := append([]*Client(nil), l.chatClients.Slice()...)
 	l.mu.Unlock()
 	for _, sub := range clients {
 		err := sub.queue.Offer(true)
@@ -275,17 +286,29 @@ func (l *Transfer) flush() {
 }
 func (l *Transfer) deleteClient(client *Client) {
 	sdklog.Debug("[ws] client unsubscribed", "session", l.sessionId, "lastStart", client.start)
+	toClose := l.removeClient(client)
+	for _, c := range toClose {
+		c.Close()
+	}
+}
+
+// removeClient 持锁注销订阅并结算落盘水位，返回需要一并关掉的客户端。
+// chatClients 的读写都在 l.mu 下面（订阅 Append、推送 flush、结算 hasSplit），
+// 这里的 Remove 也不能例外；锁序与 readEvents 一致：先 mu 再 resetLock。
+func (l *Transfer) removeClient(client *Client) []*Client {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.chatClients.Remove(client)
 	l.resetLock.Lock()
 	defer l.resetLock.Unlock()
-	lastStart, fa := l.defaultStore.hasSplit(l.chatClients.Slice())
+	lastStart, fa, toClose := l.defaultStore.hasSplit(l.chatClients.Slice())
 	if fa {
 		l.reset(lastStart)
-		err := l.defaultStore.save(lastStart)
-		if err != nil {
+		if err := l.defaultStore.save(lastStart); err != nil {
 			sdklog.Error("[ws] deleteClient: save failed", "session", l.sessionId, "error", err)
 		}
 	}
+	return toClose
 }
 func (l *Transfer) history() []*chat.Message {
 	return l.defaultStore.History()

@@ -58,23 +58,23 @@ func (d *splitManifest) addSplit(lastStart uint64) {
 	d.starts.Append(lastStart)
 }
 
-func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
-
-	//if sub.isTimeout() {
-	//	sub.Close()
-	//}
+// hasSplit 结算落盘水位，并挑出「该关掉」的客户端（积压过多或已超时）。
+// 第三个返回值是要关的客户端：调用方必须放开锁之后再关——Close 会走回 Transfer
+// 再拿一次锁，在锁内关就是自己锁死自己（RWMutex 不可重入）。
+func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool, []*Client) {
+	var toClose []*Client
 
 	returnStart := uint64(0)
 	for {
 		if d.starts.IsEmpty() {
-			return returnStart, returnStart > 0
+			return returnStart, returnStart > 0, toClose
 		}
 		num := d.starts.Len()
 		if len(clients) == 0 {
 			if num > 1 {
 				minStart := d.starts.Last()
 				d.starts.Reset()
-				return minStart, minStart > 0
+				return minStart, minStart > 0, toClose
 			}
 		}
 		minStart := d.starts.First()
@@ -85,17 +85,17 @@ func (d *splitManifest) hasSplit(clients []*Client) (uint64, bool) {
 			}
 			if client.start < minStart {
 				if num > maxPendingSplits {
-					client.Close()
+					toClose = append(toClose, client)
 				} else {
 					hasMin = true
 					if client.isTimeout() {
-						client.Close()
+						toClose = append(toClose, client)
 					}
 				}
 			}
 		}
 		if hasMin {
-			return returnStart, returnStart > 0
+			return returnStart, returnStart > 0, toClose
 		}
 		d.starts.Delete(0)
 		returnStart = minStart
@@ -406,7 +406,8 @@ func (s *Store) AppendHistory(c *chat.Message) {
 func (s *Store) UpdateUsage(usage *chat.Usage) {
 	s.compressorManager.UpdateUsage(usage)
 }
-func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
+// hasSplit 结算落盘水位；第三个返回值是要关的客户端，必须在放开锁之后再关（见 splitManifest.hasSplit）。
+func (s *Store) hasSplit(slice []*Client) (uint64, bool, []*Client) {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	return s.doneManifest.hasSplit(slice)
