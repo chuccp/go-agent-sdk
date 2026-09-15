@@ -15,6 +15,7 @@
 - **流式对话** — 增量块推送 thinking / text / 工具输出，传输无关（示例应用用 WebSocket 承接）
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
 - **历史持久化** — 内存 + DB 双层存储，增量追加，懒加载
+- **上下文压缩** — 用量超过上限后按比例丢弃旧历史；压缩方式可插拔：强行切割（零 LLM 调用）或大模型摘要（可指定更便宜的模型），分界点持久化、重启不回流
 - **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
 - **生命周期钩子** — 会话创建 / 消息到达 / 轮次结束 / 会话销毁四类回调
 - **多提供商** — ServiceStore 支持注册多个 LLM 后端，运行时选择
@@ -28,7 +29,8 @@
 │  ├── Config (构建期配置)                                        │
 │  └── Sessions map[id] → Session                               │
 │                  └── Session                                   │
-│                       ├── SessionContext (状态中心, 实现 Context)
+│                       ├── SessionContext (状态中心)
+│                       │    └── RunContext (运行期 Context 实现: 会话 + 自己的 Store)
 │                       │    ├── Agent (会话编排器, runLock 保护)  │
 │                       │    │    ├── inbox (消息队列)            │
 │                       │    │    ├── HandleMessage (入队+启动)    │
@@ -48,33 +50,37 @@
 
 ### Context 接口
 
-`Context` 是会话生命周期的核心接口，由 `SessionContext` 实现，提供会话状态访问和事件发送能力：
+`Context` 是 Agent 运行期的上下文接口，由 `RunContext` 实现：把 `SessionContext` 与这个 Agent 自己的 `Store` 拼在一起，工具、压缩器、生命周期钩子拿到的都是它。
 
 ```go
 type Context interface {
     context.Context
     SessionId() string
     GetChat() *chat.Chat
-    SubAgentStore() *Store
-    AgentStore() *Store
+    Store() *Store                                     // 本 Agent 的 Store（子代理是独立 Store）
 
-    SendBlock(no uint64, block chat.Block) uint64       // 发送事件块
+    SendBlock(block chat.Block) uint64                 // 发送事件块（形状与 chat.BlockReceiver 一致）
     SendSignalBlock(no uint64, block chat.Block) uint64 // 发送信号事件块
-    GetTransferStart() uint64                           // 获取当前传输起始位置
-
-    AppendMainAssistantMessage(blocks *chat.BlockGroup)
-    AppendMainUserMessage(blocks *chat.BlockGroup)
+    AppendUserMessage(blocks *chat.BlockGroup)         // 追加用户消息到历史
+    AppendAssistantMessage(blocks *chat.BlockGroup)    // 追加助手消息到历史
 }
 ```
 
-`SendBlock` 是事件发送的统一入口，通过 `Transfer` 实现，将事件分发给所有订阅的客户端。`SendSignalBlock` 用于发送信号事件（如用户消息状态变更），不会持久化。
+- `SendBlock` 自动带上当前 Store 的 `no`，把事件分发给订阅该 Store 的所有客户端；`SendSignalBlock` 用于不需要占序号的信号事件（如用户消息状态变更），不持久化。因为签名与 `chat.BlockReceiver` 同形，`chat.NewBlockStream(ctx)` 可以直接拿 Context 当接收者。
+- **哪个 Store 由 `RunContext` 决定**：会话主 Agent 用默认 Store（`SessionContext.AgentStore()`），子代理用隔离的临时 Store（`SubAgentStore()`）。`SessionContext` 自己不是 `Context`——它没有「我在哪个 Store 上跑」这个信息，所以工具的 `Turn.Context()`、压缩器拿到的都是 `RunContext`。
+- 在 Agent 循环之外构造 `Turn` 时也走同一个口子：
+  ```go
+  sctx := manager.SessionContext(id)
+  turn := agent.NewTurnWithContext(agent.NewRunContext(context.Background(), sctx, sctx.AgentStore()), args)
+  ```
 
 ## 包结构
 
 ```
 go-agent-sdk/
-├── agent/          # Agent 层：Server, Agent, Session, Client,
-│                   #   Transfer, ToolExecutor, Turn, Store, MessageStore
+├── agent/          # Agent 层：Server, Agent, Session, Client, RunContext,
+│                   #   Transfer, ToolExecutor, Turn, Store, MessageStore,
+│                   #   Compressor / CompressorManager / Summary
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
 ├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
@@ -169,14 +175,13 @@ func main() {
 
 ### Session 与 Context
 
-`Session` 是会话的容器，包含 `SessionContext`（实现 `Context` 接口）和多个 `Client`。`Context` 提供：
+`Session` 是会话的容器，包含 `SessionContext`（会话状态中心）和多个 `Client`。`SessionContext` 本身不是 `Context`；每个 `Agent` 由它派生出自己的 `RunContext`（会话 + 该 Agent 的 `Store`），`Context` 提供：
 
-- **会话状态访问** — `GetChat()`, `AgentStore()`, `SubAgentStore()`
-- **事件发送** — `SendBlock(no, block)` 通过 `Transfer` 分发事件；`SendSignalBlock(no, block)` 发送信号事件
-- **传输状态** — `GetTransferStart()` 获取当前传输起始位置
-- **历史管理** — `AppendMainAssistantMessage()`, `AppendMainUserMessage()`
+- **会话状态访问** — `SessionId()`, `GetChat()`, `Store()`
+- **事件发送** — `SendBlock(block)` 通过 `Transfer` 分发事件（自动带当前 Store 的 `no`）；`SendSignalBlock(no, block)` 发送信号事件
+- **历史管理** — `AppendUserMessage()`, `AppendAssistantMessage()`
 
-`Agent`（会话编排器）通过 `Context` 与会话交互，不直接持有 `Transfer` 或 `Store`，实现了关注点分离。
+`Agent`（会话编排器）通过 `Context` 与会话交互，不直接持有 `Transfer`，实现了关注点分离；需要会话级能力（如取子代理 Store、传输进度）时才回落到 `SessionContext`。
 
 `Session` 自身的门面方法：
 
@@ -277,7 +282,7 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 
 每条 Message 携带事件区间 `[Start, Start+Offset)`，标记它产出了哪些事件，区间与全局单调递增的事件序号 `seq` 对齐。客户端持有一个绝对偏移 `start` 即可从活跃事件缓冲区（`entries`）增量续读。事件按 **Start 升序** 返回。
 
-事件发送通过 `Transfer.SendBlock` 统一处理，`Agent.SendBlock` 和 `SessionContext.SendBlock` 均委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
+事件发送通过 `Transfer.SendBlock` 统一处理，`RunContext.SendBlock`（补上当前 Store 的 `no`）和 `SessionContext.SendBlock`（调用方自带 `no`）都委托给它。这种方式将事件生成与传输解耦，确保多客户端订阅时的一致性。
 
 `doneManifest` 记录一串「落盘水位」：用户输入消息、已配对的 `tool_result`、每轮结束的 `done` 块各记一次。水位只在消息自成完整历史时才记录——助手消息含 `tool_use` 时不记，因为那时本轮工具还没执行，记下水位会让单独的 `tool_use` 落盘成悬空配对。当所有客户端都已消费到某个水位时，旧事件被裁掉（`reset`），对应历史迁入持久层（`save`）；`start` 早于缓冲区头部时回落到底层存储补读。服务重启后从历史恢复 `seq`，新事件无缝接续。
 
@@ -336,6 +341,68 @@ type MessageStore interface {
 - **短读即结束。** `LoadAfter` 返回条数少于 `limit` 必须表示已无更多数据，SDK 据此判定分页结束。
 - **并发**：同一 `sessionID` 的调用已被 Store 串行化；不同 `sessionID` 会并发（共用同一个实例），实现需并发安全。
 - **无重试**：`Append` 返回 error 时该批消息已移出待落盘队列、不会重投，实现应尽量在内部保证成功。
+
+## 上下文压缩
+
+长会话会把上下文撑爆，SDK 在每轮 `buildRequest` 之前自动压一次：**超过水位才压，按比例切割，压缩方式可插拔**。
+
+### 什么时候压、切多少
+
+- **水位**：上一轮 API 返回的用量（`input + output + cache`）达到 `maxContextLength` 才触发。注意用量是上一轮才知道的，所以**第一轮不压**。
+- **切割**：保留末尾 `keepRatio` 比例的消息（默认 0.5，向上取整、至少留一条），前面整条丢掉。
+- **切点避让**：不会把 `tool_use` / `tool_result` 这一对切成两半（留下 tool_result、丢掉 tool_use，Anthropic 会直接判 400）；落在这种消息上就把切点往后推，推到底则本轮不切。
+- **分界点**：压缩后上下文变成「分界消息 + 保留段」。分界消息的 `Start` = 被切段的末尾 = 保留段第一条的 `Start`，`Start < 分界点` 的旧消息在 LLM 上下文里由它取代。**历史消息本身不删除**，回放/展示仍是完整的。
+
+### 两种现成方案
+
+```go
+// 方案一：强行切割。不调 LLM，零延迟；代价是被丢掉的对话不可恢复。
+config.Compressor(&agent.CutCompressor{},
+    agent.WithMaxContextLength(100_000), // 用量超它才压
+    agent.WithKeepRatio(0.5),            // 压完保留末尾一半
+)
+
+// 方案二：大模型摘要。把切掉的那段交给 LLM 压成一段摘要，不丢上下文；
+// 代价是每次压缩多一次同步调用（压在 buildRequest 里，本轮首字会晚一个来回）。
+config.Compressor(&agent.SummaryCompressor{
+    Prompt:    "",            // 留空用内置提示词；历史里已有摘要时提示词会要求新旧合并
+    ServiceID: "cheap-model", // 摘要是后台活儿，可以指到更便宜的已注册 Service
+    MaxTokens: 1024,
+}, agent.WithMaxContextLength(100_000), agent.WithKeepRatio(0.5))
+```
+
+`SummaryCompressor` 在调用失败或模型没吐出文本时返回 nil：切割照常生效，这一轮只记分界点、不塞消息（退化成 `CutCompressor`）——宁可丢上下文，也不让这一轮发不出去。
+
+### 分界点持久化
+
+分界点通过 `Summary` 接口落盘。两个接口的方法名一致，一个结构体同时满足就行（示例应用里就是 `ChatSessionService` 一手包办）：
+
+```go
+// SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息
+// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩（等价于分界点 0）
+```
+
+不接持久化也能跑，只是重启后分界点丢失、旧历史会被重新加载回来再压一次。
+
+### 自定义压缩策略
+
+`Compressor` 只负责「把被切掉的那段压成分界消息」，切割由 `CompressorManager` 做：
+
+```go
+type MyCompressor struct{}
+
+func (c *MyCompressor) Compress(ctx agent.Context, dropped []*chat.Message) *chat.Message {
+    // dropped = 被切掉的那段历史；返回值会拼在保留段前面，Start 即新分界点
+    last := dropped[len(dropped)-1]
+    return &chat.Message{
+        Start:   last.Start + last.Offset,
+        Role:    chat.RoleUser,
+        Content: chat.Blocks{chat.NewFullTextBlock("……")},
+    }
+}
+```
+
+**实现约束**：`Compress` 跑在 Store 的锁之外（可以先取快照再压缩），所以调 LLM、往事件流发块都行；但不要去抓 `Store` 的锁或直接改历史——切哪些、留哪些只由返回值决定。慢一点没关系，别一边持锁一边等外部调用。
 
 ## REST API
 
@@ -468,8 +535,12 @@ config.ClientTimeout(300)   // 客户端空闲超时
 // MessageStore 设置持久化（实现 MessageStore 接口）
 config.MessageStore(myMessageStore)
 
-// Compressor 设置上下文压缩策略（可选）
-config.Compressor(myCompressor)
+// Compressor 设置上下文压缩策略（可选）：压缩器 + 水位/保留比例
+// 不调 LLM 就 &agent.CutCompressor{}；要摘要就 &agent.SummaryCompressor{...}
+config.Compressor(&agent.CutCompressor{},
+    agent.WithMaxContextLength(100_000), // 用量超过它才压
+    agent.WithKeepRatio(0.5),            // 压完保留末尾一半
+)
 
 // RegisterChat 注册 LLM 提供商（可注册多个，首个为默认）
 config.RegisterChat(anthropic.NewService("provider-id", baseUrl, apiKey, model))
