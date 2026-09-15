@@ -80,6 +80,40 @@ func equalStarts(ms []*chat.Message, want []uint64) bool {
 	return true
 }
 
+// midCompressAppender 在压缩过程中往 Store 追加一条消息，模拟「压缩期间读事件路径落盘」。
+type midCompressAppender struct {
+	store *Store
+	msg   *chat.Message
+}
+
+func (c *midCompressAppender) Compress(_ Context, _ []*chat.Message) *chat.Message {
+	c.store.append(c.msg)
+	return nil
+}
+
+// TestStore_CompressorHistoryKeepsLateMessages 验证压缩期间（锁外）新落进来的消息，
+// 不会被「用压缩结果替换历史」一起丢掉。
+func TestStore_CompressorHistoryKeepsLateMessages(t *testing.T) {
+	store := NewStore(1, "test-session", nil, nil,
+		&CompressorOptions{maxContextLength: 100, keepRatio: 0.5}, &seedMessageStore{})
+	store.compressorManager.UpdateUsage(&chat.Usage{InputTokens: 100, OutputTokens: 1}) // 超水位
+	for i := 1; i <= 9; i++ {
+		store.history.Append(seedMsg(uint64(i), 1))
+	}
+	late := seedMsg(100, 1)
+	store.compressorManager.compressor = &midCompressAppender{store: store, msg: late}
+
+	got := store.compressorHistory(nil)
+
+	// 9 条切成保留后 5 条（Start 5~9），压缩期间落进来的 Start 100 必须还在最后
+	if want := []uint64{5, 6, 7, 8, 9, 100}; !equalStarts(got, want) {
+		t.Fatalf("compressorHistory = %v, want %v", starts(got), want)
+	}
+	if got[len(got)-1] != late {
+		t.Error("压缩期间落进来的消息被历史替换丢掉了")
+	}
+}
+
 // TestLoadMessagesAfter_SpanningMessage 是本次修复的核心回归用例：
 // since 落在一条消息中间（Start <= since < Start+Offset）时，必须返回该条消息，
 // 供 messageToEvent 截断重放剩余 block；旧实现用 Start >= since 会漏掉它。

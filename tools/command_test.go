@@ -83,12 +83,13 @@ func TestCommand_StreamingOutput(t *testing.T) {
 func TestCommand_WithSessionContext(t *testing.T) {
 	config := agent.NewConfig()
 	manager := config.CreateServer(context.Background())
-	ctx := manager.SessionContext("cmd-s1")
+	sctx := manager.SessionContext("cmd-s1")
+	ctx := agent.NewAgentContext(context.Background(), sctx, sctx.AgentStore())
 	client := manager.GetOrCreateSession("cmd-s1").Client(context.Background(), 0)
 	defer client.Close()
 
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为
-	w := chat.NewBlockStream(&ctxReceiver{ctx: ctx})
+	w := chat.NewBlockStream(&ctxReceiver{ctx: sctx})
 	tool := NewCommandTool()
 	tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"command": "echo event-test"})), chat.NewToolResultBlockStream(w, "cmd"))
 

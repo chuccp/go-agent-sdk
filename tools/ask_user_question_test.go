@@ -21,7 +21,8 @@ func TestExecute_NonBlocking(t *testing.T) {
 	tool := NewAskUserQuestionTool()
 	config := agent.NewConfig()
 	manager := config.CreateServer(context.Background())
-	ctx := manager.SessionContext("ask-s2")
+	sctx := manager.SessionContext("ask-s2")
+	ctx := agent.NewAgentContext(context.Background(), sctx, sctx.AgentStore())
 	client := manager.GetOrCreateSession("ask-s2").Client(context.Background(), 0)
 	defer client.Close()
 
@@ -38,7 +39,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 		},
 	}
 
-	w := chat.NewBlockStream(&ctxReceiver{ctx: ctx})
+	w := chat.NewBlockStream(&ctxReceiver{ctx: sctx})
 	done := make(chan struct{}, 1)
 	go func() {
 		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))

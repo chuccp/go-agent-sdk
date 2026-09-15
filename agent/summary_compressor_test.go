@@ -41,15 +41,13 @@ type fakeContext struct {
 	chat *chat.Chat
 }
 
-func (f *fakeContext) SessionId() string                           { return "test-session" }
-func (f *fakeContext) GetChat() *chat.Chat                         { return f.chat }
-func (f *fakeContext) SubAgentStore() *Store                       { return nil }
-func (f *fakeContext) AgentStore() *Store                          { return nil }
-func (f *fakeContext) SendBlock(uint64, chat.Block) uint64         { return 0 }
-func (f *fakeContext) SendSignalBlock(uint64, chat.Block) uint64   { return 0 }
-func (f *fakeContext) GetTransferStart() uint64                    { return 0 }
-func (f *fakeContext) AppendMainAssistantMessage(*chat.BlockGroup) {}
-func (f *fakeContext) AppendMainUserMessage(*chat.BlockGroup)      {}
+func (f *fakeContext) SessionId() string                         { return "test-session" }
+func (f *fakeContext) GetChat() *chat.Chat                       { return f.chat }
+func (f *fakeContext) Store() *Store                             { return nil }
+func (f *fakeContext) SendBlock(chat.Block) uint64               { return 0 }
+func (f *fakeContext) SendSignalBlock(uint64, chat.Block) uint64 { return 0 }
+func (f *fakeContext) AppendAssistantMessage(*chat.BlockGroup)   {}
+func (f *fakeContext) AppendUserMessage(*chat.BlockGroup)        {}
 
 func newSummaryContext(service chat.Service) *fakeContext {
 	c := chat.NewChat()

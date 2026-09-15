@@ -217,7 +217,7 @@ func (t *ExecNodeTool) emitProgress(sctx agent.Context, flowId, stepId, phase, o
 	}
 	payload := map[string]string{"flowId": flowId, "stepId": stepId, "phase": phase, "output": output}
 	data, _ := json.Marshal(payload)
-	sctx.SendBlock(0, chat.NewFullTextTypeBlock(string(data), chat.FlowProgressType))
+	sctx.SendBlock(chat.NewFullTextTypeBlock(string(data), chat.FlowProgressType))
 }
 
 // ==================== FlowStore 执行核配套方法 ====================

@@ -141,18 +141,51 @@ func (s *Store) history0() []*chat.Message {
 	return result
 }
 
+// compressorHistory 返回进 LLM 的历史：按水位触发压缩，命中就把 Store 的历史换成
+// 「分界消息 + 保留段」。
+//
+// 压缩特意不持锁：SummaryCompressor 会调 LLM、还会往事件流发块，而读事件那条路径是
+// 「持 transfer 锁 → 取 store 写锁」，持锁压缩就成了反序，必然死锁。所以先取快照、
+// 放开锁压缩，回来再按快照长度替换。
 func (s *Store) compressorHistory(context Context) []*chat.Message {
+	snapshot := s.snapshotHistory()
+
+	messages, compressed := s.compressorManager.compress(context, snapshot)
+	if !compressed {
+		return s.History()
+	}
+
+	s.replaceHistory(messages, len(snapshot))
+	return s.History()
+}
+
+// snapshotHistory 拷一份当前历史。Slice() 返回的是底层数组的别名，而压缩期间 history
+// 还会被追加，必须拷出来才能在锁外安全使用。
+func (s *Store) snapshotHistory() []*chat.Message {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	history0 := s.history.Slice()
-	messages, fa := s.compressorManager.compress(context, history0)
-	if fa {
-		s.history.Reset()
-		for _, msg := range messages {
-			s.history.Append(msg)
-		}
+	return append([]*chat.Message(nil), s.history.Slice()...)
+}
+
+// replaceHistory 用 compressed 换掉历史开头的 replaced 条——即压缩时取的那份快照。
+// 期间新落进来的消息（读事件路径的 save0 会把 tempHistory 并进 history）比快照新，
+// 原样接在压缩结果后面，不能跟着快照一起被换掉。
+func (s *Store) replaceHistory(compressed []*chat.Message, replaced int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	current := s.history.Slice()
+	var tail []*chat.Message
+	if len(current) > replaced {
+		// 按值拷一份：下面的 Reset 会复用底层数组，直接切片会被随后的 Append 覆写
+		tail = append([]*chat.Message(nil), current[replaced:]...)
 	}
-	return s.history0()
+	s.history.Reset()
+	for _, msg := range compressed {
+		s.history.Append(msg)
+	}
+	for _, msg := range tail {
+		s.history.Append(msg)
+	}
 }
 
 // IsLoaded 报告持久化历史是否已加载完成（loaded 由 lastStoreStart 在锁内置位）。

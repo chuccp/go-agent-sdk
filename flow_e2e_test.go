@@ -248,7 +248,8 @@ func TestFlowEndToEnd(t *testing.T) {
 		t.Errorf("节点 user 模板渲染错误: %q", userText)
 	}
 	// ④ finish 已清理：flow_status 报告无激活 flow
-	statusTurn := agent.NewTurnWithContext(manager.SessionContext("flow-e2e"), nil)
+	flowCtx := manager.SessionContext("flow-e2e")
+	statusTurn := agent.NewTurnWithContext(agent.NewAgentContext(context.Background(), flowCtx, flowCtx.AgentStore()), nil)
 	out := execToolText(t, status, statusTurn)
 	if !strings.Contains(out, "无激活") {
 		t.Errorf("finish 后应无激活 flow: %s", out)
@@ -267,8 +268,9 @@ func TestFlowGuards(t *testing.T) {
 	activate, execNode, _, _, finish := workflow.NewFlowTools(wf)
 	manager := config.CreateServer(context.Background())
 	sctx := manager.SessionContext("flow-guards")
+	ctx := agent.NewAgentContext(context.Background(), sctx, sctx.AgentStore())
 	turn := func(args map[string]any) *agent.Turn {
-		return agent.NewTurnWithContext(sctx, value.NewObjectFromMap(args))
+		return agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args))
 	}
 	run := func(exec agent.ToolExecutor, args map[string]any) string {
 		return execToolText(t, exec, turn(args))

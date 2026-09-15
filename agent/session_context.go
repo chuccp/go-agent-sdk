@@ -6,21 +6,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/chat"
 )
 
-type Context interface {
-	context.Context
-	SessionId() string
-	GetChat() *chat.Chat
-	SubAgentStore() *Store
-	AgentStore() *Store
-
-	SendBlock(no uint64, block chat.Block) uint64
-	SendSignalBlock(no uint64, block chat.Block) uint64
-	GetTransferStart() uint64
-
-	AppendMainAssistantMessage(blocks *chat.BlockGroup)
-	AppendMainUserMessage(blocks *chat.BlockGroup)
-}
-
 // SessionContext 会话的唯一状态中心：消息队列、运行期状态、事件存储、
 // 客户端订阅、工具与配置全部集中于此。工具执行时通过 Turn 获得本上下文。
 type SessionContext struct {
@@ -66,15 +51,6 @@ func (c *SessionContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
 
 func (c *SessionContext) GetTransferStart() uint64 {
 	return c.transfer.getStart()
-}
-
-func (c *SessionContext) AppendMainUserMessage(blocks *chat.BlockGroup) {
-	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
-	c.AgentStore().AppendHistory(userMsg)
-}
-func (c *SessionContext) AppendMainAssistantMessage(blocks *chat.BlockGroup) {
-	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
-	c.AgentStore().AppendHistory(assistantMsg)
 }
 
 // GetChatClient 创建一个事件消费客户端：注册读取位置并加入订阅列表。

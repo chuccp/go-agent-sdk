@@ -10,6 +10,10 @@ import (
 )
 
 // Compressor 上下文压缩策略接口。
+//
+// 实现跑在 Store 的锁之外（compressorHistory 先取快照、放开锁再调），所以调 LLM、
+// 往事件流发块都可以；但不要直接改 Store 里的历史——切掉哪些、留哪些只由返回值决定。
+// 慢一点没关系（比如 SummaryCompressor 的整次 LLM 调用），别在实现里再抓 Store 的锁。
 type Compressor interface {
 	Compress(context Context, messages []*chat.Message) *chat.Message
 }
@@ -144,9 +148,10 @@ func (c *SummaryCompressor) summarize(ctx Context, messages []*chat.Message) (st
 		Content: chat.Blocks{chat.NewFullTextBlock(c.prompt() + "\n\n" + historyText(messages))},
 	})
 
-	// 接收者留空：摘要块只在这里被读完取文本，不往会话事件流里推。
-	// （Context 也不满足 chat.BlockReceiver —— 实现它的是 Agent。）
-	stream := chat.NewBlockStream(nil)
+	// 摘要块挂到 ctx 上，随会话事件流推给订阅的客户端。这样做的前提是压缩跑在
+	// Store 的锁之外（见 Store.compressorHistory 的快照-替换），否则会和读事件
+	// 落盘路径形成锁序反转。
+	stream := chat.NewBlockStream(ctx)
 	if err := ctx.GetChat().ChatWithStream(ctx, request, stream); err != nil {
 		return "", err
 	}
