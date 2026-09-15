@@ -22,7 +22,7 @@ type fakeProvider struct {
 }
 
 func (f *fakeProvider) ID() string { return "fake" }
-func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
+func (f *fakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w chat.BlockWriter) error {
 	f.calls++
 	if f.calls == 1 {
 		w.BlockToolUseStart("tu_1", "fake_tool")

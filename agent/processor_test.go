@@ -22,7 +22,7 @@ type singleResponseProvider struct {
 }
 
 func (f *singleResponseProvider) ID() string { return "single" }
-func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
+func (f *singleResponseProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w chat.BlockWriter) error {
 	if f.toolUse != nil {
 		w.BlockToolUseStart(f.toolUse.ID, f.toolUse.Name)
 		if f.toolUse.Input != nil {
@@ -58,7 +58,7 @@ type blockSpec struct {
 }
 
 func (f *orderedProvider) ID() string { return "ordered" }
-func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
+func (f *orderedProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w chat.BlockWriter) error {
 	i := int(f.idx.Add(1)) - 1
 	if i >= len(f.responses) {
 		// 超出预设响应，返回单文本
@@ -340,7 +340,7 @@ type blockingProvider struct {
 }
 
 func (p *blockingProvider) ID() string { return "blocking" }
-func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages, w *chat.BlockStream) error {
+func (p *blockingProvider) ChatWithStream(ctx context.Context, _ *chat.Messages, w chat.BlockWriter) error {
 	if p.calls.Add(1) == 1 {
 		close(p.entered) // 通知首轮生成已开始
 		<-ctx.Done()
@@ -438,7 +438,7 @@ type usageProvider struct {
 }
 
 func (f *usageProvider) ID() string { return "usage" }
-func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
+func (f *usageProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w chat.BlockWriter) error {
 	n := int(f.idx.Add(1))
 	w.MessageStart(&chat.Usage{InputTokens: 100, OutputTokens: 0})
 	w.BlockTextStart()

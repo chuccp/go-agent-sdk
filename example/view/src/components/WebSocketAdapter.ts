@@ -304,14 +304,17 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
           currentToolName = null
           toolInputJson = ''
         }
-        currentStreamBlockType = innerType
+        // 压缩输出（摘要正文）单独标类型：delta 阶段据此丢弃，不混进对话流
+        currentStreamBlockType = inner?.text_type === 'compression' ? 'compression' : innerType
         console.log('[streamHandler] start block, inner type:', innerType, 'name:', innerName)
         return
       }
       case 'delta':
         // 流式增量：按当前块类型路由（tool_use 入参 / thinking / 命令输出 / 文本）
         if (block.content) {
-          if (currentStreamBlockType === 'tool_use') {
+          if (currentStreamBlockType === 'compression') {
+            // 上下文压缩的摘要正文：不进对话流
+          } else if (currentStreamBlockType === 'tool_use') {
             // tool_use 入参 JSON：统一累积，不实时显示（execute_command 解析命令，
             // ask_user 等工具的入参由 tool_execution 事件展示，避免 JSON 泄漏到消息流）
             toolInputJson += block.content as string
@@ -330,7 +333,7 @@ function processBlock(block: Record<string, unknown>, msg: Record<string, unknow
         break
       case 'text':
         // 完整文本块（工具输出/错误补充等）：过滤 internal（仅 LLM 上下文），其余按路由显示
-        if (block.text && block.text_type !== 'internal') {
+        if (block.text && block.text_type !== 'internal' && block.text_type !== 'compression') {
           if (activeCommand !== null) {
             event = { kind: 'command', command: activeCommand, output: block.text as string }
           } else {

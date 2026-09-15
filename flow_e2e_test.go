@@ -48,7 +48,7 @@ func (f *flowFakeProvider) script() []chat.Blocks {
 }
 
 func (f *flowFakeProvider) ID() string { return "flow-fake" }
-func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
+func (f *flowFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w chat.BlockWriter) error {
 	if len(req.Tools()) == 0 {
 		// exec_node 的零上下文节点调用：应只有 1 条 messages、无工具
 		f.nodeCalls++
@@ -85,14 +85,14 @@ type fakeStoryNode struct {
 }
 
 func (f *fakeStoryNode) ID() string { return "story-fake" }
-func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
+func (f *fakeStoryNode) ChatWithStream(_ context.Context, req *chat.Messages, w chat.BlockWriter) error {
 	f.last = req
 	emitText(w, "这是一个关于海洋的故事。")
 	return nil
 }
 
 // emitText 以简化流项写出一段完整文本（end_turn）。
-func emitText(w *chat.BlockStream, text string) {
+func emitText(w chat.BlockWriter, text string) {
 	w.BlockTextStart()
 	w.BlockDelta(text)
 	w.StopReason(chat.StopReasonEndTurn)

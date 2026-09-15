@@ -54,7 +54,7 @@ type capturingProvider struct {
 
 func (p *capturingProvider) ID() string { return "compress-fake" }
 
-func (p *capturingProvider) ChatWithStream(_ context.Context, m *chat.Messages, w *chat.BlockStream) error {
+func (p *capturingProvider) ChatWithStream(_ context.Context, m *chat.Messages, w chat.BlockWriter) error {
 	messages := append([]*chat.Message(nil), m.Messages()...)
 	if p.summaryMarker != "" && strings.Contains(strings.Join(messageTexts(messages), "\n"), p.summaryMarker) {
 		p.summaries = append(p.summaries, messages)

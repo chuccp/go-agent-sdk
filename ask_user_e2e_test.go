@@ -23,7 +23,7 @@ type askUserProvider struct {
 }
 
 func (f *askUserProvider) ID() string { return "ask" }
-func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
+func (f *askUserProvider) ChatWithStream(_ context.Context, req *chat.Messages, w chat.BlockWriter) error {
 	f.lastReq.Store(req)
 	n := f.calls.Add(1)
 	switch n {

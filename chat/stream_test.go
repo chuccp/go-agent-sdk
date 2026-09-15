@@ -247,6 +247,53 @@ func TestBlockStream_FlushesActiveBlock(t *testing.T) {
 	}
 }
 
+// ── CompressionBlockStream：压缩流打标 ──
+
+// TestCompressionBlockStream_TagsStartBlock 验证压缩壳起的头带 CompressionTextType：
+// 前端是从 start 块的内层块上读 text_type 的，不打这里摘要还是会混进助手正文。
+func TestCompressionBlockStream_TagsStartBlock(t *testing.T) {
+	recv := &testReceiver{}
+	stream := NewCompressionBlockStream(NewBlockStream(recv))
+	stream.BlockTextStart()
+	stream.BlockDelta("摘要正文")
+
+	var startInner *TextBlock
+	for _, b := range recv.blocks {
+		if sb, ok := b.(*StartBlock); ok {
+			startInner, _ = sb.Block.(*TextBlock)
+		}
+	}
+	if startInner == nil || startInner.TextType != CompressionTextType {
+		t.Fatalf("start 块内层未打压缩标记: %#v", startInner)
+	}
+
+	// 读回组装结果（压缩器自己取文本用）不受打标影响
+	blocks := stream.ReadBlockGroup().Content
+	if tb, ok := blocks[0].(*TextBlock); !ok || tb.Text != "摘要正文" {
+		t.Errorf("组装结果被改坏: %#v", blocks)
+	}
+}
+
+// TestCompressionBlockStream_TagsWholeBlocks 验证整块写入（FullText / Block）会打标，
+// 已有类型的块不被覆盖。
+func TestCompressionBlockStream_TagsWholeBlocks(t *testing.T) {
+	recv := &testReceiver{}
+	stream := NewCompressionBlockStream(NewBlockStream(recv))
+	stream.FullText("整段摘要")
+	stream.Block(NewFullTextBlock("整段落块"))
+	stream.Block(NewErrorTextBlock())
+
+	if tb, ok := recv.blocks[0].(*TextBlock); !ok || tb.TextType != CompressionTextType || tb.Text != "整段摘要" {
+		t.Errorf("FullText 未打标记: %#v", recv.blocks[0])
+	}
+	if tb, ok := recv.blocks[1].(*TextBlock); !ok || tb.TextType != CompressionTextType || tb.Text != "整段落块" {
+		t.Errorf("Block 未打标记: %#v", recv.blocks[1])
+	}
+	if tb, ok := recv.blocks[2].(*TextBlock); !ok || tb.TextType != ErrorTextType {
+		t.Errorf("error 块类型被覆盖: %#v", recv.blocks[2])
+	}
+}
+
 // ── BlockReceiver：SendBlock 被调用 ──
 
 type testReceiver struct {

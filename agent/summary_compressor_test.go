@@ -24,7 +24,7 @@ func (s *summaryService) ID() string {
 	return s.id
 }
 
-func (s *summaryService) ChatWithStream(_ context.Context, m *chat.Messages, w *chat.BlockStream) error {
+func (s *summaryService) ChatWithStream(_ context.Context, m *chat.Messages, w chat.BlockWriter) error {
 	s.requests = append(s.requests, m)
 	if s.err != nil {
 		return s.err

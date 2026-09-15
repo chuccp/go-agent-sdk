@@ -373,6 +373,8 @@ config.Compressor(&agent.SummaryCompressor{
 
 `SummaryCompressor` 在调用失败或模型没吐出文本时返回 nil：切割照常生效，这一轮只记分界点、不塞消息（退化成 `CutCompressor`）——宁可丢上下文，也不让这一轮发不出去。
 
+摘要走 `chat.CompressionBlockStream`（`SummaryCompressor` 已内置）：provider 照常写，落到事件流里的块带 `text_type=compression`，前端据此与助手正文区分（示例前端直接忽略，不混进对话）。
+
 ### 分界点持久化
 
 分界点通过 `Summary` 接口落盘。两个接口的方法名一致，一个结构体同时满足就行（示例应用里就是 `ChatSessionService` 一手包办）：
@@ -543,6 +545,8 @@ config.Compressor(&agent.CutCompressor{},
 )
 
 // RegisterChat 注册 LLM 提供商（可注册多个，首个为默认）
+// 自定义 provider 实现 chat.Service：ChatWithStream(ctx, *Messages, chat.BlockWriter) + ID()
+// —— 写的是 BlockWriter 接口，不绑具体流实现
 config.RegisterChat(anthropic.NewService("provider-id", baseUrl, apiKey, model))
 
 // CreateServer 基于配置创建 Server（内部启动后台超时清理循环）

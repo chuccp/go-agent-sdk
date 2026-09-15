@@ -148,10 +148,10 @@ func (c *SummaryCompressor) summarize(ctx Context, messages []*chat.Message) (st
 		Content: chat.Blocks{chat.NewFullTextBlock(c.prompt() + "\n\n" + historyText(messages))},
 	})
 
-	// 摘要块挂到 ctx 上，随会话事件流推给订阅的客户端。这样做的前提是压缩跑在
-	// Store 的锁之外（见 Store.compressorHistory 的快照-替换），否则会和读事件
-	// 落盘路径形成锁序反转。
-	stream := chat.NewBlockStream(ctx)
+	// 摘要走压缩专用的写入壳：块带 compression 标记后照常进事件流（挂到 ctx 上），
+	// 前端据此不把它当助手正文渲染。前提是压缩跑在 Store 的锁之外（见
+	// Store.compressorHistory 的快照-替换），否则会和读事件落盘路径形成锁序反转。
+	stream := chat.NewCompressionBlockStream(chat.NewBlockStream(ctx))
 	if err := ctx.GetChat().ChatWithStream(ctx, request, stream); err != nil {
 		return "", err
 	}

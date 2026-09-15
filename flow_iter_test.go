@@ -71,7 +71,7 @@ func (f *iterFakeProvider) script() []chat.Blocks {
 }
 
 func (f *iterFakeProvider) ID() string { return "iter-fake" }
-func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w *chat.BlockStream) error {
+func (f *iterFakeProvider) ChatWithStream(_ context.Context, req *chat.Messages, w chat.BlockWriter) error {
 	if len(req.Tools()) == 0 {
 		// 零上下文节点调用：按 System 模板识别节点
 		userText := ""

@@ -60,6 +60,34 @@ func (a *assemblerBlock) delta(content string) {
 	}
 }
 
+// BlockWriter 是 LLM provider 写流式响应的口子，由 *BlockStream 实现：只含写入面，
+// 读回结果（ReadBlocks / ReadBlockGroup / GetStopReason / Usage）不在里面。
+//
+// 抽成接口是为了让 provider 不绑在具体实现上——调用方能在中间包一层做改写或旁路，
+// provider 代码不用动。写包装器时建议内嵌 *BlockStream（或 *ToolResultBlockStream），
+// 省得把这十几个方法逐个实现一遍。
+type BlockWriter interface {
+	MessageStart(usage *Usage)
+	MessageDelta(usage *Usage)
+
+	BlockStart(block UseDeltaBlock)
+	BlockTextStart()
+	BlockErrorTextStart()
+	BlockThinkingStart()
+	BlockToolUseStart(id string, name string)
+	BlockServerToolUseStart(id string, name string)
+	Block(block Block)
+
+	FullText(content string)
+	ErrorText(err error)
+	BlockDelta(content string)
+	BlockStop()
+
+	StopReason(stopReason StopReason)
+}
+
+var _ BlockWriter = (*BlockStream)(nil)
+
 type BlockStream struct {
 	stopReason     StopReason
 	receiver       BlockReceiver
@@ -266,6 +294,53 @@ func (s *BlockStream) GetStopReason() StopReason {
 		return StopReasonEndTurn
 	}
 	return s.stopReason
+}
+
+// CompressionBlockStream 是上下文压缩专用的写入壳：内嵌 *BlockStream，只把「开始写正文」
+// 的几个口子换成带 CompressionTextType 的块——provider 照常往里写，落到事件流里的块都带
+// text_type=compression，前端据此不与助手正文混在一起。
+//
+// 用法：
+//
+//	stream := chat.NewCompressionBlockStream(chat.NewBlockStream(ctx))
+//	chatService.ChatWithStream(ctx, req, stream) // provider 只认 BlockWriter，正好
+//	group := stream.ReadBlockGroup()             // 读回组装结果，内嵌的方法直接可用
+type CompressionBlockStream struct {
+	*BlockStream
+}
+
+var _ BlockWriter = (*CompressionBlockStream)(nil)
+
+func NewCompressionBlockStream(stream *BlockStream) *CompressionBlockStream {
+	return &CompressionBlockStream{BlockStream: stream}
+}
+
+// BlockTextStart 用带压缩标记的块起头：前端是从 start 块的内层块上读 text_type 的
+// （见 WebSocketAdapter），标记必须落在起头这块上。
+func (s *CompressionBlockStream) BlockTextStart() {
+	s.BlockStream.BlockStart(NewCompressionTextBlock())
+}
+
+// Block 整块写入时也补标记（provider 若绕过 BlockTextStart 直接写整块）。
+func (s *CompressionBlockStream) Block(block Block) {
+	if tb, ok := block.(*TextBlock); ok {
+		block = tagPlainText(tb)
+	}
+	s.BlockStream.Block(block)
+}
+
+func (s *CompressionBlockStream) FullText(content string) {
+	s.BlockStream.Block(NewFullTextTypeBlock(content, CompressionTextType))
+}
+
+// tagPlainText 给没带类型的文本块打上压缩标记；已有类型（error 等）的原样返回。
+func tagPlainText(b *TextBlock) *TextBlock {
+	if b.TextType != "" {
+		return b
+	}
+	cp := *b
+	cp.TextType = CompressionTextType
+	return &cp
 }
 
 type ToolResultBlockStream struct {

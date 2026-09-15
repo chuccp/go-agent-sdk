@@ -12,7 +12,7 @@ import (
 type panicRoundProvider struct{ calls int }
 
 func (p *panicRoundProvider) ID() string { return "panic-fake" }
-func (p *panicRoundProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w *chat.BlockStream) error {
+func (p *panicRoundProvider) ChatWithStream(_ context.Context, _ *chat.Messages, w chat.BlockWriter) error {
 	p.calls++
 	if p.calls == 1 {
 		w.BlockToolUseStart("tu_panic", "panicking_tool")

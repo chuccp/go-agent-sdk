@@ -142,6 +142,9 @@ const (
 	FlowProgressType TextType = "flow_progress"
 	AskUserTextType  TextType = "ask_user" // ask_user_question 工具的问题卡片（CustomTextBlock.TextType）
 	InternalTextType TextType = "internal" // 仅 LLM 上下文，不在前端显示（如 ask_user 的提示文本）
+	// CompressionTextType 上下文压缩的输出（摘要正文）：前端不应把它当助手正文渲染，
+	// 与 flow_progress / ask_user 一样靠 text_type 区分。
+	CompressionTextType TextType = "compression"
 )
 
 // CustomTextBlock 是唯一允许业务扩展的文本块：不进 LLM 上下文（ForContext=false），
@@ -243,6 +246,12 @@ func NewToolResultTextBlock(toolUseId string) *TextBlock {
 		BaseBlock: BaseBlock{Type: TextBlockType},
 		ToolUseId: toolUseId,
 	}
+}
+
+// NewCompressionTextBlock 返回带压缩标记的流式文本块起点：与普通 TextBlock 同类型，
+// 靠 TextType 区分，前端据此不与助手正文混在一起。
+func NewCompressionTextBlock() *TextBlock {
+	return NewFullTextTypeBlock("", CompressionTextType)
 }
 
 func NewErrorTextBlock() *TextBlock {

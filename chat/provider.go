@@ -6,9 +6,10 @@ import (
 )
 
 // Service 是 LLM 提供方的流式对话接口。
-// 每个 provider（如 OpenAI、Anthropic）实现此接口。
+// 每个 provider（如 OpenAI、Anthropic）实现此接口：往 BlockWriter 里写块，
+// 不依赖具体的 BlockStream 实现。
 type Service interface {
-	ChatWithStream(ctx context.Context, chatMessages *Messages, response *BlockStream) error
+	ChatWithStream(ctx context.Context, chatMessages *Messages, response BlockWriter) error
 	ID() string
 }
 

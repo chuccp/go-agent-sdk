@@ -28,7 +28,7 @@ func (c *Chat) GetService(config *Config) Service {
 	}
 	return c.serviceStore.GetService(id)
 }
-func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Messages, response *BlockStream) error {
+func (c *Chat) ChatWithStream(ctx context.Context, chatMessages *Messages, response BlockWriter) error {
 	return c.GetService(chatMessages.Config()).ChatWithStream(ctx, chatMessages, response)
 }
 

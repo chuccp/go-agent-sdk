@@ -235,7 +235,7 @@ type mockService struct {
 	id string
 }
 
-func (m *mockService) ChatWithStream(_ context.Context, _ *chat.Messages, _ *chat.BlockStream) error {
+func (m *mockService) ChatWithStream(_ context.Context, _ *chat.Messages, _ chat.BlockWriter) error {
 	return nil
 }
 

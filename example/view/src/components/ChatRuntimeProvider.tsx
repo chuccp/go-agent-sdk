@@ -121,13 +121,16 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
             currentToolName = null
             toolInputJson = ''
           }
-          currentStreamType = innerType
+          // 压缩输出（摘要正文）单独标类型：delta 阶段据此丢弃，不混进对话流
+          currentStreamType = inner?.text_type === 'compression' ? 'compression' : innerType
           break
         }
         case 'delta': {
           const content = b.content as string || b.text || ''
           if (!content) break
-          if (currentStreamType === 'tool_use') {
+          if (currentStreamType === 'compression') {
+            // 上下文压缩的摘要正文：不进对话流
+          } else if (currentStreamType === 'tool_use') {
             if (currentToolName === 'execute_command') {
               toolInputJson += content
             } else {
@@ -144,8 +147,8 @@ function buildDisplayMessages(events: ChatEvent[]): { role: 'user' | 'assistant'
           break
         }
         case 'text': {
-          // 过滤 text_type === 'internal'（仅 LLM 上下文，不在前端显示）
-          if (b.text_type === 'internal') break
+          // 过滤 text_type === 'internal'（仅 LLM 上下文）与 compression（上下文压缩输出），都不在前端显示
+          if (b.text_type === 'internal' || b.text_type === 'compression') break
           const text = b.text || ''
           if (!text) break
           if (activeCommand !== null) {
