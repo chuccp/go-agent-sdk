@@ -95,7 +95,7 @@ func (s *Session) WriteTextRound(message string) *Done {
 
 func newSession(id string, config *Config, sessions *Sessions) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
-	transfer := NewTransfer(id, config.compressor, config.historyStore)
+	transfer := NewTransfer(id, config.compressor, config.compressorOptions, config.historyStore)
 	sessionContext := &SessionContext{
 		Context:   ctx,
 		sessionId: id,

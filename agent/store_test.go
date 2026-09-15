@@ -57,7 +57,7 @@ func (n *noopSendEvent) getAndAddStart() uint64 {
 }
 
 func newStoreWith(ms MessageStore) *Store {
-	return NewStore(0, "test", &noopSendEvent{}, &CompressorOptions{}, ms)
+	return NewStore(0, "test", &noopSendEvent{}, nil, &CompressorOptions{}, ms)
 }
 
 func starts(ms []*chat.Message) []uint64 {

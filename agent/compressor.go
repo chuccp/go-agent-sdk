@@ -1,6 +1,11 @@
 package agent
 
-import "github.com/chuccp/go-agent-sdk/chat"
+import (
+	"math"
+
+	"github.com/chuccp/go-agent-sdk/chat"
+	sdklog "github.com/chuccp/go-agent-sdk/log"
+)
 
 // Compressor 上下文压缩策略接口。
 type Compressor interface {
@@ -18,65 +23,138 @@ type Summary interface {
 }
 
 type CompressorOptions struct {
-	compressor       Compressor
 	maxContextLength int
-	compressRatio    float64
+	keepRatio        float64
+}
+
+func (o *CompressorOptions) MaxContextLength() int {
+	return o.maxContextLength
+}
+func (o *CompressorOptions) KeepRatio() float64 {
+	return o.keepRatio
+}
+
+// CutCompressor 只做强行切割的压缩器：不调用 LLM、不生成摘要。切割本身由
+// CompressorManager 按比例完成（见 CompressorManager.compress），这里只把被切掉的
+// 那段旧历史压成一条占位消息，告诉模型前面还有对话、只是已被截断。
+//
+// 适用于「宁可丢掉上下文也要把请求发出去」的场景：零额外调用、零延迟，
+// 代价是被丢弃的对话内容不可恢复。
+type CutCompressor struct{}
+
+var _ Compressor = (*CutCompressor)(nil)
+
+// defaultKeepRatio CompressorOptions.KeepRatio 的缺省值：保留后一半，压缩后上下文大致减半。
+const defaultKeepRatio = 0.5
+
+// cutPlaceholder 是被丢弃历史在上下文中的占位文本：免得模型把保留下来的尾巴
+// 当成对话的开头。
+const cutPlaceholder = "（更早的历史对话已超出上下文上限被截断）"
+
+// Compress 把被切掉的那段历史压成一条占位消息：分界点取该段的末尾，
+// 调用方把它拼在保留段前面。没有历史可压（空切片）时返回 nil。
+func (c *CutCompressor) Compress(ctx Context, messages []*chat.Message) *chat.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	return &chat.Message{
+		Start:   cutBoundary(messages),
+		Role:    chat.RoleUser,
+		Content: chat.Blocks{chat.NewFullTextBlock(cutPlaceholder)},
+	}
+}
+
+// cutBoundary 返回被切掉那段的末尾位置，也就是新的分界点：Start 小于它的历史由
+// 摘要/占位消息取代，它正好等于保留段第一条的 Start。空切片返回 0。
+func cutBoundary(dropped []*chat.Message) uint64 {
+	if len(dropped) == 0 {
+		return 0
+	}
+	last := dropped[len(dropped)-1]
+	return last.Start + last.Offset
+}
+
+// isSafeCut 报告从 messages[cut] 开始截断是否安全。
+//
+// 唯一要避开的是切开 tool_use/tool_result 这一对：tool_result 必须以 user 消息的
+// 形式跟在配对的 tool_use 之后，留下 tool_result、丢掉 tool_use，Anthropic 会直接
+// 判 400，且失败在请求发出之后、表现为整轮报错。落在这种消息上就把切点往后推。
+//
+// 其余情况都安全：返回的占位消息是 user 消息且注入在上下文最前面，后面紧跟
+// assistant 消息也不违反「首条消息必须是 user」的约束。
+func isSafeCut(msg *chat.Message) bool {
+	return msg.Role != chat.RoleUser || !hasToolResult(msg.Content)
+}
+
+// hasToolResult 查找块中的 tool_result。UserBlock 是事件流包装器，进上下文时会被
+// 展开（见 blocksForContext），包在里面的 tool_result 一样会出现在消息顶层。
+func hasToolResult(blocks chat.Blocks) bool {
+	for _, b := range blocks {
+		switch v := b.(type) {
+		case *chat.ToolResultBlock:
+			return true
+		case *chat.UserBlock:
+			if hasToolResult(v.Content) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func DefaultCompressorOptions() *CompressorOptions {
+	return &CompressorOptions{
+		maxContextLength: 100_000,
+		keepRatio:        0.5, // 超水位后保留一半
+	}
 }
 
 type CompressorOption func(*CompressorOptions)
 
-func WithCompressor(compressor Compressor) CompressorOption {
-	return func(o *CompressorOptions) {
-		o.compressor = compressor
-	}
-}
 func WithMaxContextLength(maxContextLength int) CompressorOption {
 	return func(o *CompressorOptions) {
 		o.maxContextLength = maxContextLength
 	}
 }
-func WithCompressRatio(compressRatio float64) CompressorOption {
+func WithKeepRatio(keepRatio float64) CompressorOption {
 	return func(o *CompressorOptions) {
-		o.compressRatio = compressRatio
+		o.keepRatio = keepRatio
 	}
 }
 
 type CompressorManager struct {
-	compressor       Compressor
-	summary          Summary
-	contextLength    int
-	maxContextLength int
-	compressRatio    float64
-	summaryMessage   *chat.Message
-	sessionId        string
+	compressor        Compressor
+	summary           Summary
+	contextLength     int
+	summaryMessage    *chat.Message
+	sessionId         string
+	compressorOptions *CompressorOptions
 }
 
 // NewCompressorManager 创建压缩器管理器。
-func NewCompressorManager(sessionId string, compressorOptions *CompressorOptions, summary Summary) *CompressorManager {
+func NewCompressorManager(sessionId string, compressor Compressor,
+	compressorOptions *CompressorOptions, summary Summary) *CompressorManager {
 	return &CompressorManager{
-		sessionId:        sessionId,
-		compressor:       compressorOptions.compressor,
-		contextLength:    0,
-		maxContextLength: compressorOptions.maxContextLength,
-		compressRatio:    compressorOptions.compressRatio,
-		summary:          summary,
+		compressor:        compressor,
+		contextLength:     0,
+		compressorOptions: compressorOptions,
+		summary:           summary,
+		sessionId:         sessionId,
 	}
-}
-
-// SetLimit 设置最大上下文与触发压缩的比例：上下文长度达到
-// maxContextLength*compressRatio 时才需要压缩，提前介入以留出余量，
-// 避免压完立刻又被撑满。两项任一 <= 0 表示不压缩。
-func (m *CompressorManager) SetLimit(maxContextLength int, compressRatio float64) {
-	m.maxContextLength = maxContextLength
-	m.compressRatio = compressRatio
 }
 
 // shouldCompress 报告当前上下文是否已达到触发压缩的水位。
+// contextLength 取上一轮的真实用量（见 UpdateUsage），超过 maxContextLength 才压；
+// keepRatio 只管「压完保留多少」，不参与水位判断。
 func (m *CompressorManager) shouldCompress() bool {
-	if m == nil || m.maxContextLength <= 0 || m.compressRatio <= 0 {
+	if m == nil || m.compressorOptions == nil {
 		return false
 	}
-	return float64(m.contextLength) >= float64(m.maxContextLength)*m.compressRatio
+	maxContextLength := m.compressorOptions.MaxContextLength()
+	if maxContextLength <= 0 {
+		return false
+	}
+	return m.contextLength >= maxContextLength
 }
 func (m *CompressorManager) UpdateUsage(usage *chat.Usage) {
 	if usage != nil {
@@ -113,15 +191,78 @@ func (m *CompressorManager) loadSummary() (*chat.Message, error) {
 	return m.summaryMessage, nil
 }
 
-// Compress 执行压缩，委托给内部的 Compressor 实现。
-func (m *CompressorManager) compress(context Context, messages []*chat.Message) []*chat.Message {
+// Compress 执行压缩：这里先按比例强行切割，再把切掉的那段交给 Compressor 压缩。
+func (m *CompressorManager) compress(context Context, messages []*chat.Message) ([]*chat.Message, bool) {
 	if m == nil || m.compressor == nil {
-		return nil
+		return nil, false
 	}
-	msg := m.compressor.Compress(context, messages)
-	if msg != nil {
-		return messages
+	// 没超水位就别动：否则每轮都会再切一刀，把上下文压到水位以下
+	if !m.shouldCompress() {
+		return messages, false
+	}
+	// 这里按比例切割好，将切割好的往下传
+	cut := m.cutIndex(messages)
+	if cut <= 0 {
+		return messages, false // 一条都没切掉，也就没东西可压
 	}
 
-	return messages
+	// Compress只负责压缩，不做切割
+	msg := m.compressor.Compress(context, messages[:cut])
+	if msg == nil {
+		// 压缩器没产出内容，但分界点照样要记：否则重启后这段刚切掉的历史会被
+		// 整段加载回来、再压一遍。只记分界点——空 content 的消息进上下文时
+		// 本来就会被 buildRequest 跳过，不用往返回的历史里再塞一条。
+		m.saveSummary(&chat.Message{Start: cutBoundary(messages[:cut]), Role: chat.RoleUser})
+		return messages[cut:], true
+	}
+
+	// 保存 summary：分界点必须落盘，否则重启后旧历史会被整段重新加载回来
+	m.saveSummary(msg)
+
+	return append([]*chat.Message{msg}, messages[cut:]...), true
+}
+
+// saveSummary 记录新的压缩分界点：落盘 + 顶掉内存缓存。
+// loadSummary 优先返回缓存，不更新的话后续加载还会拿着旧分界点。
+// 落盘失败只记日志：切割已经生效，本轮先按内存里的分界点走，
+// 重启后最多退回旧分界点、把这段历史再压一次。
+func (m *CompressorManager) saveSummary(msg *chat.Message) {
+	if msg == nil {
+		return // 没有分界点可记，别把已经记下的清掉
+	}
+	m.summaryMessage = msg
+	if m.summary == nil {
+		return
+	}
+	if err := m.summary.SaveSummary(m.sessionId, msg); err != nil {
+		sdklog.Error("[compressor] SaveSummary failed", "session", m.sessionId, "start", msg.Start, "error", err)
+	}
+}
+
+// cutIndex 计算切割点：messages[cutIndex:] 是保留部分，[0,cutIndex) 交给 Compressor 压缩。
+// 返回 0 表示本轮不切（比例配成 >=1、消息太少，或找不到安全的切点）。
+func (m *CompressorManager) cutIndex(messages []*chat.Message) int {
+	// 只保留末尾 ratio 比例的消息，前面被切掉的那段才是拿去压缩的材料。
+	// 没配 options 就按缺省比例切。
+	ratio := defaultKeepRatio
+	if m.compressorOptions != nil && m.compressorOptions.KeepRatio() > 0 {
+		ratio = m.compressorOptions.KeepRatio()
+	}
+	if ratio >= 1 || len(messages) == 0 {
+		return 0
+	}
+	keep := int(math.Ceil(float64(len(messages)) * ratio)) // 向上取整，至少保留一条
+	if keep >= len(messages) {
+		return 0
+	}
+	cut := len(messages) - keep
+	// 切点必须落在安全边界上：别把 tool_use/tool_result 切成两半，
+	// 不安全就继续往后推，等于多丢几条；推到底说明这段切不得，本轮不动。
+	for cut < len(messages) && !isSafeCut(messages[cut]) {
+		cut++
+	}
+	if cut >= len(messages) {
+		return 0
+	}
+	return cut
 }

@@ -47,28 +47,30 @@ type Transfer struct {
 	// signalEvents 存放不需要占用 start 序号的辅助事件（如控制信号、状态通知等）。
 	signalEvents *util.SliceArray[*Event]
 
-	chatClients      *util.SliceArray[*Client]
-	defaultStore     *Store
-	messageLastStart uint64
-	sessionId        string
-	compressor       *CompressorOptions
-	historyStore     MessageStore
-	no               uint64
-	start            atomic.Uint64
+	chatClients       *util.SliceArray[*Client]
+	defaultStore      *Store
+	messageLastStart  uint64
+	sessionId         string
+	historyStore      MessageStore
+	no                uint64
+	start             atomic.Uint64
+	compressor        Compressor
+	compressorOptions *CompressorOptions
 }
 
-func NewTransfer(sessionId string, compressor *CompressorOptions, historyStore MessageStore) *Transfer {
+func NewTransfer(sessionId string, compressor Compressor, compressorOptions *CompressorOptions, historyStore MessageStore) *Transfer {
 	transfer := &Transfer{
-		sessionId:        sessionId,
-		compressor:       compressor,
-		historyStore:     historyStore,
-		entries:          new(util.SliceArray[*Event]),
-		chatClients:      new(util.SliceArray[*Client]),
-		signalEvents:     new(util.SliceArray[*Event]),
-		messageLastStart: 0,
-		no:               0,
+		sessionId:         sessionId,
+		historyStore:      historyStore,
+		entries:           new(util.SliceArray[*Event]),
+		chatClients:       new(util.SliceArray[*Client]),
+		signalEvents:      new(util.SliceArray[*Event]),
+		messageLastStart:  0,
+		no:                0,
+		compressor:        compressor,
+		compressorOptions: compressorOptions,
 	}
-	transfer.defaultStore = NewStore(transfer.no, transfer.sessionId, transfer, transfer.compressor, transfer.historyStore)
+	transfer.defaultStore = NewStore(transfer.no, transfer.sessionId, transfer, compressor, compressorOptions, transfer.historyStore)
 	return transfer
 }
 func (l *Transfer) AgentStore() *Store {
@@ -82,7 +84,7 @@ func (l *Transfer) SubAgentStore() *Store {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.no++
-	return NewStore(l.no, l.sessionId, l, l.compressor, nil)
+	return NewStore(l.no, l.sessionId, l, l.compressor, l.compressorOptions, nil)
 }
 func (l *Transfer) SaveAll() error {
 	l.mu.Lock()

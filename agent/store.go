@@ -144,10 +144,15 @@ func (s *Store) history0() []*chat.Message {
 func (s *Store) compressorHistory(context Context) []*chat.Message {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	history0 := s.history0()
-	s.compressorManager.compress(context, history0)
-
-	return nil
+	history0 := s.history.Slice()
+	messages, fa := s.compressorManager.compress(context, history0)
+	if fa {
+		s.history.Reset()
+		for _, msg := range messages {
+			s.history.Append(msg)
+		}
+	}
+	return s.history0()
 }
 
 // IsLoaded 报告持久化历史是否已加载完成（loaded 由 lastStoreStart 在锁内置位）。
@@ -378,14 +383,19 @@ func (s *Store) hasSplit(slice []*Client) (uint64, bool) {
 func (s *Store) No() uint64 {
 	return s.no
 }
-func NewStore(no uint64, sessionId string, sendEvent SendEvent, compressor *CompressorOptions, messageStore MessageStore) *Store {
+func NewStore(no uint64,
+	sessionId string,
+	sendEvent SendEvent,
+	compressor Compressor,
+	compressorOptions *CompressorOptions,
+	messageStore MessageStore) *Store {
 	return &Store{
 		no:                no,
 		sendEvent:         sendEvent,
 		maxBatchSize:      10,
 		sessionID:         sessionId,
 		messageStore:      messageStore,
-		compressorManager: NewCompressorManager(sessionId, compressor, messageStore),
+		compressorManager: NewCompressorManager(sessionId, compressor, compressorOptions, messageStore),
 		history:           new(util.SliceArray[*chat.Message]),
 		tempHistory:       new(util.SliceArray[*chat.Message]),
 		loaded:            messageStore == nil,

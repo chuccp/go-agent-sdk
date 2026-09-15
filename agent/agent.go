@@ -228,8 +228,8 @@ func (l *Agent) buildRequest() *chat.Messages {
 	if fa {
 		l.appendUserMessage(msg)
 	}
-	//history := l.store.compressorHistory(l.agentContext)
-	history := l.store.History()
+	history := l.store.compressorHistory(l.agentContext)
+	//history := l.store.History()
 	messages := chat.NewMessages(effective, tools)
 	for _, m := range history {
 		msg := *m

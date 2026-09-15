@@ -16,15 +16,16 @@ const (
 // Config 构建期配置。setter 与 Copy 均加锁，可安全地一边配置一边创建 Server；
 // CreateServer 内部 Copy 一份，之后对原 Config 的修改不影响已创建的 Server。
 type Config struct {
-	lock           *sync.RWMutex
-	chat           *chat.Chat
-	toolExecutors  []ToolExecutor
-	chatConfig     *chat.Config
-	historyStore   MessageStore
-	compressor     *CompressorOptions
-	lifecycle      FuncLifecycle
-	sessionTimeout uint
-	clientTimeout  uint
+	lock              *sync.RWMutex
+	chat              *chat.Chat
+	toolExecutors     []ToolExecutor
+	chatConfig        *chat.Config
+	historyStore      MessageStore
+	compressor        Compressor
+	compressorOptions *CompressorOptions
+	lifecycle         FuncLifecycle
+	sessionTimeout    uint
+	clientTimeout     uint
 }
 
 type Option func(*Config)
@@ -117,11 +118,12 @@ func (m *Config) MessageStore(store MessageStore) {
 // Compressor 设置上下文压缩策略和持久化实现。
 // 设置后，每次 buildRequest 前会调用压缩器对消息列表进行压缩。
 // store 可为 nil（无持久化，重启丢失压缩状态）。
-func (m *Config) Compressor(c ...CompressorOption) {
+func (m *Config) Compressor(compressor Compressor, compressorOptions ...CompressorOption) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	for _, o := range c {
-		o(m.compressor)
+	m.compressor = compressor
+	for _, o := range compressorOptions {
+		o(m.compressorOptions)
 	}
 }
 
@@ -138,15 +140,16 @@ func (m *Config) Copy() *Config {
 	defer m.lock.RUnlock()
 	chatConfig := chat.Combine(m.chatConfig)
 	return &Config{
-		lock:           new(sync.RWMutex),
-		chat:           m.chat,
-		toolExecutors:  append([]ToolExecutor{}, m.toolExecutors...),
-		chatConfig:     chatConfig,
-		historyStore:   m.historyStore,
-		compressor:     m.compressor,
-		lifecycle:      m.lifecycle,
-		sessionTimeout: m.sessionTimeout,
-		clientTimeout:  m.clientTimeout,
+		lock:              new(sync.RWMutex),
+		chat:              m.chat,
+		toolExecutors:     append([]ToolExecutor{}, m.toolExecutors...),
+		chatConfig:        chatConfig,
+		historyStore:      m.historyStore,
+		compressorOptions: m.compressorOptions,
+		compressor:        m.compressor,
+		lifecycle:         m.lifecycle,
+		sessionTimeout:    m.sessionTimeout,
+		clientTimeout:     m.clientTimeout,
 	}
 }
 func (m *Config) CreateServer(ctx context.Context) *Server {
@@ -162,14 +165,13 @@ func (m *Config) CreateServer(ctx context.Context) *Server {
 
 func NewConfig() *Config {
 	return &Config{
-		lock:           new(sync.RWMutex),
-		toolExecutors:  make([]ToolExecutor, 0),
-		chatConfig:     chat.DefaultConfig(),
-		historyStore:   nil,
-		compressor:     &CompressorOptions{},
-		chat:           chat.NewChat(),
-		sessionTimeout: defaultSessionTimeout,
-		clientTimeout:  defaultClientTimeout,
+		lock:              new(sync.RWMutex),
+		toolExecutors:     make([]ToolExecutor, 0),
+		chatConfig:        chat.DefaultConfig(),
+		compressorOptions: DefaultCompressorOptions(),
+		chat:              chat.NewChat(),
+		sessionTimeout:    defaultSessionTimeout,
+		clientTimeout:     defaultClientTimeout,
 	}
 
 }
