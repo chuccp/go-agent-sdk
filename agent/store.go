@@ -149,12 +149,10 @@ func (s *Store) history0() []*chat.Message {
 // 放开锁压缩，回来再按快照长度替换。
 func (s *Store) compressorHistory(context Context) []*chat.Message {
 	snapshot := s.snapshotHistory()
-
 	messages, compressed := s.compressorManager.compress(context, snapshot)
 	if !compressed {
 		return s.History()
 	}
-
 	s.replaceHistory(messages, len(snapshot))
 	return s.History()
 }
