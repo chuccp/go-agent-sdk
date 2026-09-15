@@ -12,21 +12,6 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-type Context interface {
-	context.Context
-	SessionId() string
-	GetChat() *chat.Chat
-	SubAgentStore() *Store
-	AgentStore() *Store
-
-	SendBlock(no uint64, block chat.Block) uint64
-	SendSignalBlock(no uint64, block chat.Block) uint64
-	GetTransferStart() uint64
-
-	AppendMainAssistantMessage(blocks *chat.BlockGroup)
-	AppendMainUserMessage(blocks *chat.BlockGroup)
-}
-
 type Agent struct {
 	inbox         *util.SliceQueue[*chat.UserBlock]
 	agentContext  Context
