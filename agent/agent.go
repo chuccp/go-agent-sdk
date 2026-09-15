@@ -12,47 +12,53 @@ import (
 	"github.com/chuccp/go-agent-sdk/util"
 )
 
-type AgentContext struct {
+// RunContext 是 Agent 运行期的 Context 实现：把会话与这个 Agent 自己的 Store 拼在一起
+// —— SendBlock / SendSignalBlock 自动带上该 Store 的 no，消息也落进它的历史。工具、
+// 压缩器、事件流拿到的都是它。
+type RunContext struct {
 	context.Context
-	agentCtx *SessionContext
-	store    *Store
+	session *SessionContext
+	store   *Store
 }
 
-func (c *AgentContext) SessionId() string {
-	return c.agentCtx.sessionId
+func (c *RunContext) SessionId() string {
+	return c.session.sessionId
 }
-func (c *AgentContext) GetChat() *chat.Chat {
-	return c.agentCtx.GetChat()
+func (c *RunContext) GetChat() *chat.Chat {
+	return c.session.GetChat()
 
 }
-func (c *AgentContext) Store() *Store {
+func (c *RunContext) Store() *Store {
 	return c.store
 }
-func (c *AgentContext) SendBlock(block chat.Block) uint64 {
-	return c.agentCtx.SendBlock(c.store.no, block)
+func (c *RunContext) SendBlock(block chat.Block) uint64 {
+	return c.session.SendBlock(c.store.no, block)
 }
-func (c *AgentContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
-	return c.agentCtx.SendSignalBlock(c.store.no, block)
+func (c *RunContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
+	return c.session.SendSignalBlock(c.store.no, block)
 }
 
-func (c *AgentContext) AppendAssistantMessage(blocks *chat.BlockGroup) {
+func (c *RunContext) AppendAssistantMessage(blocks *chat.BlockGroup) {
 	assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
 	c.store.AppendHistory(assistantMsg)
 
 }
-func (c *AgentContext) AppendUserMessage(blocks *chat.BlockGroup) {
+func (c *RunContext) AppendUserMessage(blocks *chat.BlockGroup) {
 	userMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleUser, Content: blocks.Content}
 	c.store.AppendHistory(userMsg)
 }
 
-func NewAgentContext(ctx context.Context, agentCtx *SessionContext, store *Store) *AgentContext {
-	return &AgentContext{
-		Context:  ctx,
-		agentCtx: agentCtx,
-		store:    store,
+// NewRunContext 用会话与该 Agent 的 Store 组一个运行时上下文。
+func NewRunContext(ctx context.Context, session *SessionContext, store *Store) *RunContext {
+	return &RunContext{
+		Context: ctx,
+		session: session,
+		store:   store,
 	}
 }
 
+// Context 是 Agent 运行期的上下文接口，由 RunContext 实现：会话信息 + 该 Agent 的 Store
+// + 事件发送 + 历史追加。工具与压缩器只依赖这个接口。
 type Context interface {
 	context.Context
 	SessionId() string
@@ -82,7 +88,7 @@ type Agent struct {
 	systemPrompt  string
 	done          func()
 	lifecycle     *FuncLifecycle
-	agentContext  *AgentContext
+	agentContext  *RunContext
 }
 
 type Builder struct {
@@ -118,7 +124,7 @@ func (b *Builder) Lifecycle(lifecycle *FuncLifecycle) *Builder {
 }
 
 func (b *Builder) Build() *Agent {
-	b.agent.agentContext = NewAgentContext(b.agent.lContext, b.agent.agentCtx, b.agent.store)
+	b.agent.agentContext = NewRunContext(b.agent.lContext, b.agent.agentCtx, b.agent.store)
 	systemPrompt := b.agent.composeSystem()
 	b.agent.systemPrompt = systemPrompt
 	b.agent.mid.Store(uint64(util.GetMilliTime()))

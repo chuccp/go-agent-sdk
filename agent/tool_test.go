@@ -60,7 +60,7 @@ func TestTurn_Context_Nil(t *testing.T) {
 }
 
 func TestTurn_Context_WithSession(t *testing.T) {
-	ctx := &AgentContext{agentCtx: &SessionContext{sessionId: "test"}}
+	ctx := &RunContext{session: &SessionContext{sessionId: "test"}}
 	turn := &Turn{ctx: ctx}
 	if turn.Context().SessionId() != "test" {
 		t.Errorf("expected sessionId 'test', got %q", turn.Context().SessionId())

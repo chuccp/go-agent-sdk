@@ -84,7 +84,7 @@ func TestCommand_WithSessionContext(t *testing.T) {
 	config := agent.NewConfig()
 	manager := config.CreateServer(context.Background())
 	sctx := manager.SessionContext("cmd-s1")
-	ctx := agent.NewAgentContext(context.Background(), sctx, sctx.AgentStore())
+	ctx := agent.NewRunContext(context.Background(), sctx, sctx.AgentStore())
 	client := manager.GetOrCreateSession("cmd-s1").Client(context.Background(), 0)
 	defer client.Close()
 
