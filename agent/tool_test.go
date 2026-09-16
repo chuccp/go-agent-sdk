@@ -71,7 +71,7 @@ func TestTurn_Context_WithSession(t *testing.T) {
 // Build 交付给工具的 RunContext，Ctx() 必须是能用的。
 //
 // loopContext 要到 loop() 里才创建，Build 时还是 nil；Ctx() 靠 pContext 兜底
-// （WithoutCancel(会话)），否则工具把 turn.Context().Ctx() 递给 net/http（client 带
+// （WithoutCancel(会话)），否则工具把 turn.Context() 递给 net/http（client 带
 // Timeout）就会崩：setRequestCancel 会读 req.Context().Deadline()，整个工具只回一句
 // nil pointer dereference。
 func TestBuiltRunContextCarriesUsableContext(t *testing.T) {
