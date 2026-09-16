@@ -24,9 +24,9 @@ type Turn struct {
 	args *value.Object
 }
 
-// Context 返回本次执行所属的会话上下文。
-func (t *Turn) Context() Context     { return t.ctx }
-func (t *Turn) Ctx() context.Context { return t.ctx.Ctx() }
+// AgentContext 返回本次执行所属的会话上下文。
+func (t *Turn) AgentContext() Context    { return t.ctx }
+func (t *Turn) Context() context.Context { return t.ctx.Ctx() }
 
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *value.Object { return t.args }

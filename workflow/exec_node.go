@@ -51,7 +51,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStr
 		writer.ErrorText(errors.New("缺少 step_id 参数"))
 		return
 	}
-	sctx := turn.Context()
+	sctx := turn.AgentContext()
 	if sctx == nil {
 		writer.ErrorText(errors.New("exec_node 需要会话上下文"))
 		return
@@ -135,7 +135,7 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 		return nil, "", fmt.Errorf("迭代项 %d 超过上限 %d，请拆分后再试", len(arr), maxIterItems)
 	}
 
-	sctx := turn.Context()
+	sctx := turn.AgentContext()
 	results, doneSet := t.suite.store.PartialResults(st, step.Name(), len(arr))
 	var failures []string
 	for i, raw := range arr {
@@ -168,7 +168,7 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 // nodeCall 零上下文一次性 LLM 调用（硬边界）：不带会话历史，
 // 模板变量 = 共享变量(vars) + 项变量(itemVars)，不产生会话事件。
 func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value.Object, itemVars map[string]any) (string, error) {
-	sctx := turn.Context()
+	sctx := turn.AgentContext()
 	merged := vars.ToMap()
 	for k, v := range itemVars {
 		merged[k] = v

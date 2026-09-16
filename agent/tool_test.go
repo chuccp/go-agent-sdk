@@ -55,7 +55,7 @@ func TestTurn_Args(t *testing.T) {
 
 func TestTurn_Context_Nil(t *testing.T) {
 	turn := NewTurn(value.NewObjectFromMap(map[string]any{"x": "y"}))
-	if turn.Context() != nil {
+	if turn.AgentContext() != nil {
 		t.Error("expected nil context from NewTurn")
 	}
 }
@@ -63,8 +63,8 @@ func TestTurn_Context_Nil(t *testing.T) {
 func TestTurn_Context_WithSession(t *testing.T) {
 	ctx := &RunContext{session: &SessionContext{sessionId: "test"}}
 	turn := &Turn{ctx: ctx}
-	if turn.Context().SessionId() != "test" {
-		t.Errorf("expected sessionId 'test', got %q", turn.Context().SessionId())
+	if turn.AgentContext().SessionId() != "test" {
+		t.Errorf("expected sessionId 'test', got %q", turn.AgentContext().SessionId())
 	}
 }
 
@@ -96,7 +96,7 @@ func TestNewTurn(t *testing.T) {
 	if turn.Args().GetString("key") != "value" {
 		t.Error("NewTurn should preserve args")
 	}
-	if turn.Context() != nil {
+	if turn.AgentContext() != nil {
 		t.Error("NewTurn should have nil context")
 	}
 }

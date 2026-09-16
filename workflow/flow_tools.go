@@ -488,7 +488,7 @@ func (t *FinishFlowTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockS
 
 // sessionIdOf 从工具执行上下文取会话 ID。
 func sessionIdOf(turn *agent.Turn) string {
-	if ctx := turn.Context(); ctx != nil {
+	if ctx := turn.AgentContext(); ctx != nil {
 		return ctx.SessionId()
 	}
 	return ""

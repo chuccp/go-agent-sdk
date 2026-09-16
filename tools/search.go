@@ -89,7 +89,7 @@ type searchItem struct {
 }
 
 // Execute 实现 agent.ToolExecutor 接口：
-// 1. 通过 turn.Context().GetChat() 获取 Chat
+// 1. 通过 turn.AgentContext().GetChat() 获取 Chat
 // 2. Chat.GetService(nil) 获取 Service，类型断言为 *anthropic.Service
 // 3. 提取 baseUrl + apiKey，调用搜索 API
 // 错误经 ErrorText 以文本写入（随 tool_result 回传给模型）。
