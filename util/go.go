@@ -36,10 +36,14 @@ func GoWithRecover(fn func(), recoverHandler func(r any)) {
 }
 
 // Recover 同步执行 fn，捕获其中的 panic 并以 error 返回；fn 正常返回时 error 为 nil。
-// 只保留 panic 值、不带堆栈：调用方常把这个错误回给模型，带堆栈会污染上下文。
+//
+// 返回值只带 panic 值、不带堆栈：调用方常把这个错误回给模型，带堆栈会污染上下文。
+// 堆栈改在捕获现场打到后台日志（同 Go/GoWithRecover），否则线上只剩一句
+// "invalid memory address or nil pointer dereference"，看不出崩在哪一行。
 func Recover(fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			log.Printf("[Recover] panic recovered: %v\n%s", r, debug.Stack())
 			err = fmt.Errorf("%v", r)
 		}
 	}()

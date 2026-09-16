@@ -76,9 +76,8 @@ func (s *Session) GetSubAgent(systemPrompt string, toolExecutors ...ToolExecutor
 	config := chat.DefaultConfig()
 	config.Merge(s.chatConfig)
 	config.SystemPrompt(systemPrompt)
-	agent := NewBuilder(s.sessionContext).
+	agent := NewBuilder(s.sessionContext, s.transfer.AgentStore()).
 		Config(config).
-		Store(s.transfer.AgentStore()).
 		ToolExecutor(toolExecutors...).
 		Build()
 	return agent
@@ -115,9 +114,8 @@ func newSession(id string, config *Config, sessions *Sessions) *Session {
 		lastTime:       util.GetSecondTime(),
 		lifecycle:      &config.lifecycle,
 	}
-	s.agent = NewBuilder(sessionContext).
+	s.agent = NewBuilder(sessionContext, transfer.AgentStore()).
 		Config(config.chatConfig).
-		Store(transfer.AgentStore()).
 		ToolExecutor(config.toolExecutors...).
 		Lifecycle(&config.lifecycle).
 		Build()

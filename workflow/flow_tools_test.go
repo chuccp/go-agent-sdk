@@ -21,13 +21,16 @@ type fakeLoopContext struct {
 	id string
 }
 
-func (f *fakeLoopContext) SessionId() string                             { return f.id }
-func (f *fakeLoopContext) GetChat() *chat.Chat                           { return chat.NewChat() }
-func (f *fakeLoopContext) Store() *agent.Store                           { return nil }
-func (f *fakeLoopContext) SendBlock(_ chat.Block) uint64                 { return 0 }
-func (f *fakeLoopContext) SendSignalBlock(_ uint64, _ chat.Block) uint64 { return 0 }
-func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup)     {}
-func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)          {}
+func (f *fakeLoopContext) SessionId() string                         { return f.id }
+func (f *fakeLoopContext) GetChat() *chat.Chat                       { return chat.NewChat() }
+func (f *fakeLoopContext) Store() *agent.Store                       { return nil }
+func (f *fakeLoopContext) Ctx() context.Context                      { return f.Context }
+func (f *fakeLoopContext) SendBlock(_ chat.Block) uint64             { return 0 }
+func (f *fakeLoopContext) SendSignalBlock(_ chat.Block) uint64       { return 0 }
+func (f *fakeLoopContext) GetTransferStart() uint64                  { return 0 }
+func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup) {}
+func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)      {}
+func (f *fakeLoopContext) AppendHistory(_ *chat.Message)             {}
 
 // newTestTools 创建工具组并激活默认 storyWorkflow，返回五个工具。
 func newTestTools(sessionId string, input map[string]any) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {

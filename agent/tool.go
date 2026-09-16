@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/value"
 )
@@ -23,7 +25,8 @@ type Turn struct {
 }
 
 // Context 返回本次执行所属的会话上下文。
-func (t *Turn) Context() Context { return t.ctx }
+func (t *Turn) Context() Context     { return t.ctx }
+func (t *Turn) Ctx() context.Context { return t.ctx.Ctx() }
 
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *value.Object { return t.args }

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
@@ -64,6 +65,29 @@ func TestTurn_Context_WithSession(t *testing.T) {
 	turn := &Turn{ctx: ctx}
 	if turn.Context().SessionId() != "test" {
 		t.Errorf("expected sessionId 'test', got %q", turn.Context().SessionId())
+	}
+}
+
+// Build 交付给工具的 RunContext，Ctx() 必须是能用的。
+//
+// loopContext 要到 loop() 里才创建，Build 时还是 nil；Ctx() 靠 pContext 兜底
+// （WithoutCancel(会话)），否则工具把 turn.Context().Ctx() 递给 net/http（client 带
+// Timeout）就会崩：setRequestCancel 会读 req.Context().Deadline()，整个工具只回一句
+// nil pointer dereference。
+func TestBuiltRunContextCarriesUsableContext(t *testing.T) {
+	built := NewBuilder(&SessionContext{sessionId: "s1", Context: context.Background()}, nil).Build()
+
+	ctx := built.agentContext.Ctx()
+	if ctx == nil {
+		t.Fatal("loop() 之前 Ctx() 应回落到 pContext，不能为 nil")
+	}
+	select {
+	case <-ctx.Done():
+		t.Error("会话还没取消，Done() 不该已经关闭")
+	default:
+	}
+	if _, ok := ctx.Deadline(); ok {
+		t.Error("会话 ctx 不该带 deadline")
 	}
 }
 

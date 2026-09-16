@@ -17,8 +17,11 @@ import (
 // 压缩器、事件流拿到的都是它。
 type RunContext struct {
 	context.Context
-	session *SessionContext
-	store   *Store
+	session     *SessionContext
+	store       *Store
+	loopContext context.Context
+	loopCancel  context.CancelFunc
+	pContext    context.Context
 }
 
 func (c *RunContext) SessionId() string {
@@ -34,7 +37,7 @@ func (c *RunContext) Store() *Store {
 func (c *RunContext) SendBlock(block chat.Block) uint64 {
 	return c.session.SendBlock(c.store.no, block)
 }
-func (c *RunContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
+func (c *RunContext) SendSignalBlock(block chat.Block) uint64 {
 	return c.session.SendSignalBlock(c.store.no, block)
 }
 
@@ -48,39 +51,51 @@ func (c *RunContext) AppendUserMessage(blocks *chat.BlockGroup) {
 	c.store.AppendHistory(userMsg)
 }
 
+func (c *RunContext) GetTransferStart() uint64 {
+	return c.session.transfer.getStart()
+}
+func (c *RunContext) Ctx() context.Context {
+	if c.loopContext != nil {
+		return c.loopContext
+	}
+	return c.pContext
+}
+
+func (c *RunContext) AppendHistory(msg *chat.Message) {
+	c.store.AppendHistory(msg)
+}
+
 // NewRunContext 用会话与该 Agent 的 Store 组一个运行时上下文。
-func NewRunContext(ctx context.Context, session *SessionContext, store *Store) *RunContext {
+func NewRunContext(session *SessionContext, store *Store) *RunContext {
+	pContext := context.WithoutCancel(session)
 	return &RunContext{
-		Context: ctx,
-		session: session,
-		store:   store,
+		Context:  session,
+		session:  session,
+		store:    store,
+		pContext: pContext,
 	}
 }
 
 // Context 是 Agent 运行期的上下文接口，由 RunContext 实现：会话信息 + 该 Agent 的 Store
 // + 事件发送 + 历史追加。工具与压缩器只依赖这个接口。
 type Context interface {
-	context.Context
 	SessionId() string
 	GetChat() *chat.Chat
 	Store() *Store
+	Ctx() context.Context
 	SendBlock(block chat.Block) uint64
-	SendSignalBlock(no uint64, block chat.Block) uint64
+	SendSignalBlock(block chat.Block) uint64
 	AppendAssistantMessage(blocks *chat.BlockGroup)
+	GetTransferStart() uint64
 	AppendUserMessage(blocks *chat.BlockGroup)
+	AppendHistory(msg *chat.Message)
 }
 
 type Agent struct {
 	inbox         *util.SliceQueue[*chat.UserBlock]
-	agentCtx      *SessionContext
 	service       chat.Service
 	running       bool
-	pContext      context.Context
-	pCancel       context.CancelFunc
 	runLock       sync.Mutex
-	store         *Store
-	lContext      context.Context
-	lCancel       context.CancelFunc
 	ctxLock       sync.Mutex
 	mid           atomic.Uint64
 	toolExecutors []ToolExecutor
@@ -95,20 +110,13 @@ type Builder struct {
 	agent *Agent
 }
 
-func NewBuilder(agentContext *SessionContext) *Builder {
-	pContext, plCancel := context.WithCancel(agentContext)
+func NewBuilder(agentContext *SessionContext, store *Store) *Builder {
 	return &Builder{agent: &Agent{
-		agentCtx:      agentContext,
+		agentContext:  NewRunContext(agentContext, store),
 		toolExecutors: make([]ToolExecutor, 0),
 		inbox:         new(util.SliceQueue[*chat.UserBlock]),
-		pContext:      pContext,
-		pCancel:       plCancel,
 		config:        chat.DefaultConfig(),
 	}}
-}
-func (b *Builder) Store(store *Store) *Builder {
-	b.agent.store = store
-	return b
 }
 func (b *Builder) Config(config *chat.Config) *Builder {
 	b.agent.config = config
@@ -124,16 +132,15 @@ func (b *Builder) Lifecycle(lifecycle *FuncLifecycle) *Builder {
 }
 
 func (b *Builder) Build() *Agent {
-	b.agent.agentContext = NewRunContext(b.agent.lContext, b.agent.agentCtx, b.agent.store)
 	systemPrompt := b.agent.composeSystem()
 	b.agent.systemPrompt = systemPrompt
 	b.agent.mid.Store(uint64(util.GetMilliTime()))
 	return b.agent
 }
 
-func (l *Agent) SendSignalBlock(block chat.Block) uint64 {
-	return l.agentCtx.SendSignalBlock(l.store.no, block)
-}
+//func (l *Agent) SendSignalBlock(block chat.Block) uint64 {
+//	return l.agentCtx.SendSignalBlock(l.store.no, block)
+//}
 
 func (l *Agent) getMid() uint64 {
 	return l.mid.Add(1)
@@ -166,13 +173,13 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 	defer l.runLock.Unlock()
 	if !l.running {
 		l.running = true
-		log.Info("[loop] round started", "session", l.agentCtx.SessionId())
+		log.Info("[loop] round started", "session", l.agentContext.SessionId())
 		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Sent)
 		// OnMessage hook
 		if l.lifecycle != nil {
 			l.lifecycle.OnMessage(l.agentContext, qm)
 		}
-		l.SendSignalBlock(qm)
+		l.agentContext.SendSignalBlock(qm)
 		l.inbox.Write(qm)
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
@@ -180,11 +187,11 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 				doneBlock := chat.NewDoneBlock()
 				doneStart := l.agentContext.SendBlock(doneBlock)
 				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
-				l.store.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
-				l.store.RecordLastStart(doneStart)
+				l.agentContext.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
+				l.agentContext.store.RecordLastStart(doneStart)
 				l.running = false
 				l.inbox.Reset()
-				log.Info("[loop] round done", "session", l.agentCtx.SessionId())
+				log.Info("[loop] round done", "session", l.agentContext.SessionId())
 				l.runLock.Unlock()
 				if l.done != nil {
 					l.done()
@@ -194,23 +201,23 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 					l.lifecycle.OnRoundDone(l.agentContext)
 				}
 			}()
-			err := l.store.LoadAllHistory()
+			err := l.agentContext.store.LoadAllHistory()
 			if err != nil {
-				log.Error("[loop] LoadAllHistory failed", "session", l.agentCtx.SessionId(), "error", err)
-				l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+				log.Error("[loop] LoadAllHistory failed", "session", l.agentContext.SessionId(), "error", err)
+				l.agentContext.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 				return
 			}
-			log.Debug("[loop] LoadAllHistory done", "session", l.agentCtx.SessionId(), "historyLen", l.store.HistoryLen(), "transferStart", l.agentCtx.GetTransferStart())
+			log.Debug("[loop] LoadAllHistory done", "session", l.agentContext.SessionId(), "historyLen", l.agentContext.store.HistoryLen(), "transferStart", l.agentContext.GetTransferStart())
 			l.do()
 		}, func(r any) {
-			log.Error("[loop] panic recovered", "session", l.agentCtx.SessionId(), "panic", r)
+			log.Error("[loop] panic recovered", "session", l.agentContext.SessionId(), "panic", r)
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
-			l.SendSignalBlock(evt)
+			l.agentContext.SendSignalBlock(evt)
 		})
 	} else {
-		log.Debug("[loop] message queued", "session", l.agentCtx.SessionId())
+		log.Debug("[loop] message queued", "session", l.agentContext.SessionId())
 		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Queued)
-		l.SendSignalBlock(qm)
+		l.agentContext.SendSignalBlock(qm)
 		l.inbox.Write(qm)
 	}
 }
@@ -270,7 +277,7 @@ func (l *Agent) buildRequest() *chat.Messages {
 	if fa {
 		l.appendUserMessage(msg)
 	}
-	history := l.store.compressorHistory(l.agentContext)
+	history := l.agentContext.store.compressorHistory(l.agentContext)
 	//history := l.store.History()
 	messages := chat.NewMessages(effective, tools)
 	for _, m := range history {
@@ -290,17 +297,17 @@ func (l *Agent) loop() bool {
 	l.runLock.Unlock()
 	defer l.runLock.Lock()
 	l.ctxLock.Lock()
-	if l.lCancel != nil {
-		l.lCancel()
+	if l.agentContext.loopCancel != nil {
+		l.agentContext.loopCancel()
 	}
-	l.lContext, l.lCancel = context.WithCancel(l.pContext)
+	l.agentContext.loopContext, l.agentContext.loopCancel = context.WithCancel(l.agentContext.pContext)
 	l.ctxLock.Unlock()
 
 	blockGroup, stopReason, usage, err := l.chatWithStream()
 
 	if err != nil {
-		log.Error("[loop] chatWithStream failed", "session", l.agentCtx.SessionId(), "error", err)
-		l.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+		log.Error("[loop] chatWithStream failed", "session", l.agentContext.SessionId(), "error", err)
+		l.agentContext.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 		return true
 	}
 	if l.roundStopped() {
@@ -326,7 +333,7 @@ func (l *Agent) loop() bool {
 func (l *Agent) do() {
 	for {
 		select {
-		case <-l.pContext.Done():
+		case <-l.agentContext.pContext.Done():
 			return
 		default:
 		}
@@ -358,7 +365,7 @@ func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup
 
 		exec := l.findExecutor(tu.Name)
 		if exec == nil {
-			log.Warn("[loop] unknown tool", "session", l.agentCtx.SessionId(), "tool", tu.Name)
+			log.Warn("[loop] unknown tool", "session", l.agentContext.SessionId(), "tool", tu.Name)
 			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("未知工具: %s", tu.Name))
 			results = append(results, chat.NewToolResultBlock(
 				tu.ID,
@@ -368,12 +375,12 @@ func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup
 			blockGroups = append(blockGroups, blockGroup)
 			continue
 		}
-		log.Info("[loop] tool executing", "session", l.agentCtx.SessionId(), "tool", tu.Name)
+		log.Info("[loop] tool executing", "session", l.agentContext.SessionId(), "tool", tu.Name)
 		blockGroup, toolStop, err := l.runTool(tu, exec)
 		if err != nil {
 			// 工具 panic：补一条占位 tool_result，保证每个 tool_use 都有配对结果进历史，
 			// 否则落盘后回放会出现悬空 tool_use。工具异常不连累整轮，继续处理下一个工具。
-			log.Error("[loop] tool panicked", "session", l.agentCtx.SessionId(), "tool", tu.Name, "panic", err)
+			log.Error("[loop] tool panicked", "session", l.agentContext.SessionId(), "tool", tu.Name, "panic", err)
 			blockGroup = l.SendSingleBlock(chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("工具执行异常: %v", err)))
 		}
 		blockGroups = append(blockGroups, blockGroup)
@@ -418,7 +425,7 @@ func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
 // 由调用方决定后续处理。
 func (l *Agent) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (*chat.BlockGroup, chat.StopReason, error) {
 
-	turn := &Turn{ctx: l.agentContext, args: tu.Input}
+	turn := NewTurnWithContext(l.agentContext, tu.Input)
 
 	writer := chat.NewBlockStream(l.agentContext)
 	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
@@ -450,7 +457,7 @@ func (l *Agent) appendAssistantMessage(blocks *chat.BlockGroup, usage *chat.Usag
 	//assistantMsg := &chat.Message{Start: blocks.Start, Offset: blocks.Offset, Role: chat.RoleAssistant, Content: blocks.Content}
 	//l.store.AppendHistory(assistantMsg)
 	l.agentContext.AppendAssistantMessage(blocks)
-	l.store.UpdateUsage(usage)
+	l.agentContext.store.UpdateUsage(usage)
 	// 不在此记录水位：本轮工具还没执行，这里记下的边界会让单独的 tool_use 落盘成悬空配对
 }
 func (l *Agent) appendUserMessage(blocks *chat.BlockGroup) {
@@ -458,12 +465,12 @@ func (l *Agent) appendUserMessage(blocks *chat.BlockGroup) {
 	//l.store.AppendHistory(assistantMsg)
 	l.agentContext.AppendUserMessage(blocks)
 	// 水位取本条消息真实的最后一个事件序号：用户输入、已配对的 tool_result 都自成一段完整历史，可安全落盘到此
-	l.store.RecordLastStart(blocks.LastStart)
+	l.agentContext.store.RecordLastStart(blocks.LastStart)
 }
 
 func (l *Agent) roundStopped() bool {
 	select {
-	case <-l.lContext.Done():
+	case <-l.agentContext.loopContext.Done():
 		return true
 	default:
 		return false
@@ -521,7 +528,7 @@ func (l *Agent) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultB
 }
 func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, *chat.Usage, error) {
 	stream := chat.NewBlockStream(l.agentContext)
-	err := l.agentCtx.GetChat().ChatWithStream(l.lContext, l.buildRequest(), stream)
+	err := l.agentContext.GetChat().ChatWithStream(l.agentContext.loopContext, l.buildRequest(), stream)
 	if err != nil {
 		return nil, "", stream.Usage(), err
 	}
@@ -531,8 +538,8 @@ func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, *chat.Usage
 func (l *Agent) Stop() {
 	l.ctxLock.Lock()
 	defer l.ctxLock.Unlock()
-	if l.lCancel != nil {
-		log.Info("[loop] stop requested", "session", l.agentCtx.SessionId())
-		l.lCancel()
+	if l.agentContext.loopCancel != nil {
+		log.Info("[loop] stop requested", "session", l.agentContext.SessionId())
+		l.agentContext.loopCancel()
 	}
 }
