@@ -39,6 +39,90 @@ type MessageStore interface {
 	SaveSummary(sessionID string, summary *chat.Message) error
 }
 
+type SessionMessageStore interface {
+
+	// LoadAfter 读取 Start+Offset > since 的原始消息，按 Start 升序，最多 limit 条。
+	// 返回完整历史（含已被摘要取代的旧消息），用于回放与展示。
+	// 返回条数少于 limit 必须表示「已无更多数据」：调用方以此判定读完，分页结束。
+	LoadAfter(since uint64, limit int) ([]*chat.Message, error)
+
+	// Append 增量追加本批次新产生的消息，按 Start 升序、分批调用。
+	// 必须与本接口的读取方法同源：写进去的要能被 LoadAfter 读回。
+	Append(messages []*chat.Message) error
+
+	// LoadSummary 读取压缩摘要；返回 nil 表示尚未压缩（等价于分界点 0）。
+	// 返回值需与 SaveSummary 写入的一致。
+	LoadSummary() (*chat.Message, error)
+
+	// SaveSummary 保存压缩摘要（记录分界点），不删除任何历史消息。
+	// summary.Start 即分界点：Start < summary.Start 的旧消息在上下文中由摘要取代。
+	SaveSummary(summary *chat.Message) error
+}
+
+type MemoryMessageStore struct {
+	lock      sync.RWMutex
+	sessionID string
+	messages  map[string][]*chat.Message
+	summaries map[string]*chat.Message
+}
+
+func NewMemoryMessageStore(sessionID string) *MemoryMessageStore {
+	return &MemoryMessageStore{
+		sessionID: sessionID,
+		messages:  make(map[string][]*chat.Message),
+		summaries: make(map[string]*chat.Message),
+	}
+}
+
+// LoadAfter 取 Start+Offset > since 的消息，按 Start 升序、最多 limit 条。
+// 返回条数少于 limit 即表示已无更多数据，调用方据此判定分页结束。
+func (s *MemoryMessageStore) LoadAfter(since uint64, limit int) ([]*chat.Message, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	all := s.messages[s.sessionID]
+	messages := make([]*chat.Message, 0, len(all))
+	for _, message := range all {
+		if message.Start+message.Offset <= since {
+			continue
+		}
+		messages = append(messages, message)
+		if limit > 0 && len(messages) >= limit {
+			break
+		}
+	}
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	return messages, nil
+}
+
+// Append 追加一批新消息。SDK 按 Start 升序分批调用，这里再排一次序兜底，
+// 保证 LoadAfter 读回来的顺序和写进去的一致。
+func (s *MemoryMessageStore) Append(messages []*chat.Message) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	merged := append(s.messages[s.sessionID], messages...)
+	sort.SliceStable(merged, func(i, j int) bool {
+		return merged[i].Start < merged[j].Start
+	})
+	s.messages[s.sessionID] = merged
+	return nil
+}
+func (s *MemoryMessageStore) LoadSummary() (*chat.Message, error) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.summaries[s.sessionID], nil
+}
+
+func (s *MemoryMessageStore) SaveSummary(summary *chat.Message) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.summaries[s.sessionID] = summary
+	return nil
+}
+
 type SendEvent interface {
 	sendEvent(event *Event)
 	getStart() uint64
@@ -406,6 +490,7 @@ func (s *Store) AppendHistory(c *chat.Message) {
 func (s *Store) UpdateUsage(usage *chat.Usage) {
 	s.compressorManager.UpdateUsage(usage)
 }
+
 // hasSplit 结算落盘水位；第三个返回值是要关的客户端，必须在放开锁之后再关（见 splitManifest.hasSplit）。
 func (s *Store) hasSplit(slice []*Client) (uint64, bool, []*Client) {
 	s.lock.RLock()
