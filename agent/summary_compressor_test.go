@@ -45,6 +45,9 @@ func (f *fakeContext) SessionId() string                       { return "test-se
 func (f *fakeContext) GetChat() *chat.Chat                     { return f.chat }
 func (f *fakeContext) Store() *Store                           { return nil }
 func (f *fakeContext) Ctx() context.Context                    { return f.Context }
+func (f *fakeContext) ChatWithStream(msgs *chat.Messages, w chat.BlockWriter) error {
+	return f.GetChat().ChatWithStream(f.Ctx(), msgs, w)
+}
 func (f *fakeContext) SendBlock(chat.Block) uint64             { return 0 }
 func (f *fakeContext) SendSignalBlock(chat.Block) uint64       { return 0 }
 func (f *fakeContext) GetTransferStart() uint64                { return 0 }

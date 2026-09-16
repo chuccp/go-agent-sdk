@@ -32,6 +32,9 @@ func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)      {}
 func (f *fakeLoopContext) AppendHistory(_ *chat.Message)             {}
 
+// ChatWithStream 在 flow 工具的单测里用不到（没有走 LLM 的路径），给个空实现凑接口。
+func (f *fakeLoopContext) ChatWithStream(_ *chat.Messages, _ chat.BlockWriter) error { return nil }
+
 // newTestTools 创建工具组并激活默认 storyWorkflow，返回五个工具。
 func newTestTools(sessionId string, input map[string]any) (activate, execNode, stepDone, status, finish agent.ToolExecutor) {
 	mgr := NewManager()

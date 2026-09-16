@@ -60,6 +60,9 @@ func (c *RunContext) Ctx() context.Context {
 	}
 	return c.pContext
 }
+func (c *RunContext) ChatWithStream(chatMessages *chat.Messages, response chat.BlockWriter) error {
+	return c.GetChat().ChatWithStream(c.Ctx(), chatMessages, response)
+}
 
 func (c *RunContext) AppendHistory(msg *chat.Message) {
 	c.store.AppendHistory(msg)
@@ -89,6 +92,7 @@ type Context interface {
 	GetTransferStart() uint64
 	AppendUserMessage(blocks *chat.BlockGroup)
 	AppendHistory(msg *chat.Message)
+	ChatWithStream(chatMessages *chat.Messages, response chat.BlockWriter) error
 }
 
 type Agent struct {
@@ -528,7 +532,7 @@ func (l *Agent) toolResultForContext(tr *chat.ToolResultBlock) *chat.ToolResultB
 }
 func (l *Agent) chatWithStream() (*chat.BlockGroup, chat.StopReason, *chat.Usage, error) {
 	stream := chat.NewBlockStream(l.agentContext)
-	err := l.agentContext.GetChat().ChatWithStream(l.agentContext.loopContext, l.buildRequest(), stream)
+	err := l.agentContext.ChatWithStream(l.buildRequest(), stream)
 	if err != nil {
 		return nil, "", stream.Usage(), err
 	}

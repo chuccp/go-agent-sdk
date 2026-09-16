@@ -152,7 +152,7 @@ func (c *SummaryCompressor) summarize(ctx Context, messages []*chat.Message) (st
 	// 前端据此不把它当助手正文渲染。前提是压缩跑在 Store 的锁之外（见
 	// Store.compressorHistory 的快照-替换），否则会和读事件落盘路径形成锁序反转。
 	stream := chat.NewCompressionBlockStream(chat.NewBlockStream(ctx))
-	if err := ctx.GetChat().ChatWithStream(ctx.Ctx(), request, stream); err != nil {
+	if err := ctx.ChatWithStream(request, stream); err != nil {
 		return "", err
 	}
 	var sb strings.Builder
