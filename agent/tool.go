@@ -30,8 +30,8 @@ func (t *Turn) AgentContext() Context { return t.ctx }
 
 // Context 返回本次执行的 context.Context。
 //
-// 没绑会话上下文时（NewTurn 造的 Turn，工具单元测试场景）回落到 context.Background()：
-// 工具把 nil 递给 net/http 这类地方就是一句 nil pointer dereference，整个工具直接崩，
+// 没绑会话上下文时（调用方给的是 nil）回落到 context.Background()：工具把 nil 递给
+// net/http 这类地方就是一句 nil pointer dereference，整个工具直接崩，
 // 与 RunContext.Ctx() 靠 pContext 兜底是同一个理由——喂给工具的这个 ctx 必须是能用的。
 func (t *Turn) Context() context.Context {
 	if t.ctx == nil {
@@ -42,11 +42,6 @@ func (t *Turn) Context() context.Context {
 
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *value.Object { return t.args }
-
-// NewTurn 构造一个独立的 Turn（不绑定会话上下文），用于工具单元测试等场景。
-func NewTurn(args *value.Object) *Turn {
-	return &Turn{args: args}
-}
 
 // NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
 func NewTurnWithContext(ctx Context, args *value.Object) *Turn {

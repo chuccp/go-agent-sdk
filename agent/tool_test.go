@@ -44,27 +44,42 @@ func TestToolArgsDisplay_NilArgs(t *testing.T) {
 	}
 }
 
+// testRunContext 造一个能用的 RunContext：Turn 只能经 NewTurnWithContext 创建，
+// 这里给的就是生产里那套（会话 + 可用的 ctx；store 传 nil，本文件用不到）。
+func testRunContext(sessionId string) *RunContext {
+	return NewRunContext(&SessionContext{sessionId: sessionId, Context: context.Background()}, nil)
+}
+
 func TestTurn_Args(t *testing.T) {
 	args := value.NewObjectFromMap(map[string]any{"a": "1", "b": 2})
-	turn := &Turn{args: args}
+	turn := NewTurnWithContext(testRunContext("turn-args"), args)
 	got := turn.Args()
 	if got.GetString("a") != "1" || got.GetString("b") != "2" {
 		t.Errorf("Args() returned unexpected: %v", got)
 	}
 }
 
-func TestTurn_Context_Nil(t *testing.T) {
-	turn := NewTurn(value.NewObjectFromMap(map[string]any{"x": "y"}))
+// ctx 传 nil 时 AgentContext() 就是 nil，但 Context() 仍要回落到 Background：
+// 工具把 turn.Context() 递给 net/http 这类地方，拿到 nil 就是一记 nil pointer dereference。
+func TestTurn_NilContext(t *testing.T) {
+	turn := NewTurnWithContext(nil, value.NewObjectFromMap(map[string]any{"x": "y"}))
 	if turn.AgentContext() != nil {
-		t.Error("expected nil context from NewTurn")
+		t.Error("expected nil AgentContext when constructed with nil Context")
+	}
+	if turn.Context() == nil {
+		t.Error("Context() 应回落到 context.Background()，不能为 nil")
 	}
 }
 
-func TestTurn_Context_WithSession(t *testing.T) {
-	ctx := &RunContext{session: &SessionContext{sessionId: "test"}}
-	turn := &Turn{ctx: ctx}
+func TestTurn_WithSession(t *testing.T) {
+	turn := NewTurnWithContext(testRunContext("test"), nil)
 	if turn.AgentContext().SessionId() != "test" {
 		t.Errorf("expected sessionId 'test', got %q", turn.AgentContext().SessionId())
+	}
+	if ctx := turn.Context(); ctx == nil {
+		t.Error("Context() 不该为 nil")
+	} else if _, ok := ctx.Deadline(); ok {
+		t.Error("会话 ctx 不该带 deadline")
 	}
 }
 
@@ -91,13 +106,14 @@ func TestBuiltRunContextCarriesUsableContext(t *testing.T) {
 	}
 }
 
-func TestNewTurn(t *testing.T) {
-	turn := NewTurn(value.NewObjectFromMap(map[string]any{"key": "value"}))
+func TestNewTurnWithContext(t *testing.T) {
+	ctx := testRunContext("turn-ctor")
+	turn := NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"key": "value"}))
 	if turn.Args().GetString("key") != "value" {
-		t.Error("NewTurn should preserve args")
+		t.Error("NewTurnWithContext should preserve args")
 	}
-	if turn.AgentContext() != nil {
-		t.Error("NewTurn should have nil context")
+	if turn.AgentContext() != ctx {
+		t.Error("NewTurnWithContext should carry the given Context")
 	}
 }
 

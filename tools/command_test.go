@@ -69,7 +69,7 @@ func TestCommand_StreamingOutput(t *testing.T) {
 	rec := &blockRecorder{}
 	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), chat.NewToolResultBlockStream(w, "cmd"))
+	tool.Execute(testTurn(value.NewObjectFromMap(map[string]any{"command": "echo streaming-test"})), chat.NewToolResultBlockStream(w, "cmd"))
 
 	// 实时收到了携带输出的 block
 	text := collectText(w)
@@ -115,7 +115,7 @@ func TestCommand_StreamingMultiline(t *testing.T) {
 	w := chat.NewBlockStream(rec)
 	tool := NewCommandTool()
 	// printf 在 sh 与 cmd 下均可用；两行输出应产生 delta blocks
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), chat.NewToolResultBlockStream(w, "cmd"))
+	tool.Execute(testTurn(value.NewObjectFromMap(map[string]any{"command": "printf \"aaa\\nbbb\\n\""})), chat.NewToolResultBlockStream(w, "cmd"))
 
 	text := collectText(w)
 	if !strings.Contains(text, "aaa") || !strings.Contains(text, "bbb") {

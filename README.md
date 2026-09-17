@@ -71,7 +71,7 @@ type Context interface {
 - 在 Agent 循环之外构造 `Turn` 时也走同一个口子：
   ```go
   sctx := manager.SessionContext(id)
-  turn := agent.NewTurnWithContext(agent.NewRunContext(context.Background(), sctx, sctx.AgentStore()), args)
+  turn := agent.NewTurnWithContext(agent.NewRunContext(sctx, sctx.AgentStore()), args)
   ```
 
 ## 包结构

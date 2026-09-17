@@ -122,8 +122,11 @@ func runCommand(t *testing.T, cmd string) string {
 	t.Helper()
 	tool := tools.NewCommandTool()
 	writer := chat.NewBlockStream(nil)
-	// CommandTool.Execute 仅使用 turn.Args()，用独立 Turn 即可；执行错误以文本写入
-	tool.Execute(agent.NewTurn(value.NewObjectFromMap(map[string]any{"command": cmd})), chat.NewToolResultBlockStream(writer, "cmd"))
+	// CommandTool.Execute 仅使用 turn.Args()，但 Turn 只能经 NewTurnWithContext 创建，
+	// 给真实 RunContext（工具若取 turn.Context() 也不会拿到 nil）；执行错误以文本写入
+	sctx := agent.NewConfig().CreateServer(context.Background()).SessionContext("cmd-test")
+	turn := agent.NewTurnWithContext(agent.NewRunContext(sctx, sctx.AgentStore()), value.NewObjectFromMap(map[string]any{"command": cmd}))
+	tool.Execute(turn, chat.NewToolResultBlockStream(writer, "cmd"))
 	var sb strings.Builder
 	blocks := writer.ReadBlocks()
 	for _, b := range blocks {

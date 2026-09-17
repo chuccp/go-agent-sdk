@@ -59,7 +59,7 @@ func TestHttpRequestTool_GET(t *testing.T) {
 	params := value.NewObject()
 	params.PutAny("q", "hello")
 	args.PutAny("params", params)
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "200") {
@@ -92,7 +92,7 @@ func TestHttpRequestTool_POST_JSON(t *testing.T) {
 	args.PutAny("method", "POST")
 	args.PutAny("url", srv.URL)
 	args.PutAny("body", `{"name":"test"}`)
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "201") {
@@ -116,7 +116,7 @@ func TestHttpRequestTool_WithHeaders(t *testing.T) {
 	headers := value.NewObject()
 	headers.PutAny("X-Custom", "value")
 	args.PutAny("headers", headers)
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "200") {
@@ -128,7 +128,7 @@ func TestHttpRequestTool_MissingMethod(t *testing.T) {
 	tool := NewHttpRequestTool()
 	args := value.NewObject()
 	args.PutAny("url", "http://example.com")
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "缺少 method") {
@@ -140,7 +140,7 @@ func TestHttpRequestTool_MissingURL(t *testing.T) {
 	tool := NewHttpRequestTool()
 	args := value.NewObject()
 	args.PutAny("method", "GET")
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "缺少 url") {
@@ -153,7 +153,7 @@ func TestHttpRequestTool_ConnectionError(t *testing.T) {
 	args := value.NewObject()
 	args.PutAny("method", "GET")
 	args.PutAny("url", "http://127.0.0.1:1")
-	turn := agent.NewTurn(args)
+	turn := testTurn(args)
 
 	text := executeHttpTool(t, tool, turn)
 	if !httpContains(text, "HTTP 请求失败") {
