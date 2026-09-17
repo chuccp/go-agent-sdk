@@ -26,8 +26,19 @@ type Turn struct {
 }
 
 // AgentContext 返回本次执行所属的会话上下文。
-func (t *Turn) AgentContext() Context    { return t.ctx }
-func (t *Turn) Context() context.Context { return t.ctx.Ctx() }
+func (t *Turn) AgentContext() Context { return t.ctx }
+
+// Context 返回本次执行的 context.Context。
+//
+// 没绑会话上下文时（NewTurn 造的 Turn，工具单元测试场景）回落到 context.Background()：
+// 工具把 nil 递给 net/http 这类地方就是一句 nil pointer dereference，整个工具直接崩，
+// 与 RunContext.Ctx() 靠 pContext 兜底是同一个理由——喂给工具的这个 ctx 必须是能用的。
+func (t *Turn) Context() context.Context {
+	if t.ctx == nil {
+		return context.Background()
+	}
+	return t.ctx.Ctx()
+}
 
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *value.Object { return t.args }
