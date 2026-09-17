@@ -43,8 +43,8 @@ func (r *Agent) Init(ctx *core.Context) error {
 	wf := workflow.NewManager()
 	wf.AddWorkflow(r.storeFlow.GetFlow(), r.storeFlow.GetExpandFlow())
 	// flow 工具组（v3 剧本式）：activate_flow / exec_node / flow_step_done / flow_status / finish_flow
-	activateFlow, execNode, stepDone, flowStatus, finishFlow := workflow.NewFlowTools(wf)
-	config.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
+	//activateFlow, execNode, stepDone, flowStatus, finishFlow := workflow.NewFlowTools(wf)
+	//config.AddTools(activateFlow, execNode, stepDone, flowStatus, finishFlow)
 	config.MessageStore(r.chatSessionService)
 
 	// flow 触发引导已随工具自带（ActivateFlowTool.UsagePrompt，经
