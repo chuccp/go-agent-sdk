@@ -31,6 +31,7 @@ func (f *fakeLoopContext) GetTransferStart() uint64                  { return 0 
 func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup) {}
 func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)      {}
 func (f *fakeLoopContext) AppendHistory(_ *chat.Message)             {}
+func (f *fakeLoopContext) GetConfig() *chat.Config                   { return nil }
 
 // ChatWithStream 在 flow 工具的单测里用不到（没有走 LLM 的路径），给个空实现凑接口。
 func (f *fakeLoopContext) ChatWithStream(_ *chat.Messages, _ chat.BlockWriter) error { return nil }

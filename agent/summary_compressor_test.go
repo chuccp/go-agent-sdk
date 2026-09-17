@@ -54,6 +54,7 @@ func (f *fakeContext) GetTransferStart() uint64                { return 0 }
 func (f *fakeContext) AppendAssistantMessage(*chat.BlockGroup) {}
 func (f *fakeContext) AppendUserMessage(*chat.BlockGroup)      {}
 func (f *fakeContext) AppendHistory(*chat.Message)             {}
+func (f *fakeContext) GetConfig() *chat.Config                 { return nil }
 
 func newSummaryContext(service chat.Service) *fakeContext {
 	c := chat.NewChat()

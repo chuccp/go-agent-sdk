@@ -68,6 +68,11 @@ func (c *RunContext) AppendHistory(msg *chat.Message) {
 	c.store.AppendHistory(msg)
 }
 
+// GetConfig 透出会话配置（用户标识由 chat.WithUserId 存在这里）。
+func (c *RunContext) GetConfig() *chat.Config {
+	return c.session.GetConfig()
+}
+
 // NewRunContext 用会话与该 Agent 的 Store 组一个运行时上下文。
 func NewRunContext(session *SessionContext, store *Store) *RunContext {
 	pContext := context.WithoutCancel(session)
@@ -93,6 +98,7 @@ type Context interface {
 	AppendUserMessage(blocks *chat.BlockGroup)
 	AppendHistory(msg *chat.Message)
 	ChatWithStream(chatMessages *chat.Messages, response chat.BlockWriter) error
+	GetConfig() *chat.Config
 }
 
 type Agent struct {
