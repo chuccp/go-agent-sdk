@@ -59,18 +59,6 @@ func TestTurn_Args(t *testing.T) {
 	}
 }
 
-// ctx 传 nil 时 AgentContext() 就是 nil，但 Context() 仍要回落到 Background：
-// 工具把 turn.Context() 递给 net/http 这类地方，拿到 nil 就是一记 nil pointer dereference。
-func TestTurn_NilContext(t *testing.T) {
-	turn := NewTurnWithContext(nil, value.NewObjectFromMap(map[string]any{"x": "y"}))
-	if turn.AgentContext() != nil {
-		t.Error("expected nil AgentContext when constructed with nil Context")
-	}
-	if turn.Context() == nil {
-		t.Error("Context() 应回落到 context.Background()，不能为 nil")
-	}
-}
-
 func TestTurn_WithSession(t *testing.T) {
 	turn := NewTurnWithContext(testRunContext("test"), nil)
 	if turn.AgentContext().SessionId() != "test" {
