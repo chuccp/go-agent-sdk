@@ -123,6 +123,12 @@ func WithSystemPrompt(systemPrompt string) Option {
 	}
 }
 
+func WithObject(configKey ConfigKey, object *value.Object) Option {
+	return func(o *Config) {
+		o.Set(configKey, object)
+	}
+}
+
 func WithUserId(userId string) Option {
 	return func(o *Config) {
 		o.Set(UserIDConfigKey, userId)
