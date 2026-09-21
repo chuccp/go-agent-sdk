@@ -1,0 +1,24 @@
+# 配置模板。复制为 application.yml 后填入真实值：
+#   cp application.example.yml application.yml
+# application.yml 已被 .gitignore 忽略，不要提交含真实凭据的版本。
+
+api:
+  chat:
+    - name: deepseek
+      type: anthropic
+      baseUrl: https://api.deepseek.com/anthropic
+      apiKey: YOUR_API_KEY_HERE
+      model: deepseek-v4-flash
+      default: true
+
+web:
+  server:
+    port: 8082
+  db:
+    type: mysql
+    host: YOUR_DB_HOST
+    port: 3306
+    database: ai_tv_claw
+    user: YOUR_DB_USER
+    password: YOUR_DB_PASSWORD
+    charset: utf8mb4

@@ -29,6 +29,8 @@ go.work.sum
 *.env
 *.yml
 *.ini
+# 配置模板例外（*.yml 规则不覆盖）
+!application.example.yml
 # Editor/IDE
 # .idea/
 # .vscode/
