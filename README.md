@@ -10,7 +10,7 @@
 - **多客户端订阅** — 同一会话可被多个 Client 同时订阅（多标签页），每个 Client 通过 `start` 独立追踪读取进度，互不阻塞
 - **断线续传** — 消息自带事件流区间 `[Start, Start+Offset)`，客户端凭一个 `start` 值即可精确续读，无需外部 broker
 - **Client 无状态** — `Client` 断开即丢弃，不保留任何会话状态，重连只是换一个 transport
-- **最新位订阅** — `Session.LastClient()` 无需传入 `start`，自动从当前最新事件位置开始订阅
+- **最新位订阅** — `Session.LastClient(ctx, start)` 从 `max(当前最新位置, start)` 起订阅，只补之后的新事件
 - **消息发送与接收分离** — Session 负责发送消息，Client 仅负责接收事件流
 - **流式对话** — 增量块推送 thinking / text / 工具输出，传输无关（示例应用用 WebSocket 承接）
 - **多轮工具调用** — 标准 tool_use → tool_result 循环，兼容 Anthropic Messages API
@@ -18,7 +18,7 @@
 - **上下文压缩** — 用量超过上限后按比例丢弃旧历史；压缩方式可插拔：强行切割（零 LLM 调用）或大模型摘要（可指定更便宜的模型），分界点持久化、重启不回流
 - **会话超时** — 支持 Session / Client 级别的空闲超时自动销毁
 - **生命周期钩子** — 会话创建 / 消息到达 / 轮次结束 / 会话销毁四类回调
-- **多提供商** — ServiceStore 支持注册多个 LLM 后端，运行时选择
+- **多提供商** — ServiceStore 支持注册多个 LLM 后端，按请求选择
 - **Block 多态** — content 为接口数组，支持 text / thinking / image / tool_use / tool_result / custom_text / server_tool_use / stop
 
 ## 架构概览
@@ -54,20 +54,26 @@
 
 ```go
 type Context interface {
-    context.Context
     SessionId() string
     GetChat() *chat.Chat
     Store() *Store                                     // 本 Agent 的 Store（子代理是独立 Store）
+    Ctx() context.Context                              // 本轮 context，见下
 
     SendBlock(block chat.Block) uint64                 // 发送事件块（形状与 chat.BlockReceiver 一致）
-    SendSignalBlock(no uint64, block chat.Block) uint64 // 发送信号事件块
+    SendSignalBlock(block chat.Block) uint64           // 发送信号事件块
     AppendUserMessage(blocks *chat.BlockGroup)         // 追加用户消息到历史
     AppendAssistantMessage(blocks *chat.BlockGroup)    // 追加助手消息到历史
+    AppendHistory(msg *chat.Message)                   // 直接追加任意消息
+
+    GetTransferStart() uint64                          // 事件流当前位置
+    ChatWithStream(m *chat.Messages, w chat.BlockWriter) error // 临时调一次 LLM
+    GetConfig() *chat.Config                           // 会话配置（含 chat.WithUserId 写入的用户标识）
 }
 ```
 
-- `SendBlock` 自动带上当前 Store 的 `no`，把事件分发给订阅该 Store 的所有客户端；`SendSignalBlock` 用于不需要占序号的信号事件（如用户消息状态变更），不持久化。因为签名与 `chat.BlockReceiver` 同形，`chat.NewBlockStream(ctx)` 可以直接拿 Context 当接收者。
-- **哪个 Store 由 `RunContext` 决定**：会话主 Agent 用默认 Store（`SessionContext.AgentStore()`），子代理用隔离的临时 Store（`SubAgentStore()`）。`SessionContext` 自己不是 `Context`——它没有「我在哪个 Store 上跑」这个信息，所以工具的 `Turn.Context()`、压缩器拿到的都是 `RunContext`。
+- `SendBlock` 自动带上当前 Store 的 `no`，把事件分发给订阅该 Store 的所有客户端；`SendSignalBlock` 发的是信号事件（用户消息状态、内部错误等）——只推给当时在线的客户端，不落历史，重连补读时不会重现。因为签名与 `chat.BlockReceiver` 同形，`chat.NewBlockStream(ctx)` 可以直接拿 Context 当接收者。
+- `Context` 不再内嵌 `context.Context`，要拿底层 context 用 `Ctx()`：轮次进行中返回本轮 `loopContext`（`Session.Stop()` 取消的就是它），轮次外回落到会话 context（`context.WithoutCancel(session)`，不随会话销毁而取消）。
+- **哪个 Store 由 `RunContext` 决定**：会话主 Agent 用默认 Store（`SessionContext.AgentStore()`），子代理用隔离的临时 Store（`SubAgentStore()`）。`SessionContext` 自己不是 `Context`——它没有「我在哪个 Store 上跑」这个信息，而且它的 `SendBlock(no, block)` 多一个调用方自带的 `no` 参数。所以工具的 `Turn.AgentContext()`、压缩器拿到的都是 `RunContext`。
 - 在 Agent 循环之外构造 `Turn` 时也走同一个口子：
   ```go
   sctx := manager.SessionContext(id)
@@ -83,19 +89,22 @@ go-agent-sdk/
 │                   #   Compressor / CompressorManager / Summary
 ├── api/chat/       # LLM 提供商适配
 │   └── anthropic/  # Anthropic 协议实现（Service, Request, ThinkingConfig）
-├── chat/           # 协议层：Block, Event, Message, Config, Service, Option
+├── chat/           # 协议层：Block, Message, Config, Stream(BlockWriter), Service, Option
 ├── tools/          # 内置工具：Command, Todo(Task*), AskUserQuestion, HttpRequest, Search（平台适配）
 ├── util/           # 通用工具：SliceArray, SliceQueue, Queue, TimeWheel, Go/GoWithRecover/Recover
 ├── value/          # 动态值类型：Object, Array, Value（支持命名类型）
 ├── log/            # 日志门面（Debug/Info/Warn/Error）
 └── example/        # 完整示例应用（Go 后端 + React 前端）
+    ├── api/chat/   # 自定义 provider 预留位（当前为空壳）
     ├── entity/     # DB 实体 + WebSocket 消息定义
-    ├── model/      # GORM 模型
+    ├── model/      # 数据模型（go-web-frame EntryModel）
     ├── rest/       # REST + WebSocket 路由
-    ├── server/     # Agent 服务封装
-    ├── service/    # 业务逻辑（MessageStore 实现）
+    ├── server/     # Agent 组装：Config → 注册 provider/工具/Store → Server
+    ├── service/    # 业务逻辑 + MessageStore 实现
     └── view/       # React 前端（@assistant-ui/react）
 ```
+
+示例应用建在 [`go-web-frame`](https://github.com/chuccp/go-web-frame) 之上（依赖注入 + REST/WebSocket 路由 + DB），SDK 本身不依赖它。
 
 ## 快速开始
 
@@ -116,13 +125,12 @@ func main() {
 	// 1. 创建配置
 	config := agent.NewConfig()
 	config.ChatOption(
-		chat.WithModel("claude-sonnet-4-6"),
 		chat.WithMaxTokens(4096),
 		chat.WithThinking(chat.ThinkingLow),
 	)
 
-	// 2. 注册 LLM 提供商（Service 通过 ID() 标识自身，首个注册的为默认）
-	config.RegisterChat(anthropic.NewService("my-provider", "https://api.anthropic.com", "your-api-key", "claude-sonnet-4-6"))
+	// 2. 注册 LLM 提供商（Service 通过 ID() 标识自身，首个注册的为默认；model 也由这里给）
+	config.RegisterChat(anthropic.NewService("my-provider", "https://api.anthropic.com", "your-api-key", "claude-sonnet-5"))
 
 	// 3. 注册工具（可选）
 	config.AddTools(tools.NewCommandTool())
@@ -148,12 +156,10 @@ func main() {
 	defer client.Close()
 
 	for {
+		// 阻塞直到有新事件；客户端被关闭（或 Close）后返回错误
 		events, err := client.ReadEvents()
 		if err != nil {
-			fmt.Println("error:", err)
-			break
-		}
-		if events == nil {
+			fmt.Println("closed:", err)
 			break
 		}
 		for _, event := range events {
@@ -192,10 +198,10 @@ session.WriteBlocks(blocks...)          // 发送任意 blocks
 session.WriteTextRound("你好")           // 同上并返回本轮句柄 Done（可注册轮次结束回调）
 session.WriteBlocksRound(blocks...)     // 任意 blocks 版本的本轮句柄
 session.Client(ctx, start)              // 从绝对位置 start 订阅事件流（断线续传时传入断线前的 start）
-session.LastClient(ctx)                 // 从当前最新位置订阅：不补历史，只看之后的新事件
-session.LoadMessagesAfter(since)        // 取 since 之后的历史消息（内存 + 持久层统一获取）
+session.LastClient(ctx, start)          // 从 max(当前最新位置, start) 订阅：不补历史，只看之后的新事件
+session.LoadMessagesAfter(since)        // 取 since 之后的历史事件 []*Event（内存 + 持久层统一获取）
 session.GetAgent()                      // 取会话编排器（高级用法）
-session.GetSubAgent(prompt, tools...)   // 基于同一会话上下文创建子 Agent（复用同一个 Store）
+session.GetSubAgent(prompt, tools...)   // 创建子 Agent：独立临时 Store、不落历史，主循环收发不受影响
 session.UpdateChatOption(opt...)        // 运行时更新 LLM 请求参数
 session.SessionTimeout(sec)             // 覆盖会话空闲超时
 session.ClientTimeout(sec)              // 覆盖客户端空闲超时
@@ -256,9 +262,24 @@ StartBlock         { Block UseDeltaBlock }                              // 流�
 DeltaBlock         { Content string }                                  // 流式增量
 StopBlock          { }                                                 // 流式块结束标记
 DoneBlock          { Usage *Usage }                                    // 本轮结束（携带 token 用量）
-UserBlock          { BlockUserType string; ID uint64; Content Blocks } // 用户消息状态
+UserBlock          { BlockUserType BlockUserType; ID uint64; Content Blocks } // 用户消息状态
 ErrorBlock         { Text string }
 ```
+
+`ForContext()` 决定块是否进入 LLM 上下文：进的是 `TextBlock` / `ImageBlock` / `ToolUseBlock` / `ToolResultBlock` / `UserBlock`；thinking、流式标记（start/delta/stop）、用量（message_start/message_delta）、错误、custom_text 都不进。
+
+`TextType` 标在 `TextBlock` / `CustomTextBlock` 上——这两种块形状一样，靠它给前端分流：
+
+```go
+ErrorTextType       = "error"          // 错误文本
+CMDTextType         = "cmd"            // 命令输出
+FlowProgressType    = "flow_progress"  // 工作流进度
+AskUserTextType     = "ask_user"       // 提问卡片（历史残留：问题现已随 tool_use 入参下发）
+InternalTextType    = "internal"       // 只给 LLM 看的文本，前端不显示
+CompressionTextType = "compression"    // 压缩摘要正文，前端不显示
+```
+
+`UserBlock.BlockUserType` 标用户消息的生命周期：`queued`（上一轮还没结束，先排队）→ `sent`（已入队，马上开始）→ `consume`（已被消费，本轮启动）。前端据此决定何时把用户消息放进对话框。
 
 ### 动态值（value）
 
@@ -286,7 +307,7 @@ raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 
 `doneManifest` 记录一串「落盘水位」：用户输入消息、已配对的 `tool_result`、每轮结束的 `done` 块各记一次。水位只在消息自成完整历史时才记录——助手消息含 `tool_use` 时不记，因为那时本轮工具还没执行，记下水位会让单独的 `tool_use` 落盘成悬空配对。当所有客户端都已消费到某个水位时，旧事件被裁掉（`reset`），对应历史迁入持久层（`save`）；`start` 早于缓冲区头部时回落到底层存储补读。服务重启后从历史恢复 `seq`，新事件无缝接续。
 
-多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。不关心历史、只看新事件的场景可用 `Session.LastClient()`，自动从当前最新位置开始订阅。
+多个 Client 同时订阅时，每个 Client 通过各自的 `start` 独立推进读取进度，互不阻塞。不关心历史、只看新事件的场景可用 `Session.LastClient(ctx, 0)`，自动从当前最新位置开始订阅。
 
 整个过程不依赖任何 broker、单进程即可完成，运维成本为零；且生成与传输解耦——客户端断开不中断服务端生成，事件继续缓冲，重连后凭 `start` 补读积压事件，像什么都没发生过。
 
@@ -303,18 +324,26 @@ type ToolExecutor interface {
 }
 ```
 
-`Turn` 是每次工具执行的载体，提供 `Args()` 获取工具入参、`Context()` 获取会话上下文。
-执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`。
+`Turn` 是每次工具执行的载体：`Args()` 取工具入参（`*value.Object`），`AgentContext()` 取会话上下文（`agent.Context`，调用 LLM、发事件、读配置都靠它），`Context()` 取普通 `context.Context`（本轮可取消）。
+
+执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`。几个约定：
+
+- **错误不向外返回**，用 `writer.ErrorText(err)` 写成文本，随 `tool_result` 回传给模型（退出码非零、参数缺失都走这条路）。
+- **工具 panic 不会炸掉会话**：SDK 会 recover 并补一条 `工具执行异常: ...` 的 `tool_result`，保证每个 `tool_use` 都有配对的 `tool_result`（否则 Anthropic 会直接 400）。
+- **想在本轮暂停等用户**（`ask_user_question` 就是这么做的）：写完后调 `writer.StopReason(chat.StopReasonUserWait)`，本轮立即收尾，用户的回答作为下一条普通消息开启新一轮。
+- 工具在 `config.AddTools()`（或建会话时的 `a.GetOrCreateSession(id, agent.WithToolExecutor(...))`）阶段注册，之后没有追加口子。
 
 ### 内置工具
 
-| 工具 | 文件 | 说明 |
-|------|------|------|
-| `CommandTool` | `tools/command.go` | 本地终端命令执行，带危险命令拦截 + 30s 超时 |
-| `TodoTools` | `tools/todo.go` | 任务追踪（对齐 Claude Code Task 模型），`tools.NewTodoTools()` 一次返回 create / update / list / get 四个工具，支持依赖关系 |
-| `AskUserQuestionTool` | `tools/ask_user_question.go` | LLM 向用户提问：问题随 tool_use 入参下发，置 `user_wait` 结束本轮，用户回答作为下一条消息 |
-| `HttpRequestTool` | `tools/http_request.go` | HTTP 请求（GET/POST/PUT/DELETE/PATCH），适用于无命令行环境，响应超 8KB 截断 |
-| `SearchTool` | `tools/search.go` | 联网搜索 `web_search`，复用已注册 Anthropic Service 的 baseUrl / apiKey（`tools.NewSearchTool(chatInst)`） |
+| 工具名 | 构造 | 说明 |
+|--------|------|------|
+| `execute_command` | `tools.NewCommandTool()` | 本地终端命令执行：Windows 走 `cmd /c chcp 65001`、类 Unix 走 `sh -c`；危险命令模式拦截（`rm -rf /`、`mkfs`、`dd if=`、fork 炸弹等）、30s 硬超时（不可配）、输出非 UTF-8 时按 GBK 兜底解码 |
+| `task_create` / `task_update` / `task_list` / `task_get` | `tools.NewTodoTools()` | 任务追踪，对齐 Claude Code Task 模型：一次返回四个工具、共享一个 `TodoStore`；支持 `blocks` / `blocked_by` 双向依赖，`in_progress` 会被未完成的前置任务挡住 |
+| `ask_user_question` | `tools.NewAskUserQuestionTool()` | LLM 向用户提问：问题随 `tool_use` 入参下发（前端解析 `args.questions` 渲染卡片），置 `user_wait` 结束本轮，用户回答作为下一条消息进入新一轮 |
+| `http_request` | `tools.NewHttpRequestTool(opts...)` | HTTP 请求（GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS），适用于无命令行环境；响应体超 8KB 截断，可用 `WithHTTPTimeout` / `WithHTTPBaseURL` 定制 |
+| `web_search` | `tools.NewSearchTool(chatInst)` | 调用搜索端点 `{baseUrl}/v1/search`（`WithSearchEndpoint` 可改），复用已注册 Anthropic Service 的 baseUrl / apiKey；**只对 `*anthropic.Service` 生效**，换别的 provider 会在执行时报错 |
+
+> `web_search` 工具和 `chat.WithWebSearch(true)` 不是一回事：前者是 SDK 自己发 HTTP 请求拿结果，后者是把 Anthropic 服务端的 `web_search_20250305` 内置工具挂进请求、由 Anthropic 侧执行。
 
 ## MessageStore 接口
 
@@ -408,71 +437,72 @@ func (c *MyCompressor) Compress(ctx agent.Context, dropped []*chat.Message) *cha
 
 ## REST API
 
-### 消息历史
+示例应用（`example/rest`）的端点。所有响应统一为 `{code, msg, data}` 信封，`code == 200` 表示成功，业务数据在 `data` 里。
 
+```bash
+# 会话：列表 / 创建 / 删除
+GET    /api/chat/sessions                  # 按 updated_at 倒序
+POST   /api/chat/sessions                  # {"title": "新会话"}
+DELETE /api/chat/sessions/:id              # 销毁会话，并连带删除其消息与压缩摘要
+
+# 历史事件：与 WebSocket 推送格式完全一致，可直接回放
+GET    /api/chat/sessions/:id/messages?since=0
+
+# 对话操作
+POST   /api/chat/sessions/:id/messages     # {"message": "你好"} —— 发送用户消息
+POST   /api/chat/sessions/:id/stop         # 停止当前轮次
+PUT    /api/chat/sessions/:id/thinking     # {"level": "low"} —— off / low / medium / high
 ```
-GET /api/chat/sessions/:id/messages?since=0
-```
 
-- `since` — 起始 `start` 位置（返回 `Start >= since` 的事件），默认 0
-
-通过 `session.LoadMessagesAfter(since)` 从 agent 内存 + 持久化统一获取。
+`since` 是起始 `start` 位置（默认 0），事件按 `Start` 升序返回，每条带 `{no, start, signal, offset, blocks}`。取值来自 `session.LoadMessagesAfter(since)`，内存与持久层统一获取；前端翻页时把它设为「上一条的 `start + offset`」，读空即到头。
 
 ## WebSocket 协议
 
 ### 连接
 
-WebSocket 连接通过 URL 参数传递会话 ID 和起始位置：
-
 ```
-ws://localhost:19009/ws/chat/:id?start=0
+ws://localhost:8082/ws/chat/:id?start=0&level=off
 ```
 
 - `:id` — 会话 ID
-- `start` — 起始事件位置（用于断线续传），默认 0
+- `start` — 起始事件位置（断线续传时传断线前的值），默认 0
+- `level` — 思考等级 `off` / `low` / `medium` / `high`，可选，等价于建连时先设一次思考等级
 
-### 客户端 → 服务端
+### 单向推送
 
-```json
-// 发送消息
-{"type": "chat", "message": "你好"}
+**这条连接只推不收**：服务端不读客户端消息，发消息、停止生成、改思考等级一律走 REST。客户端断开只影响这条订阅——服务端生成照常继续、事件继续缓冲，重连带上 `start` 即可补读。
 
-// 停止当前生成
-{"type": "stop"}
-```
-
-### 服务端 → 客户端
-
-所有推送事件均为 `{no, start, offset, blocks: [...]}` 格式，`blocks` 为多态内容块数组。
+所有推送事件均为 `{no, start, signal, offset, blocks: [...]}` 格式，`blocks` 为多态内容块数组。`signal: true` 的是信号事件（用户消息状态、内部错误等），只推给在线客户端、不落历史，所以重连补读时不会重现。
 
 ```
-# 用户消息生命周期
-{"no":0,"start":0,"offset":1,"blocks":[{"type":"User","block_user_type":"sent","content":[...]}]}
-{"no":0,"start":1,"offset":1,"blocks":[{"type":"User","block_user_type":"consume","content":[...]}]}
+# 用户消息生命周期（信号事件，signal=true；上一轮没结束时先 queued 排队）
+{"no":0,"start":0,"signal":true,"offset":1,"blocks":[{"type":"User","block_user_type":"queued","content":[...]}]}
+{"no":0,"start":1,"signal":true,"offset":1,"blocks":[{"type":"User","block_user_type":"sent","content":[...]}]}
+{"no":0,"start":2,"signal":true,"offset":1,"blocks":[{"type":"User","block_user_type":"consume","content":[...]}]}
 
 # AI 流式输出（内容块以 stop 收尾，start → delta… → stop）
-{"no":0,"start":2,"offset":1,"blocks":[{"type":"start","block":{"type":"thinking"}}]}
-{"no":0,"start":3,"offset":1,"blocks":[{"type":"delta","content":"让我看看..."}]}
-{"no":0,"start":4,"offset":1,"blocks":[{"type":"stop"}]}
-{"no":0,"start":5,"offset":1,"blocks":[{"type":"start","block":{"type":"text"}}]}
-{"no":0,"start":6,"offset":1,"blocks":[{"type":"delta","content":"你好！"}]}
-{"no":0,"start":7,"offset":1,"blocks":[{"type":"stop"}]}
+{"no":0,"start":3,"offset":1,"blocks":[{"type":"start","block":{"type":"thinking"}}]}
+{"no":0,"start":4,"offset":1,"blocks":[{"type":"delta","content":"让我看看..."}]}
+{"no":0,"start":5,"offset":1,"blocks":[{"type":"stop"}]}
+{"no":0,"start":6,"offset":1,"blocks":[{"type":"start","block":{"type":"text"}}]}
+{"no":0,"start":7,"offset":1,"blocks":[{"type":"delta","content":"你好！"}]}
+{"no":0,"start":8,"offset":1,"blocks":[{"type":"stop"}]}
 
 # 工具输出（携带 tool_use_id 关联对应 tool_use）
-{"no":0,"start":8,"offset":1,"blocks":[{"type":"start","block":{"type":"text","tool_use_id":"call_00"}}]}
-{"no":0,"start":9,"offset":1,"blocks":[{"type":"delta","content":"OS Name: ..."}]}
-{"no":0,"start":10,"offset":1,"blocks":[{"type":"stop"}]}
+{"no":0,"start":9,"offset":1,"blocks":[{"type":"start","block":{"type":"text","tool_use_id":"call_00"}}]}
+{"no":0,"start":10,"offset":1,"blocks":[{"type":"delta","content":"OS Name: ..."}]}
+{"no":0,"start":11,"offset":1,"blocks":[{"type":"stop"}]}
 
 # AskUser 提问：问题随 ask_user_question 的 tool_use 入参流式到达（前端解析 args.questions 渲染卡片），本轮随即结束
-{"no":0,"start":11,"offset":1,"blocks":[{"type":"start","block":{"type":"tool_use","id":"call_00","name":"ask_user_question"}}]}
-{"no":0,"start":12,"offset":1,"blocks":[{"type":"delta","content":"{\"questions\":[...]}"}]}
-{"no":0,"start":13,"offset":1,"blocks":[{"type":"stop"}]}
+{"no":0,"start":12,"offset":1,"blocks":[{"type":"start","block":{"type":"tool_use","id":"call_00","name":"ask_user_question"}}]}
+{"no":0,"start":13,"offset":1,"blocks":[{"type":"delta","content":"{\"questions\":[...]}"}]}
+{"no":0,"start":14,"offset":1,"blocks":[{"type":"stop"}]}
 
 # 本轮结束
-{"no":0,"start":14,"offset":1,"blocks":[{"type":"done"}]}
+{"no":0,"start":15,"offset":1,"blocks":[{"type":"done"}]}
 
-# 错误
-{"no":0,"start":15,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
+# 错误（信号事件）
+{"no":0,"start":16,"signal":true,"offset":1,"blocks":[{"type":"error","text":"network timeout"}]}
 ```
 
 > **块形态**：实时流以 `start` + `delta` + `stop` 增量块推送（每个内容块以 `stop` 收尾）；连接后从持久化回放的历史消息返回完整块——文本/思考为完整 `text` / `thinking` 块，工具调用为 `tool_use`（含 `input`）+ `tool_result`（含完整 `content`），token 用量为 `message_start` / `message_delta`。客户端需同时处理增量与完整两种形态。
@@ -482,36 +512,23 @@ ws://localhost:19009/ws/chat/:id?start=0
 ## 运行示例
 
 ```bash
-# 后端（需要配置 application.yml 中的 LLM API Key）
+# 1. 后端：复制配置模板，填 LLM API Key 与数据库
 cd example
-go run main.go
-# → http://localhost:19009
+cp application.example.yml application.yml
+go run main.go          # 监听 application.yml 的 web.server.port
 
-# 前端
-cd example/view
+# 2. 前端：把 .env 指到同一个端口
+cd view
+cp .env.example .env    # VITE_API_BASE / VITE_WS_BASE 与上面的端口保持一致
 pnpm install
-pnpm dev
-# → http://localhost:5173
+pnpm dev                # → http://localhost:5175
 ```
+
+前端 dev server 端口在 `example/view/vite.config.ts` 里写死为 5175；`/api` 与 `/ws` 分别代理到 `.env` 里的 `VITE_API_BASE` / `VITE_WS_BASE`。
 
 ### 示例应用的接口
 
-除上面的历史查询外，示例应用还提供发送消息、停止生成和设置思考程度的 REST 接口：
-
-```bash
-# 发送消息
-POST /api/chat/sessions/:id/messages
-Content-Type: application/json
-{"message": "你好"}
-
-# 停止生成
-POST /api/chat/sessions/:id/stop
-
-# 设置思考程度（off / low / medium / high）
-PUT /api/chat/sessions/:id/thinking
-Content-Type: application/json
-{"level": "low"}
-```
+发送消息走 REST，接收事件流走 WebSocket（send/display 分离），完整端点见上面的 [REST API](#rest-api) 与 [WebSocket 协议](#websocket-协议) 两节。
 
 ## 配置选项
 
@@ -520,17 +537,18 @@ config := agent.NewConfig()
 
 // ChatOption 配置 LLM 请求参数（含系统提示词）
 config.ChatOption(
-    chat.WithModel("claude-opus-4-7"),
-    chat.WithMaxTokens(8192),
-    chat.WithThinking(chat.ThinkingHigh),
+    chat.WithModel("claude-sonnet-5"),
+    chat.WithMaxTokens(8192),                    // 默认 4096
+    chat.WithThinking(chat.ThinkingHigh),        // 思考预算：low 8192 / medium 16384 / high 32768
     chat.WithSystemPrompt("你是一个智能助手。"),
     chat.WithWebSearch(true),   // 启用 Anthropic 服务端内置 web_search（可选）
+    chat.WithUserId("user-1"),  // 业务侧用户标识，可从 Context.GetConfig() 取回
 )
 
 // AddTools 注册工具；AddLifecycle / OnXxx 注册生命周期钩子
 config.AddTools(tools.NewCommandTool())
 
-// 超时配置（秒）
+// 超时配置（秒），缺省 600 / 300；填 0 关闭
 config.SessionTimeout(600)  // 会话空闲超时，到期自动销毁
 config.ClientTimeout(300)   // 客户端空闲超时
 
@@ -539,6 +557,7 @@ config.MessageStore(myMessageStore)
 
 // Compressor 设置上下文压缩策略（可选）：压缩器 + 水位/保留比例
 // 不调 LLM 就 &agent.CutCompressor{}；要摘要就 &agent.SummaryCompressor{...}
+// 缺省水位 100_000、保留比例 0.5
 config.Compressor(&agent.CutCompressor{},
     agent.WithMaxContextLength(100_000), // 用量超过它才压
     agent.WithKeepRatio(0.5),            // 压完保留末尾一半
@@ -552,6 +571,13 @@ config.RegisterChat(anthropic.NewService("provider-id", baseUrl, apiKey, model))
 // CreateServer 基于配置创建 Server（内部启动后台超时清理循环）
 a := config.CreateServer(context.Background())
 ```
+
+几个容易踩的点：
+
+- **`anthropic.NewService` 的 model 参数优先于 `chat.WithModel`。** 请求时按 `chat.Combine(会话配置, Service 自身的配置)` 合并，后者在后、覆盖前者，而 `NewService` 无论传什么都写了 model 键。所以多提供商要用**运行时**选（`session.UpdateChatOption(chat.WithId("provider-id"))`），而不是用 `WithModel` 换模型。
+- **会话级 `Option` 只在会话创建时生效**：`a.GetOrCreateSession(id, agent.WithChatOption(...), agent.WithToolExecutor(...))`，会话已存在时传了也白传。要改已存在会话用 `session.UpdateChatOption(...)`。
+- **`CreateServer` 会 `Copy()` 一份配置**，之后改原 `Config` 不影响已创建的 `Server`。
+- **日志走 `log.SetLogger(l log.Logger)`** 注入（实现 `Debug/Info/Warn/Error` 四个方法即可），默认是 slog 打到 stderr、Debug 级别；SDK 只做门面，不带轮转。
 
 ## License
 
