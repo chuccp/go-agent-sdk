@@ -6,7 +6,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // drainText 取回工具输出 BlockStream 中的文本内容（错误已以文本写入）。
@@ -24,7 +24,7 @@ func drainText(w *chat.BlockStream) string {
 func execTool(t *testing.T, tool agent.ToolExecutor, args map[string]any) string {
 	t.Helper()
 	w := chat.NewBlockStream(nil)
-	tool.Execute(testTurn(value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "todo"))
+	tool.Execute(testTurn(jsonx.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "todo"))
 	return drainText(w)
 }
 

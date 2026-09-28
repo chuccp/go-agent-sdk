@@ -9,7 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/workflow"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
@@ -56,7 +56,7 @@ type iterFakeProvider struct {
 func (f *iterFakeProvider) script() []chat.Blocks {
 	toolUseJSON := func(id, name string, input string) chat.Blocks {
 		tu := chat.NewToolUseBlock(id, name)
-		tu.Input, _ = value.NewObjectFromJson(json.RawMessage(input))
+		tu.Input, _ = jsonx.NewObjectFromJson(json.RawMessage(input))
 		return chat.Blocks{tu}
 	}
 	return []chat.Blocks{

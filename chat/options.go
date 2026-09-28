@@ -1,6 +1,6 @@
 package chat
 
-import "github.com/chuccp/go-agent-sdk/value"
+import "github.com/chuccp/go-agent-sdk/jsonx"
 
 // ThinkingLevel 控制模型扩展思考（extended thinking）的强度级别。
 type ThinkingLevel string
@@ -29,17 +29,17 @@ const (
 )
 
 type Config struct {
-	object *value.Object
+	object *jsonx.Object
 }
 
-func (m *Config) ForEach(fn func(key string, value value.Value) bool) {
+func (m *Config) ForEach(fn func(key string, value jsonx.Value) bool) {
 	m.object.ForEach(fn)
 }
 
 func (m *Config) Merge(configs ...*Config) {
 	if configs != nil {
 		for _, configItem := range configs {
-			configItem.ForEach(func(key string, value value.Value) bool {
+			configItem.ForEach(func(key string, value jsonx.Value) bool {
 				m.object.PutAny(key, value)
 				return true
 			})
@@ -101,7 +101,7 @@ func Combine(configs ...*Config) *Config {
 }
 func DefaultConfig() *Config {
 	return &Config{
-		object: value.NewObject(),
+		object: jsonx.NewObject(),
 	}
 }
 
@@ -123,7 +123,7 @@ func WithSystemPrompt(systemPrompt string) Option {
 	}
 }
 
-func WithObject(configKey ConfigKey, object *value.Object) Option {
+func WithObject(configKey ConfigKey, object *jsonx.Object) Option {
 	return func(o *Config) {
 		o.Set(configKey, object)
 	}

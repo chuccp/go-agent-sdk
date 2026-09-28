@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/chuccp/go-agent-sdk/agent"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // testTurn 构造工具单测用的 Turn。
@@ -14,7 +14,7 @@ import (
 // turn.Context()/turn.AgentContext() 都从它取。这里给的是真实的 RunContext（生产同款），
 // 工具的 ctx 会直接递给 net/http、exec 这类地方，给 nil 就是一记 nil pointer dereference。
 // 各用例只读 args、不落地会话状态，所以整个包共用一份上下文。
-func testTurn(args *value.Object) *agent.Turn {
+func testTurn(args *jsonx.Object) *agent.Turn {
 	return agent.NewTurnWithContext(testToolContext(), args)
 }
 

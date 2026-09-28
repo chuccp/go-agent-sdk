@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 type BlockType string
@@ -46,7 +46,7 @@ func NewErrorBlock(text string) *ErrorBlock {
 
 type UseDeltaBlock interface {
 	Block
-	ParseStream(stream *value.Stream)
+	ParseStream(stream *jsonx.Stream)
 }
 
 // BaseBlock 是所有 Block 的公共基类：Type 记录块类型（序列化为 `type` 字段，
@@ -194,7 +194,7 @@ func (b *ServerToolUseBlock) ForContext() bool {
 func (b *ServerToolUseBlock) GetType() BlockType {
 	return ServerToolUseBlockType
 }
-func (b *ServerToolUseBlock) ParseStream(stream *value.Stream) {
+func (b *ServerToolUseBlock) ParseStream(stream *jsonx.Stream) {
 	b.Input = stream.ToJSON()
 }
 func (b *ServerToolUseBlock) UnmarshalJSON(data []byte) error {
@@ -232,7 +232,7 @@ type TextBlock struct {
 func (b *TextBlock) ForContext() bool {
 	return true
 }
-func (b *TextBlock) ParseStream(stream *value.Stream) {
+func (b *TextBlock) ParseStream(stream *jsonx.Stream) {
 	b.Text = stream.String()
 }
 func NewTextBlock() *TextBlock {
@@ -327,7 +327,7 @@ type ThinkingBlock struct {
 func (b *ThinkingBlock) ForContext() bool {
 	return false
 }
-func (b *ThinkingBlock) ParseStream(stream *value.Stream) {
+func (b *ThinkingBlock) ParseStream(stream *jsonx.Stream) {
 	b.Thinking = stream.String()
 }
 func NewThinkingBlock() *ThinkingBlock {
@@ -353,19 +353,19 @@ func (b *ImageBlock) ForContext() bool {
 
 type ToolUseBlock struct {
 	BaseBlock
-	ID    string        `json:"id"`
-	Name  string        `json:"name"`
-	Input *value.Object `json:"input,omitempty"`
+	ID    string       `json:"id"`
+	Name  string       `json:"name"`
+	Input *jsonx.Object `json:"input,omitempty"`
 }
 
 func (b *ToolUseBlock) ForContext() bool {
 	return true
 }
-func (b *ToolUseBlock) ParseStream(stream *value.Stream) {
-	b.Input, _ = value.NewObjectFromJson(stream.ToJSON())
+func (b *ToolUseBlock) ParseStream(stream *jsonx.Stream) {
+	b.Input, _ = jsonx.NewObjectFromJson(stream.ToJSON())
 }
 
-// UnmarshalJSON 反序列化时显式重建 Input（*value.Object 无标准库可用的反序列化路径）。
+// UnmarshalJSON 反序列化时显式重建 Input（*jsonx.Object 无标准库可用的反序列化路径）。
 func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 	type toolUseAlias struct {
 		ID    string          `json:"id"`
@@ -381,7 +381,7 @@ func (b *ToolUseBlock) UnmarshalJSON(data []byte) error {
 	b.Name = a.Name
 	b.BaseBlock.Type = a.Type
 	if len(a.Input) > 0 {
-		obj, err := value.NewObjectFromJson(a.Input)
+		obj, err := jsonx.NewObjectFromJson(a.Input)
 		if err != nil {
 			return err
 		}

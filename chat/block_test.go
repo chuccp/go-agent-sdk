@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 func TestBlocks_NilMarshalAsNull(t *testing.T) {
@@ -87,7 +87,7 @@ func TestMessage_MarshalIncludesToolUseType(t *testing.T) {
 
 func TestBlocks_MarshalToolUseWithInput(t *testing.T) {
 	tu := NewToolUseBlock("tu_1", "my_tool")
-	tu.Input = value.NewObjectFromMap(map[string]any{"a": float64(1)})
+	tu.Input = jsonx.NewObjectFromMap(map[string]any{"a": float64(1)})
 	bs := Blocks{tu}
 	data, err := json.Marshal(bs)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestBlocks_RoundTrip(t *testing.T) {
 		NewFullTextBlock("你好"),
 		func() *ToolUseBlock {
 			tu := NewToolUseBlock("call_00", "execute_command")
-			tu.Input = value.NewObjectFromMap(map[string]any{"command": "ver"})
+			tu.Input = jsonx.NewObjectFromMap(map[string]any{"command": "ver"})
 			return tu
 		}(),
 		NewToolResultBlock("call_00", Blocks{NewErrorFullTextBlock("Microsoft Windows")}),

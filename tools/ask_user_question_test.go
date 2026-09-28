@@ -9,7 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // ── Execute（非阻塞）──
@@ -42,7 +42,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	w := chat.NewBlockStream(&ctxReceiver{ctx: sctx})
 	done := make(chan struct{}, 1)
 	go func() {
-		tool.Execute(agent.NewTurnWithContext(ctx, value.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))
+		tool.Execute(agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))
 		done <- struct{}{}
 	}()
 

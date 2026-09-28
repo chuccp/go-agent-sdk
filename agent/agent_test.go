@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // 工具往 tool_result 里塞的 CustomTextBlock（资源卡片 JSON）不能进 LLM 上下文，
@@ -139,7 +139,7 @@ func TestBlocksForContext_UnwrapsUserBlockWithToolResult(t *testing.T) {
 func TestBlocksForContext_UnwrapsUserBlockWithToolUse(t *testing.T) {
 	l := &Agent{}
 	tu := chat.NewToolUseBlock("tu_1", "echo")
-	tu.Input = value.NewObjectFromMap(map[string]any{"command": "ls"})
+	tu.Input = jsonx.NewObjectFromMap(map[string]any{"command": "ls"})
 	ub := chat.NewUserBlock(3, chat.Blocks{tu}, chat.Consume)
 
 	filtered := l.blocksForContext(chat.Blocks{ub})

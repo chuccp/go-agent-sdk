@@ -8,7 +8,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"resty.dev/v3"
 )
 
@@ -113,7 +113,7 @@ func (t *HttpRequestTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlock
 
 	// 设置请求头
 	if headers := args.GetObject("headers"); headers != nil {
-		headers.ForEach(func(k string, v value.Value) bool {
+		headers.ForEach(func(k string, v jsonx.Value) bool {
 			if v.IsText() {
 				req.SetHeader(k, v.String())
 			}
@@ -123,7 +123,7 @@ func (t *HttpRequestTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlock
 
 	// 设置查询参数
 	if params := args.GetObject("params"); params != nil {
-		params.ForEach(func(k string, v value.Value) bool {
+		params.ForEach(func(k string, v jsonx.Value) bool {
 			if v.IsText() {
 				req.SetQueryParam(k, v.String())
 			}

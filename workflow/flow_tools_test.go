@@ -8,7 +8,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -44,7 +44,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 	activate, execNode, stepDone, status, finish = NewFlowTools(mgr)
 	if sessionId != "" && input != nil {
 		sctx := &fakeLoopContext{Context: context.Background(), id: sessionId}
-		turn := agent.NewTurnWithContext(sctx, value.NewObjectFromMap(map[string]any{
+		turn := agent.NewTurnWithContext(sctx, jsonx.NewObjectFromMap(map[string]any{
 			"flow_id": "story003", "input": input,
 		}))
 		w := chat.NewBlockStream(nil)
@@ -55,7 +55,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 
 // newTurn 构造绑定 fakeLoopContext 的 Turn。
 func newTurn(sessionId string, args map[string]any) *agent.Turn {
-	return agent.NewTurnWithContext(&fakeLoopContext{Context: context.Background(), id: sessionId}, value.NewObjectFromMap(args))
+	return agent.NewTurnWithContext(&fakeLoopContext{Context: context.Background(), id: sessionId}, jsonx.NewObjectFromMap(args))
 }
 
 // execText 执行工具并收集输出文本。
@@ -87,7 +87,7 @@ func TestActivateIdempotentMerge(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
 
-	st, fresh := store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空"}))
+	st, fresh := store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空"}))
 	if !fresh {
 		t.Fatal("首次激活应为 fresh")
 	}
@@ -97,7 +97,7 @@ func TestActivateIdempotentMerge(t *testing.T) {
 	}
 
 	// 幂等更新：合并 audience → confirm 自动完成（DoneWhen 声明式判定）
-	st2, fresh2 := store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"audience": "儿童"}))
+	st2, fresh2 := store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"audience": "儿童"}))
 	if fresh2 {
 		t.Fatal("同 flow 再次激活应为幂等更新")
 	}
@@ -112,7 +112,7 @@ func TestActivateIdempotentMerge(t *testing.T) {
 func TestCheckDepsAndProgress(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 
 	st := store.Get("s1")
 	// confirm 已 done（DoneWhen），story 前置满足
@@ -138,7 +138,7 @@ func TestCheckDepsAndProgress(t *testing.T) {
 func TestRerunInvalidatesDownstream(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	store.SetOutput("s1", "story", "初稿")
 	store.MarkStepDone("s1", "story")
 
@@ -160,7 +160,7 @@ func TestRerunInvalidatesDownstream(t *testing.T) {
 }
 
 func TestIterSourceResolve(t *testing.T) {
-	vars := value.NewObjectFromMap(map[string]any{
+	vars := jsonx.NewObjectFromMap(map[string]any{
 		"paragraphs": []any{"a", "b"},
 		"split":      `[{"title":"一"},{"title":"二"}]`, // 节点产出常为 JSON 文本
 		"bad":        "不是数组",
@@ -189,12 +189,12 @@ func TestActivateSwitchFlow(t *testing.T) {
 		Steps(exec.Talk("step1", "步骤一", "做点什么")).
 		Build()
 
-	store.Activate("s1", "story003", wfA, value.NewObjectFromMap(map[string]any{"topic": "太空"}))
+	store.Activate("s1", "story003", wfA, jsonx.NewObjectFromMap(map[string]any{"topic": "太空"}))
 	store.MarkStepDone("s1", "confirm")
 	store.SetOutput("s1", "story", "初稿")
 
 	// 切换到不同 flow → 状态应完全重置
-	st, fresh := store.Activate("s1", "other001", wfB, value.NewObjectFromMap(map[string]any{"foo": "bar"}))
+	st, fresh := store.Activate("s1", "other001", wfB, jsonx.NewObjectFromMap(map[string]any{"foo": "bar"}))
 	if !fresh {
 		t.Fatal("切换 flow 应为 fresh")
 	}
@@ -283,7 +283,7 @@ func TestFinishCompleteHappyPath(t *testing.T) {
 func TestCheckDepsUnknownStep(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	st := store.Get("s1")
 
 	// confirm 已 DoneWhen 完成，story 未完成 → 对 nonexistent 报"前置步骤 story 未完成"
@@ -309,7 +309,7 @@ func TestNextStepGuidance(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
 	// 只提供 topic → confirm 的 DoneWhen(audience) 未满足
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空"}))
 	st := store.Get("s1")
 
 	// confirm 有 DoneWhen 且未满足 → 引导用 activate_flow 补录
@@ -319,7 +319,7 @@ func TestNextStepGuidance(t *testing.T) {
 	}
 
 	// 补录 audience → confirm 自动完成，story 是 exec → 引导用 exec_node
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"audience": "儿童"}))
 	progress = store.CardProgress(st)
 	if !strings.Contains(progress.Next, "exec_node") {
 		t.Fatalf("exec 步骤应引导 exec_node: %s", progress.Next)
@@ -337,7 +337,7 @@ func TestNextStepGuidance(t *testing.T) {
 func TestNextStepAllDone(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	store.MarkStepDone("s1", "story")
 	store.MarkStepDone("s1", "deliver")
 	st := store.Get("s1")
@@ -360,7 +360,7 @@ func TestSetOutputNilSession(t *testing.T) {
 func TestInvalidateDownstreamPreservesTalk(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	// story 完成，deliver（Talk）也标记完成
 	store.MarkStepDone("s1", "story")
 	store.MarkStepDone("s1", "deliver")
@@ -390,13 +390,13 @@ func TestMultiKeyDoneWhen(t *testing.T) {
 	store := NewFlowStore()
 
 	// 只登记 name → 不满足
-	st, _ := store.Activate("s1", "multi001", wf, value.NewObjectFromMap(map[string]any{"name": "小明"}))
+	st, _ := store.Activate("s1", "multi001", wf, jsonx.NewObjectFromMap(map[string]any{"name": "小明"}))
 	if st.Status["confirm"] == exec.StepCompleted {
 		t.Fatal("仅 name 不应完成")
 	}
 
 	// 补录 age → 全部满足，自动完成
-	st2, _ := store.Activate("s1", "multi001", wf, value.NewObjectFromMap(map[string]any{"age": 10}))
+	st2, _ := store.Activate("s1", "multi001", wf, jsonx.NewObjectFromMap(map[string]any{"age": 10}))
 	if st2.Status["confirm"] != exec.StepCompleted {
 		t.Fatal("name+age 都登记后应自动完成")
 	}
@@ -406,7 +406,7 @@ func TestMultiKeyDoneWhen(t *testing.T) {
 
 // TestIterEmptyArray 迭代源为空数组时应直接返回空结果。
 func TestIterEmptyArray(t *testing.T) {
-	vars := value.NewObjectFromMap(map[string]any{"items": []any{}})
+	vars := jsonx.NewObjectFromMap(map[string]any{"items": []any{}})
 	arr, err := resolveIterSource(vars, "items")
 	if err != nil {
 		t.Fatalf("空数组不应报错: %v", err)
@@ -422,7 +422,7 @@ func TestIterExactlyAtLimit(t *testing.T) {
 	for i := range items {
 		items[i] = fmt.Sprintf("item%d", i)
 	}
-	vars := value.NewObjectFromMap(map[string]any{"items": items})
+	vars := jsonx.NewObjectFromMap(map[string]any{"items": items})
 	arr, err := resolveIterSource(vars, "items")
 	if err != nil {
 		t.Fatalf("20 项不应报错: %v", err)
@@ -438,7 +438,7 @@ func TestIterOverLimit(t *testing.T) {
 	for i := range items {
 		items[i] = fmt.Sprintf("item%d", i)
 	}
-	vars := value.NewObjectFromMap(map[string]any{"items": items})
+	vars := jsonx.NewObjectFromMap(map[string]any{"items": items})
 	_, err := resolveIterSource(vars, "items")
 	if err != nil {
 		// resolveIterSource 本身不检查上限，上限在 execIterating 中检查
@@ -449,7 +449,7 @@ func TestIterOverLimit(t *testing.T) {
 
 // TestIterNestedItemField 迭代项为对象时，{{item.field}} 模板渲染。
 func TestIterNestedItemField(t *testing.T) {
-	vars := value.NewObjectFromMap(map[string]any{
+	vars := jsonx.NewObjectFromMap(map[string]any{
 		"segments": []any{
 			map[string]any{"title": "起", "summary": "开头"},
 			map[string]any{"title": "承", "summary": "发展"},
@@ -481,7 +481,7 @@ func TestIterPartialFailureAndResume(t *testing.T) {
 				Iterate("data"),
 		).
 		Build()
-	store.Activate("s1", "iter001", wf, value.NewObjectFromMap(map[string]any{
+	store.Activate("s1", "iter001", wf, jsonx.NewObjectFromMap(map[string]any{
 		"data": []any{"a", "b", "c"},
 	}))
 	st := store.Get("s1")
@@ -489,9 +489,9 @@ func TestIterPartialFailureAndResume(t *testing.T) {
 	// 模拟第 0、1 项完成，第 2 项未完成
 	store.MarkItemDone(st, "items", 0)
 	store.MarkItemDone(st, "items", 1)
-	arr := value.NewArraySize(3)
-	arr.Set(0, value.NewText("结果A"))
-	arr.Set(1, value.NewText("结果B"))
+	arr := jsonx.NewArraySize(3)
+	arr.Set(0, jsonx.NewText("结果A"))
+	arr.Set(1, jsonx.NewText("结果B"))
 	st.Outputs.PutAny("items", arr)
 
 	// PartialResults 应返回 2 个已完成项
@@ -551,7 +551,7 @@ func TestSummarizeEdgeCases(t *testing.T) {
 func TestPrepareExecMergesInputAndOutputs(t *testing.T) {
 	store := NewFlowStore()
 	wf := storyWorkflow()
-	store.Activate("s1", "story003", wf, value.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
+	store.Activate("s1", "story003", wf, jsonx.NewObjectFromMap(map[string]any{"topic": "太空", "audience": "儿童"}))
 	store.SetOutput("s1", "story", "故事正文")
 	store.MarkStepDone("s1", "story")
 

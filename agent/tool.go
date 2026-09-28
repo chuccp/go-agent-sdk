@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // ToolExecutor 工具执行器接口：定义工具的元数据（发给 LLM）和执行逻辑。
@@ -22,7 +22,7 @@ type ToolExecutor interface {
 // Turn 一次工具执行的载体。
 type Turn struct {
 	ctx  Context
-	args *value.Object
+	args *jsonx.Object
 }
 
 // AgentContext 返回本次执行所属的会话上下文。
@@ -32,16 +32,16 @@ func (t *Turn) AgentContext() Context { return t.ctx }
 func (t *Turn) Context() context.Context { return t.ctx.Ctx() }
 
 // Args 返回当前执行的 tool_use 入参。
-func (t *Turn) Args() *value.Object { return t.args }
+func (t *Turn) Args() *jsonx.Object { return t.args }
 
 // NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
-func NewTurnWithContext(ctx Context, args *value.Object) *Turn {
+func NewTurnWithContext(ctx Context, args *jsonx.Object) *Turn {
 	return &Turn{ctx: ctx, args: args}
 }
 
 // toolArgsDisplay 生成工具入参的展示文本，与前端历史展示逻辑保持一致：
 // 优先使用 command 字段（如命令行工具），否则输出入参 JSON。
-func toolArgsDisplay(args *value.Object) string {
+func toolArgsDisplay(args *jsonx.Object) string {
 	if args == nil {
 		return ""
 	}

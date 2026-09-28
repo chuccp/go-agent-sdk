@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 // 模拟 buildRequest 的消息过滤逻辑：
@@ -15,7 +15,7 @@ func TestBuildRequest_ToolUseSkippedOrphansToolResult(t *testing.T) {
 
 	// 模拟历史：assistant 消息含 tool_use，user 消息含 tool_result
 	tu := chat.NewToolUseBlock("call_00_test", "execute_command")
-	tu.Input = value.NewObjectFromMap(map[string]any{"command": "ls"})
+	tu.Input = jsonx.NewObjectFromMap(map[string]any{"command": "ls"})
 
 	tr := chat.NewToolResultBlock("call_00_test", chat.Blocks{
 		chat.NewFullTextBlock("file1.txt\nfile2.txt"),
@@ -85,7 +85,7 @@ func TestBuildRequest_ToolResultWithAllFilteredContent(t *testing.T) {
 
 	// assistant 消息：含 tool_use
 	tu := chat.NewToolUseBlock("call_01_test", "render_card")
-	tu.Input = value.NewObjectFromMap(map[string]any{"data": "test"})
+	tu.Input = jsonx.NewObjectFromMap(map[string]any{"data": "test"})
 
 	// user 消息：tool_result 内容全是 CustomTextBlock（ForContext=false），会被过滤
 	tr := chat.NewToolResultBlock("call_01_test", chat.Blocks{
@@ -141,14 +141,14 @@ func TestBuildRequest_MultipleToolUsePairs(t *testing.T) {
 
 	// 第一轮：tool_use + tool_result
 	tu1 := chat.NewToolUseBlock("call_aaa", "search")
-	tu1.Input = value.NewObjectFromMap(map[string]any{"query": "test"})
+	tu1.Input = jsonx.NewObjectFromMap(map[string]any{"query": "test"})
 	tr1 := chat.NewToolResultBlock("call_aaa", chat.Blocks{
 		chat.NewFullTextBlock("search results"),
 	})
 
 	// 第二轮：tool_use + tool_result
 	tu2 := chat.NewToolUseBlock("call_bbb", "execute")
-	tu2.Input = value.NewObjectFromMap(map[string]any{"cmd": "run"})
+	tu2.Input = jsonx.NewObjectFromMap(map[string]any{"cmd": "run"})
 	tr2 := chat.NewToolResultBlock("call_bbb", chat.Blocks{
 		chat.NewFullTextBlock("execution done"),
 	})

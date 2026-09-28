@@ -5,25 +5,25 @@ import (
 	"testing"
 
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 func TestToolArgsDisplay_CommandField(t *testing.T) {
-	got := toolArgsDisplay(value.NewObjectFromMap(map[string]any{"command": "ls -la", "cwd": "/tmp"}))
+	got := toolArgsDisplay(jsonx.NewObjectFromMap(map[string]any{"command": "ls -la", "cwd": "/tmp"}))
 	if got != "ls -la" {
 		t.Errorf("expected command value, got %q", got)
 	}
 }
 
 func TestToolArgsDisplay_EmptyCommand(t *testing.T) {
-	got := toolArgsDisplay(value.NewObjectFromMap(map[string]any{"command": "", "other": "val"}))
+	got := toolArgsDisplay(jsonx.NewObjectFromMap(map[string]any{"command": "", "other": "val"}))
 	if got == "" {
 		t.Error("expected JSON fallback, got empty string")
 	}
 }
 
 func TestToolArgsDisplay_NoCommand(t *testing.T) {
-	got := toolArgsDisplay(value.NewObjectFromMap(map[string]any{"key": "value"}))
+	got := toolArgsDisplay(jsonx.NewObjectFromMap(map[string]any{"key": "value"}))
 	expected := `{"key":"value"}`
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
@@ -31,7 +31,7 @@ func TestToolArgsDisplay_NoCommand(t *testing.T) {
 }
 
 func TestToolArgsDisplay_EmptyArgs(t *testing.T) {
-	got := toolArgsDisplay(value.NewObjectFromMap(map[string]any{}))
+	got := toolArgsDisplay(jsonx.NewObjectFromMap(map[string]any{}))
 	if got != "" {
 		t.Errorf("expected empty string, got %q", got)
 	}
@@ -51,7 +51,7 @@ func testRunContext(sessionId string) *RunContext {
 }
 
 func TestTurn_Args(t *testing.T) {
-	args := value.NewObjectFromMap(map[string]any{"a": "1", "b": 2})
+	args := jsonx.NewObjectFromMap(map[string]any{"a": "1", "b": 2})
 	turn := NewTurnWithContext(testRunContext("turn-args"), args)
 	got := turn.Args()
 	if got.GetString("a") != "1" || got.GetString("b") != "2" {
@@ -96,7 +96,7 @@ func TestBuiltRunContextCarriesUsableContext(t *testing.T) {
 
 func TestNewTurnWithContext(t *testing.T) {
 	ctx := testRunContext("turn-ctor")
-	turn := NewTurnWithContext(ctx, value.NewObjectFromMap(map[string]any{"key": "value"}))
+	turn := NewTurnWithContext(ctx, jsonx.NewObjectFromMap(map[string]any{"key": "value"}))
 	if turn.Args().GetString("key") != "value" {
 		t.Error("NewTurnWithContext should preserve args")
 	}

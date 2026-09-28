@@ -9,7 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
@@ -19,8 +19,8 @@ import (
 // 全部由工具层读写，主 LLM 不携带、不汇报（todo 式外部化状态）。
 type FlowState struct {
 	Workflow *exec.Workflow
-	Input    *value.Object
-	Outputs  *value.Object // step_id → 节点输出（迭代步骤为结果数组）
+	Input    *jsonx.Object
+	Outputs  *jsonx.Object // step_id → 节点输出（迭代步骤为结果数组）
 	Status   map[string]exec.StepStatus
 	ItemDone map[string]map[int]bool // 迭代步骤：已完成项（index 级跳过）
 	Reruns   map[string]int          // 步骤重跑计数（上游重跑失效下游用）
@@ -38,7 +38,7 @@ func NewFlowStore() *FlowStore {
 
 // Activate 激活（或幂等更新）会话的 flow。已激活且 flowId 相同时合并 input
 // （新键追加、同键覆盖）；不同 flowId 时覆盖旧状态。返回状态与"是否新激活"。
-func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input *value.Object) (*FlowState, bool) {
+func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input *jsonx.Object) (*FlowState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -48,12 +48,12 @@ func (s *FlowStore) Activate(sessionId, flowId string, wf *exec.Workflow, input 
 		return st, false
 	}
 	if input == nil {
-		input = value.NewObject()
+		input = jsonx.NewObject()
 	}
 	st := &FlowState{
 		Workflow: wf,
 		Input:    input,
-		Outputs:  value.NewObject(),
+		Outputs:  jsonx.NewObject(),
 		Status:   make(map[string]exec.StepStatus),
 		ItemDone: make(map[string]map[int]bool),
 		Reruns:   make(map[string]int),

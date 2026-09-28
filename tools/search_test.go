@@ -9,7 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/api/chat/anthropic"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 func TestSearchTool_Definition(t *testing.T) {
@@ -61,7 +61,7 @@ func TestSearchTool_Execute_MissingQuery(t *testing.T) {
 	chatInst.Register(anthropic.NewService("default", "https://api.example.com", "key", "model"))
 
 	tool := NewSearchTool(chatInst)
-	turn := testTurn(value.NewObject())
+	turn := testTurn(jsonx.NewObject())
 
 	rec := &searchTestRecorder{}
 	w := chat.NewBlockStream(rec)
@@ -103,7 +103,7 @@ func TestSearchTool_Execute_Success(t *testing.T) {
 	chatInst.Register(anthropic.NewService("default", srv.URL, "test-key", "model"))
 
 	tool := NewSearchTool(chatInst)
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("query", "Go 语言")
 	turn := testTurn(args)
 
@@ -136,7 +136,7 @@ func TestSearchTool_Execute_APIError(t *testing.T) {
 	chatInst.Register(anthropic.NewService("default", srv.URL, "key", "model"))
 
 	tool := NewSearchTool(chatInst)
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("query", "test")
 	turn := testTurn(args)
 
@@ -162,7 +162,7 @@ func TestSearchTool_Execute_EmptyResults(t *testing.T) {
 	chatInst.Register(anthropic.NewService("default", srv.URL, "key", "model"))
 
 	tool := NewSearchTool(chatInst)
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("query", "nonexistent_xyz")
 	turn := testTurn(args)
 
@@ -183,7 +183,7 @@ func TestSearchTool_Execute_WrongServiceType(t *testing.T) {
 	chatInst.Register(&mockService{id: "mock"})
 
 	tool := NewSearchTool(chatInst)
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("query", "test")
 	turn := testTurn(args)
 

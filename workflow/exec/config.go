@@ -1,15 +1,15 @@
 package exec
 
 import (
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 type Config struct {
-	parameter *value.Object
+	parameter *jsonx.Object
 }
 
 func NewConfig() *Config {
 	return &Config{
-		parameter: value.NewObject(),
+		parameter: jsonx.NewObject(),
 	}
 }

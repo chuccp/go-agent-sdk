@@ -252,7 +252,7 @@ type Block interface {
 TextBlock          { Text string; TextType TextType; ToolUseId string }
 ThinkingBlock      { Thinking string }
 ImageBlock         { Source *ImageSource }
-ToolUseBlock       { ID, Name string; Input *value.Object }
+ToolUseBlock       { ID, Name string; Input *jsonx.Object }
 ToolResultBlock    { ToolUseID string; Content Blocks }
 ServerToolUseBlock { ID, Name string; Input json.RawMessage }           // Anthropic 服务端内置工具调用（如 web_search）
 CustomTextBlock    { Text string; TextType TextType; ToolUseId string }  // 业务扩展（不进上下文）
@@ -281,23 +281,23 @@ CompressionTextType = "compression"    // 压缩摘要正文，前端不显示
 
 `UserBlock.BlockUserType` 标用户消息的生命周期：`queued`（上一轮还没结束，先排队）→ `sent`（已入队，马上开始）→ `consume`（已被消费，本轮启动）。前端据此决定何时把用户消息放进对话框。
 
-### 动态值（value）
+### 动态值（jsonx）
 
-`value` 包提供一套可独立使用的动态 JSON 值类型（`Object` / `Array` / `Text` / `Number` / `Bool` / `Null` / `Stream`），可作为工具入参等动态结构的统一载体：
+`jsonx` 包提供一套可独立使用的动态 JSON 值类型（`Object` / `Array` / `Text` / `Number` / `Bool` / `Null` / `Stream`），可作为工具入参等动态结构的统一载体：
 
 ```go
-import "github.com/chuccp/go-agent-sdk/value"
+import "github.com/chuccp/go-agent-sdk/jsonx"
 
-obj := value.NewObject()
+obj := jsonx.NewObject()
 obj.PutAny("level", chat.ThinkingHigh) // 原生类型 / 命名类型自动转换
-obj.Put("n", value.NewInt(3))          // int/float 区分保留，序列化为 3 而非 3.0
+obj.Put("n", jsonx.NewInt(3))          // int/float 区分保留，序列化为 3 而非 3.0
 obj.GetString("level")                 // "high"
 obj.GetInt("n")                        // 3
 
 raw := obj.ToJSON()                    // 序列化，字符串不二次转义
 ```
 
-命名类型（如 `ThinkingLevel` / `Role`）经反射兜底不会漏成 null；所有读方法对 nil 接收者安全，返回零值而非 panic。工具入参 `ToolUseBlock.Input` 即由 `*value.Object` 承载。
+命名类型（如 `ThinkingLevel` / `Role`）经反射兜底不会漏成 null；所有读方法对 nil 接收者安全，返回零值而非 panic。工具入参 `ToolUseBlock.Input` 即由 `*jsonx.Object` 承载。
 
 ### 事件流与断线续传
 
@@ -324,7 +324,7 @@ type ToolExecutor interface {
 }
 ```
 
-`Turn` 是每次工具执行的载体：`Args()` 取工具入参（`*value.Object`），`AgentContext()` 取会话上下文（`agent.Context`，调用 LLM、发事件、读配置都靠它），`Context()` 取普通 `context.Context`（本轮可取消）。
+`Turn` 是每次工具执行的载体：`Args()` 取工具入参（`*jsonx.Object`），`AgentContext()` 取会话上下文（`agent.Context`，调用 LLM、发事件、读配置都靠它），`Context()` 取普通 `context.Context`（本轮可取消）。
 
 执行结果通过 `writer`（`chat.ToolResultBlockStream`）写出，自动关联 `tool_use_id`。几个约定：
 

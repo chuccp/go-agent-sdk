@@ -9,7 +9,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 	"github.com/chuccp/go-agent-sdk/workflow/node"
 )
@@ -115,7 +115,7 @@ func (t *ExecNodeTool) Execute(turn *agent.Turn, writer *chat.ToolResultBlockStr
 }
 
 // execSingle 单次执行：渲染模板 → 零上下文 LLM 调用。
-func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars *value.Object) (any, string, error) {
+func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars *jsonx.Object) (any, string, error) {
 	nd := step.Node()
 	text, err := t.nodeCall(turn, nd, vars, nil)
 	if err != nil {
@@ -126,7 +126,7 @@ func (t *ExecNodeTool) execSingle(turn *agent.Turn, step *exec.Step, vars *value
 
 // execIterating 迭代执行：展开数组 → 逐项零上下文调用（{{item}}/{{index}}/{{prev}}）→
 // 聚合。已完成项自动跳过（index 级断点续跑）。
-func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec.Step, vars *value.Object) (any, string, error) {
+func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec.Step, vars *jsonx.Object) (any, string, error) {
 	arr, err := resolveIterSource(vars, step.IterateSource())
 	if err != nil {
 		return nil, "", err
@@ -153,7 +153,7 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 			failures = append(failures, fmt.Sprintf("第%d项: %v", i+1, callErr))
 			break // 保留已完成部分，失败即返回（重试时跳过已完成项）
 		}
-		results.Set(i, value.NewText(text))
+		results.Set(i, jsonx.NewText(text))
 		t.suite.store.MarkItemDone(st, step.Name(), i)
 		t.emitProgress(sctx, st.Workflow.Id, step.Name(), "item",
 			fmt.Sprintf("%d/%d", i+1, len(arr)))
@@ -167,7 +167,7 @@ func (t *ExecNodeTool) execIterating(turn *agent.Turn, st *FlowState, step *exec
 
 // nodeCall 零上下文一次性 LLM 调用（硬边界）：不带会话历史，
 // 模板变量 = 共享变量(vars) + 项变量(itemVars)，不产生会话事件。
-func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value.Object, itemVars map[string]any) (string, error) {
+func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *jsonx.Object, itemVars map[string]any) (string, error) {
 	sctx := turn.AgentContext()
 	merged := vars.ToMap()
 	for k, v := range itemVars {
@@ -201,7 +201,7 @@ func (t *ExecNodeTool) nodeCall(turn *agent.Turn, nd *node.ChatNode, vars *value
 		return "", err
 	}
 	blocks := stream.ReadBlocks()
-	streamValue := value.NewStream()
+	streamValue := jsonx.NewStream()
 	for _, b := range blocks {
 		if tb, ok := b.(*chat.TextBlock); ok {
 			streamValue.WriteString(tb.Text)
@@ -222,7 +222,7 @@ func (t *ExecNodeTool) emitProgress(sctx agent.Context, flowId, stepId, phase, o
 
 // ==================== FlowStore 执行核配套方法 ====================
 // PrepareExec 校验依赖并返回执行期变量（input + 全部上游产出）。
-func (s *FlowStore) PrepareExec(sessionId, stepName string) (*value.Object, error) {
+func (s *FlowStore) PrepareExec(sessionId, stepName string) (*jsonx.Object, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.states[sessionId]
@@ -232,20 +232,20 @@ func (s *FlowStore) PrepareExec(sessionId, stepName string) (*value.Object, erro
 	if err := checkDeps(st, stepName); err != nil {
 		return nil, err
 	}
-	vars := value.NewObject()
+	vars := jsonx.NewObject()
 	vars.AddAll(st.Input)
 	vars.AddAll(st.Outputs)
 	return vars, nil
 }
 
 // PartialResults 返回迭代步骤已有的部分结果与已完成项集合（重跑续跑用）。
-func (s *FlowStore) PartialResults(st *FlowState, stepName string, total int) (*value.Array, map[int]bool) {
+func (s *FlowStore) PartialResults(st *FlowState, stepName string, total int) (*jsonx.Array, map[int]bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	results := value.NewArraySize(total)
+	results := jsonx.NewArraySize(total)
 	doneSet := make(map[int]bool)
 	if arr := st.Outputs.Get(stepName); arr != nil && arr.IsArray() {
-		arr.AsArray().ForEach(func(i int, v value.Value) bool {
+		arr.AsArray().ForEach(func(i int, v jsonx.Value) bool {
 			if i < total && v != nil {
 				results.Set(i, v)
 			}
@@ -287,7 +287,7 @@ func findStep(wf *exec.Workflow, name string) *exec.Step {
 
 // resolveIterSource 解析迭代源：从执行变量中取数组（支持 "step" 或 "step.field" 路径）；
 // 字符串值尝试 JSON 解析为数组（节点产出常为 JSON 文本）。
-func resolveIterSource(vars *value.Object, source string) ([]any, error) {
+func resolveIterSource(vars *jsonx.Object, source string) ([]any, error) {
 	v, ok := exec.ResolvePath(vars.ToMap(), source)
 	if !ok {
 		return nil, fmt.Errorf("迭代源 %q 不存在（检查上游步骤是否已执行、input 是否登记）", source)
@@ -307,9 +307,9 @@ func resolveIterSource(vars *value.Object, source string) ([]any, error) {
 }
 
 // countDone 统计迭代结果中已完成项数。
-func countDone(results *value.Array) int {
+func countDone(results *jsonx.Array) int {
 	n := 0
-	results.ForEach(func(_ int, v value.Value) bool {
+	results.ForEach(func(_ int, v jsonx.Value) bool {
 		if v != nil {
 			n++
 		}

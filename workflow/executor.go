@@ -1,7 +1,7 @@
 package workflow
 
 import (
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/workflow/exec"
 )
 
@@ -11,7 +11,7 @@ type Executor struct {
 	Config   *exec.Config
 }
 
-func (e *Executor) Execute(rootValue *value.Object, config *exec.Config) error {
+func (e *Executor) Execute(rootValue *jsonx.Object, config *exec.Config) error {
 	executor := exec.NewExecutor(e.Id, rootValue, config, e.workflow)
 	return executor.Exec()
 }

@@ -3,8 +3,8 @@ package chat
 import (
 	"sync"
 
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/log"
-	"github.com/chuccp/go-agent-sdk/value"
 )
 
 type StopReason string
@@ -32,7 +32,7 @@ type BlockReceiver interface {
 }
 
 type assemblerBlock struct {
-	stream     *value.Stream
+	stream     *jsonx.Stream
 	block      UseDeltaBlock
 	active     bool
 	blockStart uint64
@@ -110,7 +110,7 @@ func NewBlockStream(receiver BlockReceiver) *BlockStream {
 		receiver: receiver,
 		blocks:   make([]Block, 0),
 		assemblerBlock: &assemblerBlock{
-			stream: value.NewStream(),
+			stream: jsonx.NewStream(),
 			block:  nil,
 			active: false,
 		},

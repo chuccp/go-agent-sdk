@@ -8,7 +8,7 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
-	"github.com/chuccp/go-agent-sdk/value"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 )
 
 func TestHttpRequestTool_Definition(t *testing.T) {
@@ -53,10 +53,10 @@ func TestHttpRequestTool_GET(t *testing.T) {
 	defer srv.Close()
 
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("method", "GET")
 	args.PutAny("url", srv.URL)
-	params := value.NewObject()
+	params := jsonx.NewObject()
 	params.PutAny("q", "hello")
 	args.PutAny("params", params)
 	turn := testTurn(args)
@@ -88,7 +88,7 @@ func TestHttpRequestTool_POST_JSON(t *testing.T) {
 	defer srv.Close()
 
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("method", "POST")
 	args.PutAny("url", srv.URL)
 	args.PutAny("body", `{"name":"test"}`)
@@ -110,10 +110,10 @@ func TestHttpRequestTool_WithHeaders(t *testing.T) {
 	defer srv.Close()
 
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("method", "GET")
 	args.PutAny("url", srv.URL)
-	headers := value.NewObject()
+	headers := jsonx.NewObject()
 	headers.PutAny("X-Custom", "value")
 	args.PutAny("headers", headers)
 	turn := testTurn(args)
@@ -126,7 +126,7 @@ func TestHttpRequestTool_WithHeaders(t *testing.T) {
 
 func TestHttpRequestTool_MissingMethod(t *testing.T) {
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("url", "http://example.com")
 	turn := testTurn(args)
 
@@ -138,7 +138,7 @@ func TestHttpRequestTool_MissingMethod(t *testing.T) {
 
 func TestHttpRequestTool_MissingURL(t *testing.T) {
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("method", "GET")
 	turn := testTurn(args)
 
@@ -150,7 +150,7 @@ func TestHttpRequestTool_MissingURL(t *testing.T) {
 
 func TestHttpRequestTool_ConnectionError(t *testing.T) {
 	tool := NewHttpRequestTool()
-	args := value.NewObject()
+	args := jsonx.NewObject()
 	args.PutAny("method", "GET")
 	args.PutAny("url", "http://127.0.0.1:1")
 	turn := testTurn(args)

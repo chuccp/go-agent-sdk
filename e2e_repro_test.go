@@ -11,8 +11,8 @@ import (
 
 	"github.com/chuccp/go-agent-sdk/agent"
 	"github.com/chuccp/go-agent-sdk/chat"
+	"github.com/chuccp/go-agent-sdk/jsonx"
 	"github.com/chuccp/go-agent-sdk/tools"
-	"github.com/chuccp/go-agent-sdk/value"
 )
 
 // fakeProvider 按调用次序返回不同响应：
@@ -125,7 +125,7 @@ func runCommand(t *testing.T, cmd string) string {
 	// CommandTool.Execute 仅使用 turn.Args()，但 Turn 只能经 NewTurnWithContext 创建，
 	// 给真实 RunContext（工具若取 turn.Context() 也不会拿到 nil）；执行错误以文本写入
 	sctx := agent.NewConfig().CreateServer(context.Background()).SessionContext("cmd-test")
-	turn := agent.NewTurnWithContext(agent.NewRunContext(sctx, sctx.AgentStore()), value.NewObjectFromMap(map[string]any{"command": cmd}))
+	turn := agent.NewTurnWithContext(agent.NewRunContext(sctx, sctx.AgentStore()), jsonx.NewObjectFromMap(map[string]any{"command": cmd}))
 	tool.Execute(turn, chat.NewToolResultBlockStream(writer, "cmd"))
 	var sb strings.Builder
 	blocks := writer.ReadBlocks()
