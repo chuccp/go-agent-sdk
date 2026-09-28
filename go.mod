@@ -7,4 +7,7 @@ require (
 	resty.dev/v3 v3.0.0-rc.4
 )
 
-require golang.org/x/net v0.58.0 // indirect
+require (
+	github.com/chuccp/go-web-frame v1.0.15
+	golang.org/x/net v0.58.0 // indirect
+)

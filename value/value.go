@@ -1,223 +1,82 @@
+// Package value 是 go-web-frame/value 的转发层。
+//
+// 本包原先持有一份独立实现，与 go-web-frame/value 是同一份代码的两个副本。
+// 两边各自演进后分叉成了「简版」（本包，67 个方法）和「完整版」
+// （go-web-frame/value，108 个方法，另有 DecodeJSON / ParseJSON / Lookup
+// 路径查找 / Any / Stream 这些能力）。现在统一到完整版：本包只做类型别名与
+// 函数转发，不再持有自己的实现。
+//
+// 为什么用类型别名（type alias）而不是包装类型：别名让 *value.Object 在本模块
+// 和 go-web-frame 里是**同一个类型**，两边可以互相传递；包装类型会在两套不兼容
+// 的 Object 之间竖起一道转换墙。使用方往往要把 SDK 回调里拿到的 value.Object
+// 直接交给按 go-web-frame 完整版 API 写的代码处理，别名省掉的就是这层转换。
+//
+// 与旧实现相比有两处语义放宽（都是放宽、不是收紧），迁移时留意：
+//   - Object.AddAll：两边都是 Object 的键会**递归合并**，旧实现是直接覆盖。
+//     影响面很小——SDK 内只有 workflow 的变量合并用到（3 处），变量值基本都是标量。
+//   - Object.GetInt / GetNumber：会把 "502" 这类数字字符串转成数字，旧实现对
+//     非 Number 类型一律返回默认值。对模型传参这类场景反而更稳。
+//
+// 完整版的额外入口现在也能从这里拿到，调用方不必为了它们直接 import go-web-frame。
 package value
 
-import (
-	"encoding/json"
-	"fmt"
-	"strings"
+import wf "github.com/chuccp/go-web-frame/value"
+
+// 类型一律别名到完整版：同名类型在本模块与 go-web-frame 中是同一个类型。
+type (
+	Value     = wf.Value
+	ValueBase = wf.ValueBase
+
+	Object = wf.Object
+	Array  = wf.Array
+	Text   = wf.Text
+	Bool   = wf.Bool
+	Number = wf.Number
+	Null   = wf.Null
+	Stream = wf.Stream
+	Any    = wf.Any
+
+	DecoderConfig       = wf.DecoderConfig
+	DecoderConfigOption = wf.DecoderConfigOption
+	LookupOption        = wf.LookupOption
 )
 
-type Value interface {
-	IsObject() bool
-	IsArray() bool
-	IsText() bool
-	IsBool() bool
-	IsNumber() bool
-	IsNull() bool
+// 构造函数与变量：签名与旧实现完全一致，直接转发。
+var (
+	NullValue = wf.NullValue
 
-	IsStream() bool
+	NewObject         = wf.NewObject
+	NewObjectFromMap  = wf.NewObjectFromMap
+	NewObjectFromJson = wf.NewObjectFromJson
+	NewArray          = wf.NewArray
+	NewArraySize      = wf.NewArraySize
+	NewText           = wf.NewText
+	NewBool           = wf.NewBool
+	NewNumber         = wf.NewNumber
+	NewInt            = wf.NewInt
+	NewStream         = wf.NewStream
+)
 
-	AsObject() *Object
-	AsArray() *Array
-	AsText() *Text
-	AsBool() *Bool
+// 完整版独有的入口，一并转发。
+var (
+	// DecodeJSON / ParseJSON 直接从流或 RawMessage 解析出 Value。
+	DecodeJSON = wf.DecodeJSON
+	ParseJSON  = wf.ParseJSON
 
-	AsStream() *Stream
+	// Lookup / LookupFirst / LookupAll 走路径表达式，如 "data.data.trainDataList"。
+	Lookup      = wf.Lookup
+	LookupFirst = wf.LookupFirst
+	LookupAll   = wf.LookupAll
 
-	AsNumber() *Number
+	ToNumberE = wf.ToNumberE
 
-	ToJSON() json.RawMessage
-	String() string
-}
+	// 路径匹配策略：默认 MatchFlexible（忽略大小写 + snake_case/CamelCase 互转）。
+	MatchExact           = wf.MatchExact
+	MatchCaseInsensitive = wf.MatchCaseInsensitive
+	MatchFlexible        = wf.MatchFlexible
 
-// ValueBase 提供 Value 接口的默认实现，具体类型只需覆写自身对应的 IsXxx / AsXxx 方法。
-type ValueBase struct{}
-
-func (ValueBase) IsObject() bool { return false }
-func (ValueBase) IsArray() bool  { return false }
-func (ValueBase) IsText() bool   { return false }
-func (ValueBase) IsBool() bool   { return false }
-func (ValueBase) IsNumber() bool { return false }
-func (ValueBase) IsNull() bool   { return false }
-func (ValueBase) IsStream() bool { return false }
-
-func (ValueBase) AsObject() *Object       { panic("not an object") }
-func (ValueBase) AsArray() *Array         { panic("not an array") }
-func (ValueBase) AsText() *Text           { panic("not text") }
-func (ValueBase) AsBool() *Bool           { panic("not bool") }
-func (ValueBase) AsNumber() *Number       { panic("not number") }
-func (ValueBase) AsStream() *Stream       { panic("not Stream") }
-func (ValueBase) ToJSON() json.RawMessage { return json.RawMessage("null") }
-func (ValueBase) String() string          { return "null" }
-
-type Stream struct {
-	ValueBase
-	text *strings.Builder
-}
-
-func (s *Stream) IsStream() bool { return true }
-
-func NewStream() *Stream {
-	return &Stream{
-		text: new(strings.Builder),
-	}
-}
-func (s *Stream) AsStream() *Stream {
-	return s
-}
-
-// WriteString 向流中追加文本内容。
-func (s *Stream) WriteString(p string) {
-	s.text.WriteString(p)
-}
-func (s *Stream) ToJSON() json.RawMessage {
-	return json.RawMessage(s.text.String())
-}
-
-// Text 返回流中已累积的文本内容。
-func (s *Stream) Text() string {
-	return s.text.String()
-}
-
-func (s *Stream) String() string {
-	return s.text.String()
-}
-
-// Len 返回流中已累积的文本长度。
-func (s *Stream) Len() int {
-	return s.text.Len()
-}
-func (s *Stream) IsEmpty() bool {
-	return s.text.Len() == 0
-}
-
-// Reset 清空流中已累积的内容。
-func (s *Stream) Reset() {
-	s.text.Reset()
-}
-
-type Text struct {
-	ValueBase
-	text string
-}
-
-func (t *Text) IsText() bool { return true }
-
-func (t *Text) AsText() *Text { return t }
-
-func (t *Text) String() string { return t.text }
-
-func (t *Text) ToJSON() json.RawMessage {
-	data, _ := json.Marshal(t.text)
-	return data
-}
-
-func (t *Text) MarshalJSON() ([]byte, error) { return t.ToJSON(), nil }
-
-func NewText(text string) *Text {
-	return &Text{text: text}
-}
-
-type Number struct {
-	ValueBase
-	i       int64
-	f       float64
-	isFloat bool
-}
-
-func (n *Number) IsNumber() bool { return true }
-
-func (n *Number) AsNumber() *Number { return n }
-
-func (n *Number) IsFloat() bool { return n.isFloat }
-
-// Int64 返回整数值。若为浮点数则截断小数部分。
-func (n *Number) Int64() int64 {
-	if n.isFloat {
-		return int64(n.f)
-	}
-	return n.i
-}
-
-// Float64 返回浮点值。若为整数则转换为 float64。
-func (n *Number) Float64() float64 {
-	if n.isFloat {
-		return n.f
-	}
-	return float64(n.i)
-}
-
-func (n *Number) String() string {
-	if n.isFloat {
-		return fmt.Sprintf("%v", n.f)
-	}
-	return fmt.Sprintf("%d", n.i)
-}
-
-func (n *Number) ToJSON() json.RawMessage {
-	if n.isFloat {
-		data, _ := json.Marshal(n.f)
-		return data
-	}
-	data, _ := json.Marshal(n.i)
-	return data
-}
-
-func (n *Number) MarshalJSON() ([]byte, error) { return n.ToJSON(), nil }
-
-// NewNumber 从 float64 创建浮点数值。
-func NewNumber(f float64) *Number {
-	return &Number{f: f, isFloat: true}
-}
-
-// NewInt 从 int64 创建整数值。
-func NewInt(i int64) *Number {
-	return &Number{i: i}
-}
-
-type Bool struct {
-	ValueBase
-	b bool
-}
-
-func (b *Bool) IsBool() bool { return true }
-
-func (b *Bool) AsBool() *Bool { return b }
-
-func (b *Bool) String() string { return fmt.Sprintf("%v", b.b) }
-
-func (b *Bool) ToJSON() json.RawMessage {
-	if b.b {
-		return json.RawMessage("true")
-	}
-	return json.RawMessage("false")
-}
-
-func (b *Bool) MarshalJSON() ([]byte, error) { return b.ToJSON(), nil }
-
-func NewBool(b bool) *Bool {
-	return &Bool{b: b}
-}
-
-type Null struct {
-	ValueBase
-}
-
-func (n *Null) IsNull() bool { return true }
-
-func (n *Null) String() string { return "null" }
-
-func (n *Null) ToJSON() json.RawMessage { return json.RawMessage("null") }
-
-func (n *Null) MarshalJSON() ([]byte, error) { return n.ToJSON(), nil }
-
-// NullValue 空值单例。
-var NullValue = &Null{}
-
-// 确保各类型实现 Value 接口。
-var _ Value = (*Null)(nil)
-var _ Value = (*Text)(nil)
-var _ Value = (*Bool)(nil)
-var _ Value = (*Number)(nil)
-var _ Value = (*Object)(nil)
-var _ Value = (*Array)(nil)
-var _ Value = (*Stream)(nil)
+	// 反序列化选项。
+	WithTagName          = wf.WithTagName
+	WithWeaklyTypedInput = wf.WithWeaklyTypedInput
+	WithMatchFieldName   = wf.WithMatchFieldName
+)
