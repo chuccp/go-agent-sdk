@@ -21,17 +21,17 @@ type fakeLoopContext struct {
 	id string
 }
 
-func (f *fakeLoopContext) SessionId() string                         { return f.id }
-func (f *fakeLoopContext) GetChat() *chat.Chat                       { return chat.NewChat() }
-func (f *fakeLoopContext) Store() *agent.Store                       { return nil }
-func (f *fakeLoopContext) Ctx() context.Context                      { return f.Context }
-func (f *fakeLoopContext) SendBlock(_ chat.Block) uint64             { return 0 }
-func (f *fakeLoopContext) SendSignalBlock(_ chat.Block) uint64       { return 0 }
-func (f *fakeLoopContext) GetTransferStart() uint64                  { return 0 }
-func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup) {}
-func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)      {}
-func (f *fakeLoopContext) AppendHistory(_ *chat.Message)             {}
-func (f *fakeLoopContext) GetConfig() *chat.Config                   { return nil }
+func (f *fakeLoopContext) SessionId() string                            { return f.id }
+func (f *fakeLoopContext) GetChat() *chat.Chat                          { return chat.NewChat() }
+func (f *fakeLoopContext) Store() *agent.Store                          { return nil }
+func (f *fakeLoopContext) Ctx() context.Context                         { return f.Context }
+func (f *fakeLoopContext) SendBlock(_ chat.Block) (uint64, error)       { return 0, nil }
+func (f *fakeLoopContext) SendSignalBlock(_ chat.Block) (uint64, error) { return 0, nil }
+func (f *fakeLoopContext) GetTransferStart() uint64                     { return 0 }
+func (f *fakeLoopContext) AppendAssistantMessage(_ *chat.BlockGroup)    {}
+func (f *fakeLoopContext) AppendUserMessage(_ *chat.BlockGroup)         {}
+func (f *fakeLoopContext) AppendHistory(_ *chat.Message)                {}
+func (f *fakeLoopContext) GetConfig() *chat.Config                      { return nil }
 
 // ChatWithStream 在 flow 工具的单测里用不到（没有走 LLM 的路径），给个空实现凑接口。
 func (f *fakeLoopContext) ChatWithStream(_ *chat.Messages, _ chat.BlockWriter) error { return nil }

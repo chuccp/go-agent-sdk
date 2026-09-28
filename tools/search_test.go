@@ -205,9 +205,9 @@ type searchTestRecorder struct {
 	blocks []chat.Block
 }
 
-func (r *searchTestRecorder) SendBlock(block chat.Block) uint64 {
+func (r *searchTestRecorder) SendBlock(block chat.Block) (uint64, error) {
 	r.blocks = append(r.blocks, block)
-	return 0
+	return 0, nil
 }
 
 func collectSearchTestText(w *chat.BlockStream) string {

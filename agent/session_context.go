@@ -22,6 +22,10 @@ func (c *SessionContext) SubAgentStore() *Store {
 
 }
 
+func (c *SessionContext) DirectSendEvent(directSendEvent func(event *Event) error) {
+	c.transfer.directSend(directSendEvent)
+}
+
 func (c *SessionContext) GetChat() *chat.Chat {
 	return c.chat
 }
@@ -41,11 +45,11 @@ func (c *SessionContext) AgentStore() *Store {
 	return c.transfer.AgentStore()
 }
 
-func (c *SessionContext) SendBlock(no uint64, block chat.Block) uint64 {
+func (c *SessionContext) SendBlock(no uint64, block chat.Block) (uint64, error) {
 	return c.transfer.SendBlock(no, block)
 }
 
-func (c *SessionContext) SendSignalBlock(no uint64, block chat.Block) uint64 {
+func (c *SessionContext) SendSignalBlock(no uint64, block chat.Block) (uint64, error) {
 	return c.transfer.SendSignalBlock(no, block)
 }
 

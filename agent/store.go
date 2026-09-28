@@ -124,7 +124,7 @@ func (s *MemoryMessageStore) SaveSummary(summary *chat.Message) error {
 }
 
 type SendEvent interface {
-	sendEvent(event *Event)
+	sendEvent(event *Event) error
 	getStart() uint64
 	storeStart(seq uint64)
 	getAndAddStart() uint64

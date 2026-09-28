@@ -67,6 +67,11 @@ func (s *Session) WriteBlocksRound(blocks ...chat.Block) *Done {
 	s.lastTime = util.GetSecondTime()
 	return s.agent.HandleRoundMessage(blocks)
 }
+func (s *Session) WriteBlocksRoundWithDirectEvent(directEvent func(event *Event) error, blocks ...chat.Block) *Done {
+	s.lastTime = util.GetSecondTime()
+	s.sessionContext.DirectSendEvent(directEvent)
+	return s.agent.HandleRoundMessage(blocks)
+}
 
 func (s *Session) GetAgent() *Agent {
 	return s.agent
@@ -90,6 +95,10 @@ func (s *Session) WriteText(message string) {
 // WriteTextRound 同 WriteBlocksRound，写入一段文本。
 func (s *Session) WriteTextRound(message string) *Done {
 	return s.WriteBlocksRound(chat.NewFullTextBlock(message))
+}
+
+func (s *Session) WriteTextRoundWithDirectEvent(directEvent func(event *Event) error, message string) *Done {
+	return s.WriteBlocksRoundWithDirectEvent(directEvent, chat.NewFullTextBlock(message))
 }
 
 func newSession(id string, config *Config, sessions *Sessions) *Session {

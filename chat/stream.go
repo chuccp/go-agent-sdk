@@ -3,6 +3,7 @@ package chat
 import (
 	"sync"
 
+	"github.com/chuccp/go-agent-sdk/log"
 	"github.com/chuccp/go-agent-sdk/value"
 )
 
@@ -27,7 +28,7 @@ type Usage struct {
 }
 
 type BlockReceiver interface {
-	SendBlock(block Block) uint64
+	SendBlock(block Block) (uint64, error)
 }
 
 type assemblerBlock struct {
@@ -208,7 +209,10 @@ func (s *BlockStream) flushAndAdd(block Block) {
 }
 func (s *BlockStream) sendBlock(block Block) uint64 {
 	if s.receiver != nil {
-		start := s.receiver.SendBlock(block)
+		start, err := s.receiver.SendBlock(block)
+		if err != nil {
+			log.Debug("[agent] send block failed", "block", block)
+		}
 		// 记录 block 在事件流中的序号，供 relay 按 block 粒度去重
 		if s.firstStart == 0 {
 			s.firstStart = start

@@ -56,6 +56,7 @@ type Transfer struct {
 	start             atomic.Uint64
 	compressor        Compressor
 	compressorOptions *CompressorOptions
+	directSendEvent   func(event *Event) error
 }
 
 func NewTransfer(sessionId string, compressor Compressor, compressorOptions *CompressorOptions, historyStore MessageStore) *Transfer {
@@ -99,23 +100,32 @@ func (l *Transfer) LoadMessagesAfter(since uint64) ([]*Event, error) {
 
 }
 
-func (l *Transfer) sendEvent(event *Event) {
+func (l *Transfer) sendEvent(event *Event) error {
 	l.mu.Lock()
 	l.entries.Append(event)
 	l.mu.Unlock()
 	l.flush()
+	if l.directSendEvent != nil {
+		return l.directSendEvent(event)
+	}
+	return nil
+}
+func (l *Transfer) directSend(directSendEvent func(event *Event) error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.directSendEvent = directSendEvent
 }
 
-func (l *Transfer) SendBlock(no uint64, block chat.Block) uint64 {
+func (l *Transfer) SendBlock(no uint64, block chat.Block) (uint64, error) {
 	event := NewEvent(no, l.getAndAddStart(), block)
-	l.sendEvent(event)
-	return event.Start
+	err := l.sendEvent(event)
+	return event.Start, err
 }
 
-func (l *Transfer) SendSignalBlock(no uint64, block chat.Block) uint64 {
+func (l *Transfer) SendSignalBlock(no uint64, block chat.Block) (uint64, error) {
 	event := NewSignalEvent(no, l.getAndAddStart(), block)
-	l.sendEvent(event)
-	return event.Start
+	err := l.sendEvent(event)
+	return event.Start, err
 }
 
 func (l *Transfer) getStart() uint64 {

@@ -16,9 +16,9 @@ type blockRecorder struct {
 	blocks []chat.Block
 }
 
-func (r *blockRecorder) SendBlock(block chat.Block) uint64 {
+func (r *blockRecorder) SendBlock(block chat.Block) (uint64, error) {
 	r.blocks = append(r.blocks, block)
-	return 0
+	return 0, nil
 }
 
 // ctxReceiver 适配 SessionContext 到 BlockReceiver 接口。
@@ -26,7 +26,7 @@ type ctxReceiver struct {
 	ctx *agent.SessionContext
 }
 
-func (r *ctxReceiver) SendBlock(block chat.Block) uint64 {
+func (r *ctxReceiver) SendBlock(block chat.Block) (uint64, error) {
 	return r.ctx.SendBlock(0, block)
 }
 

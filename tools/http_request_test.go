@@ -167,9 +167,9 @@ type httpTestRecorder struct {
 	blocks []chat.Block
 }
 
-func (r *httpTestRecorder) SendBlock(block chat.Block) uint64 {
+func (r *httpTestRecorder) SendBlock(block chat.Block) (uint64, error) {
 	r.blocks = append(r.blocks, block)
-	return 0
+	return 0, nil
 }
 
 func executeHttpTool(t *testing.T, tool agent.ToolExecutor, turn *agent.Turn) string {

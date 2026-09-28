@@ -34,10 +34,10 @@ func (c *RunContext) GetChat() *chat.Chat {
 func (c *RunContext) Store() *Store {
 	return c.store
 }
-func (c *RunContext) SendBlock(block chat.Block) uint64 {
+func (c *RunContext) SendBlock(block chat.Block) (uint64, error) {
 	return c.session.SendBlock(c.store.no, block)
 }
-func (c *RunContext) SendSignalBlock(block chat.Block) uint64 {
+func (c *RunContext) SendSignalBlock(block chat.Block) (uint64, error) {
 	return c.session.SendSignalBlock(c.store.no, block)
 }
 
@@ -91,8 +91,8 @@ type Context interface {
 	GetChat() *chat.Chat
 	Store() *Store
 	Ctx() context.Context
-	SendBlock(block chat.Block) uint64
-	SendSignalBlock(block chat.Block) uint64
+	SendBlock(block chat.Block) (uint64, error)
+	SendSignalBlock(block chat.Block) (uint64, error)
 	AppendAssistantMessage(blocks *chat.BlockGroup)
 	GetTransferStart() uint64
 	AppendUserMessage(blocks *chat.BlockGroup)
@@ -195,7 +195,10 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 			l.runLock.Lock()
 			defer func() {
 				doneBlock := chat.NewDoneBlock()
-				doneStart := l.agentContext.SendBlock(doneBlock)
+				doneStart, err := l.agentContext.SendBlock(doneBlock)
+				if err != nil {
+					log.Error("[loop] send done block failed", "session", l.agentContext.SessionId(), "err", err)
+				}
 				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
 				l.agentContext.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
 				l.agentContext.store.RecordLastStart(doneStart)
@@ -257,7 +260,11 @@ func (l *Agent) lastUserBlocks() (*chat.BlockGroup, bool) {
 		var blocks chat.Blocks
 		for _, qm := range values {
 			userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
-			start := l.agentContext.SendBlock(userBlock)
+			start, err := l.agentContext.SendBlock(userBlock)
+			if err != nil {
+				log.Error("[loop] send user block failed", "session", l.agentContext.SessionId(), "err", err)
+				continue
+			}
 			if firstStart == 0 {
 				firstStart = start
 			}
@@ -420,7 +427,10 @@ func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results cha
 }
 
 func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
-	start := l.agentContext.SendBlock(block)
+	start, err := l.agentContext.SendBlock(block)
+	if err != nil {
+		log.Debug("[agent] send block failed", "session", l.agentContext.SessionId(), "block", block)
+	}
 	return &chat.BlockGroup{
 		Start:     start,
 		Offset:    1,
