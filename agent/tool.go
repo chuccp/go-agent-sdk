@@ -67,6 +67,8 @@ func (t *Turn) Context() context.Context { return t.ctx.Ctx() }
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *jsonx.Object { return t.args }
 func (t *Turn) Tools() Tools        { return t.tools }
+
+// ToolNum 返回本轮工具列表的长度（不含因轮次已停止而跳过的 tool_use）。
 func (t *Turn) ToolNum() int {
 	return len(t.tools)
 }
