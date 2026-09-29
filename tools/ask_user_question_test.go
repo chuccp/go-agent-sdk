@@ -42,7 +42,7 @@ func TestExecute_NonBlocking(t *testing.T) {
 	w := chat.NewBlockStream(&ctxReceiver{ctx: sctx})
 	done := make(chan struct{}, 1)
 	go func() {
-		tool.Execute(agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(args)), chat.NewToolResultBlockStream(w, "ask"))
+		tool.Execute(agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(args), nil), chat.NewToolResultBlockStream(w, "ask"))
 		done <- struct{}{}
 	}()
 

@@ -249,7 +249,7 @@ func TestFlowEndToEnd(t *testing.T) {
 	}
 	// ④ finish 已清理：flow_status 报告无激活 flow
 	flowCtx := manager.SessionContext("flow-e2e")
-	statusTurn := agent.NewTurnWithContext(agent.NewRunContext(flowCtx, flowCtx.AgentStore()), nil)
+	statusTurn := agent.NewTurnWithContext(agent.NewRunContext(flowCtx, flowCtx.AgentStore()), nil, nil)
 	out := execToolText(t, status, statusTurn)
 	if !strings.Contains(out, "无激活") {
 		t.Errorf("finish 后应无激活 flow: %s", out)
@@ -270,7 +270,7 @@ func TestFlowGuards(t *testing.T) {
 	sctx := manager.SessionContext("flow-guards")
 	ctx := agent.NewRunContext(sctx, sctx.AgentStore())
 	turn := func(args map[string]any) *agent.Turn {
-		return agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(args))
+		return agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(args), nil)
 	}
 	run := func(exec agent.ToolExecutor, args map[string]any) string {
 		return execToolText(t, exec, turn(args))

@@ -52,7 +52,7 @@ func testRunContext(sessionId string) *RunContext {
 
 func TestTurn_Args(t *testing.T) {
 	args := jsonx.NewObjectFromMap(map[string]any{"a": "1", "b": 2})
-	turn := NewTurnWithContext(testRunContext("turn-args"), args)
+	turn := NewTurnWithContext(testRunContext("turn-args"), args, nil)
 	got := turn.Args()
 	if got.GetString("a") != "1" || got.GetString("b") != "2" {
 		t.Errorf("Args() returned unexpected: %v", got)
@@ -60,7 +60,7 @@ func TestTurn_Args(t *testing.T) {
 }
 
 func TestTurn_WithSession(t *testing.T) {
-	turn := NewTurnWithContext(testRunContext("test"), nil)
+	turn := NewTurnWithContext(testRunContext("test"), nil, nil)
 	if turn.AgentContext().SessionId() != "test" {
 		t.Errorf("expected sessionId 'test', got %q", turn.AgentContext().SessionId())
 	}
@@ -96,7 +96,7 @@ func TestBuiltRunContextCarriesUsableContext(t *testing.T) {
 
 func TestNewTurnWithContext(t *testing.T) {
 	ctx := testRunContext("turn-ctor")
-	turn := NewTurnWithContext(ctx, jsonx.NewObjectFromMap(map[string]any{"key": "value"}))
+	turn := NewTurnWithContext(ctx, jsonx.NewObjectFromMap(map[string]any{"key": "value"}), nil)
 	if turn.Args().GetString("key") != "value" {
 		t.Error("NewTurnWithContext should preserve args")
 	}

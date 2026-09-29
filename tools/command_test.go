@@ -91,7 +91,7 @@ func TestCommand_WithSessionContext(t *testing.T) {
 	// 使用 SessionContext 作为 receiver，模拟 runTool 的行为
 	w := chat.NewBlockStream(&ctxReceiver{ctx: sctx})
 	tool := NewCommandTool()
-	tool.Execute(agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(map[string]any{"command": "echo event-test"})), chat.NewToolResultBlockStream(w, "cmd"))
+	tool.Execute(agent.NewTurnWithContext(ctx, jsonx.NewObjectFromMap(map[string]any{"command": "echo event-test"}), nil), chat.NewToolResultBlockStream(w, "cmd"))
 
 	// 收到事件（包含 StartBlock/DeltaBlock 等流式事件）
 	events := readEventsUntilIdle(client, 300*time.Millisecond)

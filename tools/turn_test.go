@@ -15,7 +15,7 @@ import (
 // 工具的 ctx 会直接递给 net/http、exec 这类地方，给 nil 就是一记 nil pointer dereference。
 // 各用例只读 args、不落地会话状态，所以整个包共用一份上下文。
 func testTurn(args *jsonx.Object) *agent.Turn {
-	return agent.NewTurnWithContext(testToolContext(), args)
+	return agent.NewTurnWithContext(testToolContext(), args, nil)
 }
 
 // testToolContext 全局一份会话上下文：CreateServer 会起后台清理协程，

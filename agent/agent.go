@@ -368,11 +368,14 @@ func (l *Agent) do() {
 		}
 	}
 }
+
 func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup, chat.StopReason) {
 
 	var blockGroups []*chat.BlockGroup
 	var results chat.Blocks
 	stopReason := chat.StopReason("")
+
+	tools := make([]*Tool, 0)
 	for _, block := range inputBlockGroup.Content {
 		tu, ok := block.(*chat.ToolUseBlock)
 		if !ok {
@@ -390,31 +393,37 @@ func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup
 		}
 
 		exec := l.findExecutor(tu.Name)
-		if exec == nil {
-			log.Warn("[loop] unknown tool", "session", l.agentContext.SessionId(), "tool", tu.Name)
-			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("未知工具: %s", tu.Name))
+		tools = append(tools, NewTool(exec, tu))
+
+	}
+	for _, t := range tools {
+		if t.exec == nil {
+			log.Warn("[loop] unknown tool", "session", l.agentContext.SessionId(), "tool", t.Name())
+			toolsErrorBlock := chat.NewToolsErrorFullTextBlock(t.ID(), fmt.Sprintf("未知工具: %s", t.Name()))
 			results = append(results, chat.NewToolResultBlock(
-				tu.ID,
+				t.ID(),
 				chat.Blocks{toolsErrorBlock},
 			))
 			blockGroup := l.SendSingleBlock(toolsErrorBlock)
 			blockGroups = append(blockGroups, blockGroup)
 			continue
 		}
-		log.Info("[loop] tool executing", "session", l.agentContext.SessionId(), "tool", tu.Name)
-		blockGroup, toolStop, err := l.runTool(tu, exec)
+		log.Info("[loop] tool executing", "session", l.agentContext.SessionId(), "tool", t.Name())
+		blockGroup, toolStop, err := l.runTool(t, tools)
 		if err != nil {
 			// 工具 panic：补一条占位 tool_result，保证每个 tool_use 都有配对结果进历史，
 			// 否则落盘后回放会出现悬空 tool_use。工具异常不连累整轮，继续处理下一个工具。
-			log.Error("[loop] tool panicked", "session", l.agentContext.SessionId(), "tool", tu.Name, "panic", err)
-			blockGroup = l.SendSingleBlock(chat.NewToolsErrorFullTextBlock(tu.ID, fmt.Sprintf("工具执行异常: %v", err)))
+			log.Error("[loop] tool panicked", "session", l.agentContext.SessionId(), "tool", t.Name(), "panic", err)
+			blockGroup = l.SendSingleBlock(chat.NewToolsErrorFullTextBlock(t.ID(), fmt.Sprintf("工具执行异常: %v", err)))
 		}
 		blockGroups = append(blockGroups, blockGroup)
-		results = append(results, chat.NewToolResultBlock(tu.ID, blockGroup.Content))
+		results = append(results, chat.NewToolResultBlock(t.ID(), blockGroup.Content))
 		if toolStop == chat.StopReasonUserWait {
 			stopReason = chat.StopReasonUserWait
 		}
+
 	}
+
 	return l.mergeToolsBlockGroup(blockGroups, results), stopReason
 }
 func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results chat.Blocks) *chat.BlockGroup {
@@ -449,16 +458,16 @@ func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
 
 // runTool 执行工具并收集它产出的 blocks。工具自身 panic 时以 error 返回，
 // 由调用方决定后续处理。
-func (l *Agent) runTool(tu *chat.ToolUseBlock, exec ToolExecutor) (*chat.BlockGroup, chat.StopReason, error) {
+func (l *Agent) runTool(tool *Tool, tools Tools) (*chat.BlockGroup, chat.StopReason, error) {
 
-	turn := NewTurnWithContext(l.agentContext, tu.Input)
+	turn := NewTurnWithContext(l.agentContext, tool.Input(), tools)
 
 	writer := chat.NewBlockStream(l.agentContext)
 	// 工具轮次默认停止原因为 ToolResult（已产出 tool_result，继续调用 LLM）；
 	// 需要暂停的工具（如 ask_user_question）在 Execute 内覆盖为 UserWait
 	writer.StopReason(chat.StopReasonToolResult)
 	err := util.Recover(func() error {
-		exec.Execute(turn, chat.NewToolResultBlockStream(writer, tu.ID))
+		tool.Execute(turn, chat.NewToolResultBlockStream(writer, tool.ID()))
 		return nil
 	})
 	if err != nil {

@@ -46,7 +46,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 		sctx := &fakeLoopContext{Context: context.Background(), id: sessionId}
 		turn := agent.NewTurnWithContext(sctx, jsonx.NewObjectFromMap(map[string]any{
 			"flow_id": "story003", "input": input,
-		}))
+		}), nil)
 		w := chat.NewBlockStream(nil)
 		activate.Execute(turn, chat.NewToolResultBlockStream(w, "act"))
 	}
@@ -55,7 +55,7 @@ func newTestTools(sessionId string, input map[string]any) (activate, execNode, s
 
 // newTurn 构造绑定 fakeLoopContext 的 Turn。
 func newTurn(sessionId string, args map[string]any) *agent.Turn {
-	return agent.NewTurnWithContext(&fakeLoopContext{Context: context.Background(), id: sessionId}, jsonx.NewObjectFromMap(args))
+	return agent.NewTurnWithContext(&fakeLoopContext{Context: context.Background(), id: sessionId}, jsonx.NewObjectFromMap(args), nil)
 }
 
 // execText 执行工具并收集输出文本。
