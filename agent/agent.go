@@ -189,16 +189,14 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 		if l.lifecycle != nil {
 			l.lifecycle.OnMessage(l.agentContext, qm)
 		}
-		l.agentContext.SendSignalBlock(qm)
+		l.sendSignalBlock(qm)
 		l.inbox.Write(qm)
 		util.GoWithRecover(func() {
 			l.runLock.Lock()
 			defer func() {
 				doneBlock := chat.NewDoneBlock()
-				doneStart, err := l.agentContext.SendBlock(doneBlock)
-				if err != nil {
-					log.Error("[loop] send done block failed", "session", l.agentContext.SessionId(), "err", err)
-				}
+				doneStart := l.sendBlock(doneBlock)
+
 				// DoneBlock 持久化，保证 WS 历史回放包含轮次结束标记
 				l.agentContext.AppendHistory(&chat.Message{Start: doneStart, Offset: 1, Role: chat.RoleAssistant, Content: chat.Blocks{doneBlock}})
 				l.agentContext.store.RecordLastStart(doneStart)
@@ -217,7 +215,7 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 			err := l.agentContext.store.LoadAllHistory()
 			if err != nil {
 				log.Error("[loop] LoadAllHistory failed", "session", l.agentContext.SessionId(), "error", err)
-				l.agentContext.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+				l.sendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 				return
 			}
 			log.Debug("[loop] LoadAllHistory done", "session", l.agentContext.SessionId(), "historyLen", l.agentContext.store.HistoryLen(), "transferStart", l.agentContext.GetTransferStart())
@@ -225,12 +223,12 @@ func (l *Agent) HandleMessage(blocks chat.Blocks) {
 		}, func(r any) {
 			log.Error("[loop] panic recovered", "session", l.agentContext.SessionId(), "panic", r)
 			evt := chat.NewErrorBlock(fmt.Sprintf("internal error: %v", r))
-			l.agentContext.SendSignalBlock(evt)
+			l.sendSignalBlock(evt)
 		})
 	} else {
 		log.Debug("[loop] message queued", "session", l.agentContext.SessionId())
 		qm := chat.NewUserBlock(l.getMid(), blocks, chat.Queued)
-		l.agentContext.SendSignalBlock(qm)
+		l.sendSignalBlock(qm)
 		l.inbox.Write(qm)
 	}
 }
@@ -260,11 +258,7 @@ func (l *Agent) lastUserBlocks() (*chat.BlockGroup, bool) {
 		var blocks chat.Blocks
 		for _, qm := range values {
 			userBlock := chat.NewUserBlock(qm.ID, qm.Content, chat.Consume)
-			start, err := l.agentContext.SendBlock(userBlock)
-			if err != nil {
-				log.Error("[loop] send user block failed", "session", l.agentContext.SessionId(), "err", err)
-				continue
-			}
+			start := l.sendBlock(userBlock)
 			if firstStart == 0 {
 				firstStart = start
 			}
@@ -324,7 +318,7 @@ func (l *Agent) loop() bool {
 
 	if err != nil {
 		log.Error("[loop] chatWithStream failed", "session", l.agentContext.SessionId(), "error", err)
-		l.agentContext.SendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
+		l.sendSignalBlock(chat.NewErrorBlock(fmt.Sprintf("internal error: %v", err)))
 		return true
 	}
 	if l.roundStopped() {
@@ -347,6 +341,21 @@ func (l *Agent) loop() bool {
 	return true
 
 }
+
+func (l *Agent) sendSignalBlock(block chat.Block) {
+	_, err := l.agentContext.SendSignalBlock(block)
+	if err != nil {
+		log.Error("[agent] send signal block failed", "session", l.agentContext.SessionId(), "err", err)
+	}
+}
+func (l *Agent) sendBlock(block chat.Block) uint64 {
+	num, err := l.agentContext.SendBlock(block)
+	if err != nil {
+		log.Error("[agent] send block failed", "session", l.agentContext.SessionId(), "err", err)
+	}
+	return num
+}
+
 func (l *Agent) do() {
 	for {
 		select {
@@ -427,10 +436,7 @@ func (l *Agent) mergeToolsBlockGroup(blockGroups []*chat.BlockGroup, results cha
 }
 
 func (l *Agent) SendSingleBlock(block chat.Block) *chat.BlockGroup {
-	start, err := l.agentContext.SendBlock(block)
-	if err != nil {
-		log.Debug("[agent] send block failed", "session", l.agentContext.SessionId(), "block", block)
-	}
+	start := l.sendBlock(block)
 	return &chat.BlockGroup{
 		Start:     start,
 		Offset:    1,
