@@ -72,10 +72,9 @@ func (t *Turn) Tools() Tools        { return t.tools }
 func (t *Turn) ToolNum() int {
 	return len(t.tools)
 }
+
+// Single 返回本轮是否只有一个工具（tools 为 nil 也算单工具）。
 func (t *Turn) Single() bool {
-	if t.tools == nil {
-		return true
-	}
 	return len(t.tools) <= 1
 }
 

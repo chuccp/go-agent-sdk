@@ -19,7 +19,9 @@ const (
 	// 等待用户下一条普通消息（如 ask_user_question 提问）。仅工具路径设置。
 	StopReasonUserWait StopReason = "user_wait"
 
-	// StopReasonSingleToolExecute 假如是单工具的情况下使用，用好了，可以减少模型调用次数
+	// StopReasonSingleToolExecute 单工具轮次（turn.Single()）下由工具设置：与
+	// StopReasonUserWait 一样结束本轮、不再携带 tool_result 回调 LLM，省掉后续
+	// 模型调用，等待用户下一条普通消息。仅工具路径设置。
 	StopReasonSingleToolExecute StopReason = "single_tool_execute"
 )
 
