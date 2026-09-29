@@ -334,7 +334,7 @@ func (l *Agent) loop() bool {
 		if l.roundStopped() {
 			return true
 		}
-		if toolStop == chat.StopReasonUserWait || toolStop == chat.StopReasonSingleToolUserWait {
+		if toolStop == chat.StopReasonUserWait || toolStop == chat.StopReasonSingleToolExecute {
 			return true
 		}
 		return false
@@ -414,7 +414,7 @@ func (l *Agent) executeTools(inputBlockGroup *chat.BlockGroup) (*chat.BlockGroup
 		}
 		blockGroups = append(blockGroups, blockGroup)
 		results = append(results, chat.NewToolResultBlock(t.ID(), blockGroup.Content))
-		if toolStop == chat.StopReasonUserWait || toolStop == chat.StopReasonSingleToolUserWait {
+		if toolStop == chat.StopReasonUserWait || toolStop == chat.StopReasonSingleToolExecute {
 			stopReason = toolStop
 		}
 
