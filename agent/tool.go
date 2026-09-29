@@ -72,6 +72,12 @@ func (t *Turn) Tools() Tools        { return t.tools }
 func (t *Turn) ToolNum() int {
 	return len(t.tools)
 }
+func (t *Turn) Single() bool {
+	if t.tools == nil {
+		return true
+	}
+	return len(t.tools) <= 1
+}
 
 // NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
 func NewTurnWithContext(ctx Context, args *jsonx.Object, tools Tools) *Turn {
