@@ -19,6 +19,7 @@ const (
 	// 等待用户下一条普通消息（如 ask_user_question 提问）。仅工具路径设置。
 	StopReasonUserWait StopReason = "user_wait"
 
+	// StopReasonSingleToolUserWait 假如是单工具的情况下使用，用好了，可以减少模型调用次数
 	StopReasonSingleToolUserWait StopReason = "single_tool_user_wait"
 )
 

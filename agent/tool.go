@@ -67,6 +67,9 @@ func (t *Turn) Context() context.Context { return t.ctx.Ctx() }
 // Args 返回当前执行的 tool_use 入参。
 func (t *Turn) Args() *jsonx.Object { return t.args }
 func (t *Turn) Tools() Tools        { return t.tools }
+func (t *Turn) ToolNum() int {
+	return len(t.tools)
+}
 
 // NewTurnWithContext 构造绑定会话上下文的 Turn（测试/集成场景直接驱动工具）。
 func NewTurnWithContext(ctx Context, args *jsonx.Object, tools Tools) *Turn {
