@@ -271,8 +271,7 @@ func TestToolUse_UnknownTool(t *testing.T) {
 	config := agent.NewConfig()
 	config.AddTools(&echoTool{}) // 只注册 echo，不注册 other_tool
 
-	// LLM 请求 unknown_tool → 自动补错误 tool_result（不触发 tool_execution 事件）
-	// → 第二轮 LLM → done
+	// LLM 请求 unknown_tool → 自动补错误 tool_result → 第二轮 LLM → done
 	config.RegisterChat(&orderedProvider{
 		responses: []orderedResponse{
 			{blocks: []blockSpec{{blockType: chat.ToolUseBlockType, toolID: "tu_1", toolName: "unknown_tool"}}, reason: chat.StopReasonToolUse},
