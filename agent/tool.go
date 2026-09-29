@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/chuccp/go-agent-sdk/chat"
 	"github.com/chuccp/go-agent-sdk/jsonx"
@@ -19,8 +20,15 @@ func (t *Tool) Name() string {
 func (t *Tool) Input() *jsonx.Object {
 	return t.tu.Input
 }
-func (t *Tool) Execute(turn *Turn, writer *chat.ToolResultBlockStream) {
+
+var UnknownToolError = errors.New("unknown tool")
+
+func (t *Tool) Execute(turn *Turn, writer *chat.ToolResultBlockStream) error {
+	if t.exec == nil {
+		return UnknownToolError
+	}
 	t.exec.Execute(turn, writer)
+	return nil
 }
 func (t *Tool) ID() string {
 	return t.tu.ID
