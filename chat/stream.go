@@ -18,6 +18,8 @@ const (
 	// StopReasonUserWait 工具请求暂停：结束本轮（不再携带 tool_result 回调 LLM），
 	// 等待用户下一条普通消息（如 ask_user_question 提问）。仅工具路径设置。
 	StopReasonUserWait StopReason = "user_wait"
+
+	StopReasonSingleToolUserWait StopReason = "single_tool_user_wait"
 )
 
 // Usage 记录本次请求的 token 消耗。
