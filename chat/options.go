@@ -26,6 +26,7 @@ const (
 	APIKEYConfigKey           ConfigKey = "apikey"
 	WebSearchConfigKey        ConfigKey = "websearch"
 	UserIDConfigKey           ConfigKey = "user_id"
+	TemperatureConfigKey      ConfigKey = "temperature"
 )
 
 type Config struct {
@@ -88,6 +89,17 @@ func (m *Config) GetThinking() ThinkingLevel {
 }
 func (m *Config) GetWebSearch() bool {
 	return m.object.GetBool(string(WebSearchConfigKey))
+}
+
+// GetTemperature 返回采样温度 (0,1]；未配置返回 nil，调用方据此决定请求里带不带该字段。
+//
+// 返回指针而不是 float64：0 也是合法温度，"未配置"和"配置成 0"用值类型分不开。
+func (m *Config) GetTemperature() *float64 {
+	if !m.object.HasKey(string(TemperatureConfigKey)) {
+		return nil
+	}
+	temp := m.object.GetNumber(string(TemperatureConfigKey))
+	return &temp
 }
 func Combine(configs ...*Config) *Config {
 	config := DefaultConfig()
@@ -155,5 +167,13 @@ func WithThinking(level ThinkingLevel) Option {
 func WithWebSearch(enabled bool) Option {
 	return func(o *Config) {
 		o.Set(WebSearchConfigKey, enabled)
+	}
+}
+
+// WithTemperature 设置采样温度 (0,1]。默认不设置（不发送 temperature 字段，由模型提供方决定）。
+// 工具选择同样由模型采样决定，需要稳定复现时可显式设低。
+func WithTemperature(temp float64) Option {
+	return func(o *Config) {
+		o.Set(TemperatureConfigKey, temp)
 	}
 }

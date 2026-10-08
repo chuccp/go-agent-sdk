@@ -75,6 +75,8 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 		request.MaxTokens = config.GetMaxTokens()
 		request.System = newSystemBlocks(config.GetSystemPrompt())
 		request.Thinking = toThinkingConfig(config.GetThinking())
+		// 未配置温度时为 nil，靠 omitempty 去掉该字段，由服务商取默认值。
+		request.Temperature = config.GetTemperature()
 	}
 	if request.MaxTokens == 0 {
 		request.MaxTokens = defaultMaxTokens
