@@ -2,8 +2,18 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
+
+// ErrInvalidStream 响应体不是可解析的 SSE 流（整条流一个有效事件都没有）。
+//
+// 实测来源（2026-10-12）：deepseek 的 anthropic 兼容口偶发回**没声明编码的压缩体**
+// （content-encoding 为空、内容却是二进制，约 7/8 命中），逐行找 `data: ` 一条都匹配不上，
+// 以前会被静默当成"正常空流"——用户那边就是"说了话没回音"。provider 现在把这种情况
+// 包成这个错误返回，**并在 HTTP 层自动重试**（同一份请求再 POST，见 anthropic 的
+// ChatWithStream）；重试都用完还失败才把这个错误抛出来。
+var ErrInvalidStream = errors.New("响应体不是可解析的 SSE 流（上游网关偶发，通常重试可过）")
 
 // Service 是 LLM 提供方的流式对话接口。
 // 每个 provider（如 OpenAI、Anthropic）实现此接口：往 BlockWriter 里写块，
