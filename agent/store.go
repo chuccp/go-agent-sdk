@@ -241,12 +241,19 @@ func (s *Store) compressorHistory(context Context) []*chat.Message {
 	return s.History()
 }
 
-// snapshotHistory 拷一份当前历史。Slice() 返回的是底层数组的别名，而压缩期间 history
-// 还会被追加，必须拷出来才能在锁外安全使用。
+// snapshotHistory 拷一份当前历史（**history + tempHistory 都要**）。
+//
+// Slice() 返回的是底层数组的别名，而压缩期间 history 还会被追加，必须拷出来才能在锁外安全使用。
+//
+// **2026-10-16 修**：原来只拷 `history`，漏了 `tempHistory`——而"刚进来、游标还没推进"的消息
+// 恰恰都在 tempHistory 里（宿主那边由 SSE 层负责落盘，store 自己的游标可能一直不推进）。
+// 后果极其隐蔽：`buildRequest` 返回的 `History()` 是 history+tempHistory（所以**模型有完整上下文**、
+// 多轮对话正常），但压缩拿到的快照是 0 条 → `cutIndex` 切不出东西 → **压缩永远不触发**。
+// 现象只有一行日志：`[compress] 不切：keepRatio=0.50，历史 0 条`。
 func (s *Store) snapshotHistory() []*chat.Message {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return append([]*chat.Message(nil), s.history.Slice()...)
+	return s.history0()
 }
 
 // replaceHistory 用 compressed 换掉历史开头的 replaced 条——即压缩时取的那份快照。
@@ -255,18 +262,23 @@ func (s *Store) snapshotHistory() []*chat.Message {
 func (s *Store) replaceHistory(compressed []*chat.Message, replaced int) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	current := s.history.Slice()
+	// 快照现在是 history+tempHistory 合起来的，这里也必须按同一份算，否则 replaced 会错位
+	current := s.history0()
 	var tail []*chat.Message
 	if len(current) > replaced {
 		// 按值拷一份：下面的 Reset 会复用底层数组，直接切片会被随后的 Append 覆写
 		tail = append([]*chat.Message(nil), current[replaced:]...)
 	}
 	s.history.Reset()
+	s.tempHistory.Reset()
+	// 压缩结果进 history（它是"新起点"，后续按它继续长）；
+	// **压缩期间新落进来的尾巴仍留在 tempHistory**——那批还没走完落盘流程，
+	// 放进 history 会让 store 以为它们已经持久化（本文件开头那条不变式：写进去的必须能被 LoadAfter 读回）。
 	for _, msg := range compressed {
 		s.history.Append(msg)
 	}
 	for _, msg := range tail {
-		s.history.Append(msg)
+		s.tempHistory.Append(msg)
 	}
 }
 
