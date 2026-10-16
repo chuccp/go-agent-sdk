@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"log"
 	"math"
 	"strings"
 
@@ -289,12 +290,22 @@ func (m *CompressorManager) shouldCompress() bool {
 	return m.contextLength >= maxContextLength
 }
 func (m *CompressorManager) UpdateUsage(usage *chat.Usage) {
-	if usage != nil {
-		if usage.OutputTokens > 0 && usage.InputTokens > 0 {
-			m.contextLength = usage.OutputTokens + usage.InputTokens + usage.CacheInputTokens
-		}
+	if usage == nil {
+		return
 	}
-
+	// **门槛只看"加起来有没有量"，别要求 input/output 同时 > 0**
+	// （2026-10-16 实测踩到）：Anthropic 协议里 input_tokens 在 `message_start`、
+	// output_tokens 在 `message_delta`，合并后某一项为 0 是常态。原来那句
+	// `OutputTokens > 0 && InputTokens > 0` 于是把**整轮用量丢掉**——
+	// 每轮真实用量 2.2 万 token，这里却一直记 0，contextLength 永远是 0，
+	// 压缩条件 `contextLength >= maxContextLength` 永远不成立：
+	// **压缩器挂上了、日志也不报错，就是永远不压**（现象只能靠日志里的"当前 0"发现）。
+	total := usage.OutputTokens + usage.InputTokens + usage.CacheInputTokens
+	if total > 0 {
+		m.contextLength = total
+	}
+	log.Printf("[compress] 用量 in=%d out=%d cache=%d → 当前水位 %d",
+		usage.InputTokens, usage.OutputTokens, usage.CacheInputTokens, m.contextLength)
 }
 
 func (m *CompressorManager) loadSummary() (*chat.Message, error) {
@@ -324,19 +335,35 @@ func (m *CompressorManager) loadSummary() (*chat.Message, error) {
 }
 
 // Compress 执行压缩：这里先按比例强行切割，再把切掉的那段交给 Compressor 压缩。
+func (m *CompressorManager) sessionIDForLog() string {
+	if m == nil {
+		return ""
+	}
+	return m.sessionId
+}
+
 func (m *CompressorManager) compress(context Context, messages []*chat.Message) ([]*chat.Message, bool) {
 	if m == nil || m.compressor == nil {
+		// **没挂压缩器就什么都不压**（水位形同虚设）：2026-10-16 就是栽在这儿——
+		// 宿主以为"默认 100K 上限"在起作用，其实压根没挂压缩器。留一行日志免得再误判。
+		log.Printf("[compress] 未挂压缩器，跳过（session=%s）", m.sessionIDForLog())
 		return nil, false
 	}
 	// 没超水位就别动：否则每轮都会再切一刀，把上下文压到水位以下
 	if !m.shouldCompress() {
+		log.Printf("[compress] 未到水位（当前 %d / 上限 %d），跳过", m.contextLength, m.compressorOptions.MaxContextLength())
 		return messages, false
 	}
 	// 这里按比例切割好，将切割好的往下传
 	cut := m.cutIndex(messages)
 	if cut <= 0 {
+		// **这一支原来是静默的**（2026-10-16 查压缩为什么"挂上了也不压"时，
+		// 就是卡在这句没有任何输出）：切点必须落在"安全边界"（别把 tool_use/tool_result
+		// 切成两半）上，推不到就整轮不动。把原因打出来，省得下次又靠猜。
+		log.Printf("[compress] 没有可切的边界（历史 %d 条），本轮不压", len(messages))
 		return messages, false // 一条都没切掉，也就没东西可压
 	}
+	log.Printf("[compress] 触发压缩：历史 %d 条 → 切掉前 %d 条，压缩器=%T", len(messages), cut, m.compressor)
 
 	// Compress只负责压缩，不做切割
 	msg := m.compressor.Compress(context, messages[:cut])
@@ -381,10 +408,12 @@ func (m *CompressorManager) cutIndex(messages []*chat.Message) int {
 		ratio = m.compressorOptions.KeepRatio()
 	}
 	if ratio >= 1 || len(messages) == 0 {
+		log.Printf("[compress] 不切：keepRatio=%.2f，历史 %d 条", ratio, len(messages))
 		return 0
 	}
 	keep := int(math.Ceil(float64(len(messages)) * ratio)) // 向上取整，至少保留一条
 	if keep >= len(messages) {
+		log.Printf("[compress] 不切：历史 %d 条，按比例要保留 %d 条（太少）", len(messages), keep)
 		return 0
 	}
 	cut := len(messages) - keep
@@ -394,7 +423,10 @@ func (m *CompressorManager) cutIndex(messages []*chat.Message) int {
 		cut++
 	}
 	if cut >= len(messages) {
+		// 推到底都没找到安全切点：整段都是"切不得"的历史（tool_use/tool_result 挨着）
+		log.Printf("[compress] 不切：从 %d 往后找不到安全边界（历史 %d 条）", len(messages)-keep, len(messages))
 		return 0
 	}
+	log.Printf("[compress] 可切：历史 %d 条，切点 %d（保留后 %d 条）", len(messages), cut, len(messages)-cut)
 	return cut
 }
