@@ -25,6 +25,10 @@ const (
 	BaseURLConfigKey          ConfigKey = "baseUrl"
 	APIKEYConfigKey           ConfigKey = "apikey"
 	WebSearchConfigKey        ConfigKey = "websearch"
+	// WebSearchMaxUsesConfigKey 限制内置搜索**最多搜几次**（对应 max_uses）。
+	// 每次搜索返回几条由服务端定（实测固定 10 条），客户端调不了；
+	// 能控的只有"搜几轮"——一轮 10 条约 25KB，两轮就能到 50KB+（2026-10-16 实测）。
+	WebSearchMaxUsesConfigKey ConfigKey = "websearch_max_uses"
 	UserIDConfigKey           ConfigKey = "user_id"
 	TemperatureConfigKey      ConfigKey = "temperature"
 )
@@ -89,6 +93,11 @@ func (m *Config) GetThinking() ThinkingLevel {
 }
 func (m *Config) GetWebSearch() bool {
 	return m.object.GetBool(string(WebSearchConfigKey))
+}
+
+// GetWebSearchMaxUses 上限；<=0 表示不传（由服务端默认，实测会搜 2 轮各 10 条）
+func (m *Config) GetWebSearchMaxUses() int {
+	return m.object.GetInt(string(WebSearchMaxUsesConfigKey))
 }
 
 // GetTemperature 返回采样温度 (0,1]；未配置返回 nil，调用方据此决定请求里带不带该字段。
@@ -167,6 +176,19 @@ func WithThinking(level ThinkingLevel) Option {
 func WithWebSearch(enabled bool) Option {
 	return func(o *Config) {
 		o.Set(WebSearchConfigKey, enabled)
+	}
+}
+
+// WithWebSearchMaxUses 限制内置搜索最多搜几轮（同时把内置搜索打开，省得写两行）。
+//
+// 为什么要它（2026-10-16 实测）：不限制时会连搜 2 轮、每轮 10 条，整条响应 52.8KB，
+// 而且**整条响应是一行 SSE**——正是这一行把 bufio.Scanner 的 64KB 默认上限顶爆，
+// 表现为整轮失败（`SSE stream read error: token too long`）。设成 1 后降到 24.3KB。
+// 每轮返回几条由服务端定，客户端调不了；能控的只有轮数。
+func WithWebSearchMaxUses(maxUses int) Option {
+	return func(o *Config) {
+		o.Set(WebSearchConfigKey, true)
+		o.Set(WebSearchMaxUsesConfigKey, maxUses)
 	}
 }
 

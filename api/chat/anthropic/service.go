@@ -301,6 +301,15 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp chat.Bl
 	}
 
 	scanner := bufio.NewScanner(body)
+	// **单行上限必须放大**（2026-10-16 实测踩到）：`bufio.Scanner` 默认一行最多 64KB，
+	// 而**服务端联网搜索**（`web_search`）的结果是一整行 SSE 塞回来的 —— 搜索结果一多
+	// 就顶爆，表现为整轮直接失败：
+	//   error="SSE stream read error: bufio.Scanner: token too long"
+	//   → 抛给用户的是 "internal error: SSE stream read error: ..."
+	// 在机顶盒上看到的就是"问了没反应、卡片也没出"（问「五旬老太守国门是什么梗」必现，
+	// 因为它要联网查一大段）。这里放到 8MB：SSE 的行本来就该按整块收，
+	// 上限只用来兜住"对端不发换行"的坏情况，不是用来卡正常数据的。
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	recognized := 0 // 认出来的事件数；整条流 0 个 = 这不是 SSE（见文件尾的判断）
 	firstLine := "" // 头一条非空行，出错时截一段拼进错误信息，排障不用再抓包
 	for scanner.Scan() {

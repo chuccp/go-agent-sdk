@@ -22,6 +22,7 @@ type ToolFunction struct {
 	InputSchema   map[string]any   `json:"input_schema,omitempty"`   // 输入参数的 JSON Schema（自定义工具必填）
 	InputExamples []map[string]any `json:"input_examples,omitempty"` // 调用示例（可选）
 	CacheControl  *CacheControl    `json:"cache_control,omitempty"`  // 提示词缓存断点
+	MaxUses       int             `json:"max_uses,omitempty"`      // 内置搜索：最多搜几轮（自定义工具不用）
 }
 
 // ==================== Message ====================

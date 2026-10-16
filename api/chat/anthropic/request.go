@@ -101,6 +101,10 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 	// WebSearch 启用时自动注入 Anthropic 服务端内置搜索工具，
 	// 同时移除同名的自定义工具（如 tools.SearchTool），避免名称冲突。
 	webSearchEnabled := config != nil && config.GetWebSearch()
+	webSearchMaxUses := 0
+	if config != nil {
+		webSearchMaxUses = config.GetWebSearchMaxUses()
+	}
 	log.Printf("[anthropic] webSearch enabled: %v", webSearchEnabled)
 	if webSearchEnabled {
 		filtered := request.Tools[:0]
@@ -114,6 +118,9 @@ func NewRequest(chatMessages *chat.Messages, config *chat.Config) *Request {
 		request.Tools = append(request.Tools, &chat.ToolFunction{
 			Type: "web_search_20250305",
 			Name: "web_search",
+			// 限制搜几轮（0 = 不传，由服务端默认）：见 chat.WithWebSearchMaxUses 的注释——
+			// 不限制时整条响应能到 50KB+ 且是一行 SSE，会顶爆读流的单行上限
+			MaxUses: webSearchMaxUses,
 		})
 	}
 	return request
