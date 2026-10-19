@@ -1,6 +1,10 @@
 package anthropic
 
-import "github.com/chuccp/go-agent-sdk/chat"
+import (
+	"encoding/json"
+
+	"github.com/chuccp/go-agent-sdk/chat"
+)
 
 var TYPE = []string{"anthropic", "claude"}
 
@@ -37,6 +41,11 @@ type sseContentBlock struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// ToolUseID / Content 是 `web_search_tool_result` 块用的（2026-10-16 加）：
+	// 结果块长这样——{"type":"web_search_tool_result","tool_use_id":"call_…",
+	//                   "content":[{"type":"web_search_result","title":…,"url":…,"encrypted_content":…}]}
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
 }
 
 // sseDelta 表示 content_block_delta / message_delta 事件中的增量。

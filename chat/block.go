@@ -25,6 +25,10 @@ const (
 
 	CustomTextBlockType    BlockType = "custom_text"
 	ServerToolUseBlockType BlockType = "server_tool_use"
+	// WebSearchResultBlockType 服务端联网搜索的**结果**块（Anthropic 的
+	// `web_search_tool_result`）。原来没认它，于是客户端完全看不到"搜到了什么"——
+	// 实测客户端收到的流里只有 `server_tool_use`，结果块被当成普通文本丢掉了。
+	WebSearchResultBlockType BlockType = "web_search_result"
 	StopBlockType          BlockType = "stop"
 )
 
@@ -120,6 +124,8 @@ func (b *Blocks) UnmarshalJSON(data []byte) error {
 			block = &CustomTextBlock{}
 		case ServerToolUseBlockType:
 			block = &ServerToolUseBlock{}
+		case WebSearchResultBlockType:
+			block = &WebSearchResultBlock{}
 		case StopBlockType:
 			block = &StopBlock{}
 		default:
@@ -176,6 +182,40 @@ func NewCustomTextBlockWithTool(toolUseId string, text string, textType TextType
 		Text:      text,
 		TextType:  textType,
 		ToolUseId: toolUseId,
+	}
+}
+
+// WebSearchResultBlock 服务端联网搜索的结果：**只带标题**（不含链接、不含正文）。
+//
+// 为什么只留标题（2026-10-16 用户定："可以展示 title。link就不展示了，没意义"）：
+// Anthropic 的结果项长这样——
+//
+//	{"type":"web_search_result","title":"…","url":"https://…","encrypted_content":"7u1Cs9cL…"}
+//
+// `encrypted_content` 是加密串（只有服务端模型能消化，客户端解不开也没必要解），
+// `url` 在电视上既点不了也念不出来，摆出来纯属噪音。**标题是唯一对用户有意义的东西**
+// （"它到底查到了些啥"），所以这里只抽 titles + 条数，连轮数上限错误也一并记下来。
+type WebSearchResultBlock struct {
+	BaseBlock
+	ToolUseID string   `json:"tool_use_id,omitempty"`
+	Titles    []string `json:"titles,omitempty"`
+	// ErrorCode 非空表示这一轮搜索没成（如 max_uses_exceeded = 超出 max_uses 上限）
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+func (b *WebSearchResultBlock) ForContext() bool { return false }
+func (b *WebSearchResultBlock) GetType() BlockType { return WebSearchResultBlockType }
+
+// ParseStream 这个块不经 delta 流（结果是一次性给全的），实现它只是为了满足
+// UseDeltaBlock 接口——BlockStart 那条路要它。
+func (b *WebSearchResultBlock) ParseStream(stream *jsonx.Stream) {}
+
+func NewWebSearchResultBlock(toolUseID string, titles []string, errorCode string) *WebSearchResultBlock {
+	return &WebSearchResultBlock{
+		BaseBlock: BaseBlock{Type: WebSearchResultBlockType},
+		ToolUseID: toolUseID,
+		Titles:    titles,
+		ErrorCode: errorCode,
 	}
 }
 

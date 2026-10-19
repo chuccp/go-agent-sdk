@@ -356,6 +356,13 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp chat.Bl
 				// Anthropic 内置工具（如 web_search）的服务器端调用，
 				// input_json_delta 由 assembler 缓冲，flush 时 ParseStream 组装为结构化 JSON。
 				resp.BlockServerToolUseStart(raw.ContentBlock.ID, raw.ContentBlock.Name)
+			case "web_search_tool_result":
+				// **联网搜索的结果块**（2026-10-16 加）：原来落到 default 分支被当成文本丢掉，
+				// 客户端因此完全看不到"搜到了什么"。这里只抽标题——链接在电视上没意义，
+				// encrypted_content 是加密串（只有服务端模型能消化）。见 WebSearchResultBlock 的注释。
+				titles, errCode := parseWebSearchTitles(raw.ContentBlock)
+				resp.BlockStart(chat.NewWebSearchResultBlock(raw.ContentBlock.ToolUseID, titles, errCode))
+				resp.BlockStop()
 			default:
 				resp.BlockTextStart()
 			}
@@ -399,4 +406,39 @@ func (s *Service) parseSSE(ctx context.Context, body io.ReadCloser, resp chat.Bl
 		return fmt.Errorf("%w（首行：%q）", chat.ErrInvalidStream, snippet)
 	}
 	return nil
+}
+
+// parseWebSearchTitles 从 `web_search_tool_result` 块的 content 里抽出标题列表。
+//
+// 结果项的两种形状（实测）：
+//
+//	{"type":"web_search_result","title":"…","url":"…","encrypted_content":"…"}
+//	{"type":"web_search_tool_result_error","error_code":"max_uses_exceeded"}
+//
+// 只取 title；错误码单独带出去（超 max_uses 时客户端能看出"是没搜到还是不让搜了"）。
+func parseWebSearchTitles(block *sseContentBlock) ([]string, string) {
+	if block == nil || len(block.Content) == 0 {
+		return nil, ""
+	}
+	var items []struct {
+		Type      string `json:"type"`
+		Title     string `json:"title"`
+		ErrorCode string `json:"error_code"`
+	}
+	if err := json.Unmarshal(block.Content, &items); err != nil {
+		return nil, ""
+	}
+	var titles []string
+	errCode := ""
+	for _, it := range items {
+		switch it.Type {
+		case "web_search_result":
+			if t := strings.TrimSpace(it.Title); t != "" {
+				titles = append(titles, t)
+			}
+		case "web_search_tool_result_error":
+			errCode = it.ErrorCode
+		}
+	}
+	return titles, errCode
 }
